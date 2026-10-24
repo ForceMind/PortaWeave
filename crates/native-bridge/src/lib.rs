@@ -105,12 +105,7 @@ fn next_token() -> FResult<u64> {
     let mut current = NEXT.load(Ordering::Relaxed);
     loop {
         let next = current.checked_add(1).ok_or_else(Fault::resource)?;
-        match NEXT.compare_exchange_weak(
-            current,
-            next,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        ) {
+        match NEXT.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
             Ok(previous) => return Ok(previous),
             Err(observed) => current = observed,
         }
