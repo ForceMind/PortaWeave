@@ -46,6 +46,8 @@ fn persistent_roundtrip_and_stable_identity() {
     drop(volume);
     let mut reopened = Volume::open(&scratch.0).unwrap();
     assert_eq!(reopened.lookup(ROOT, "项目.txt").unwrap(), id);
+    assert_eq!(reopened.stat(id).unwrap().kind, Kind::File);
+    assert_eq!(reopened.stat(ROOT).unwrap().kind, Kind::Directory);
     let h = reopened.open_file(id).unwrap();
     assert_eq!(reopened.read(h, 0, 100).unwrap(), b"persistent bytes");
     reopened.close_file(h).unwrap();
