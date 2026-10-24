@@ -7,7 +7,7 @@ type SchemaEntry = (String, String, String, Option<String>);
 
 fn entries(db: &Connection) -> Result<Vec<SchemaEntry>> {
     let (count, bytes): (i64, i64) = db.query_row(
-        "SELECT COUNT(*),COALESCE(SUM(length(CAST(sql AS BLOB))),0) FROM sqlite_schema",
+        "SELECT COUNT(*),COALESCE(SUM(COALESCE(length(CAST(sql AS BLOB)),0)+length(CAST(type AS BLOB))+length(CAST(name AS BLOB))+length(CAST(tbl_name AS BLOB))),0) FROM sqlite_schema",
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;

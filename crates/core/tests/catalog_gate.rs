@@ -89,9 +89,11 @@ fn unexpected_schema_is_rejected_before_orphan_collection_or_trigger_execution()
             .unwrap();
         assert_eq!(count, 2);
         let linked: i64 = db
-            .query_row("SELECT COUNT(*) FROM entries WHERE object=?1", [keep], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM entries WHERE object=?1",
+                [keep],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(linked, 1);
         drop(db);

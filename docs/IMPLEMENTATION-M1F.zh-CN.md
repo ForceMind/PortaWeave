@@ -6,7 +6,7 @@
 
 ## 实现
 
-新增共享 catalog schema gate。使用锁定的同一 SQLite 引擎在独立内存数据库加载版本控制内的 `schema.sql`，比较完整 sqlite_schema 的 type/name/tbl_name/SQL；忽略页号和实际数据，不执行输入 schema 提供的 SQL。增加 Rust 字符串复制前的条目数和 SQL 字节准入上限。未知结构返回 UnsupportedFormat，不自动修表、删未知结构或升级原件。当前为严格的实验格式匹配，不保证接受人工重建的等价 SQL 或 ANALYZE 新增表。
+新增共享 catalog schema gate。使用锁定的同一 SQLite 引擎在独立内存数据库加载版本控制内的 `schema.sql`，比较完整 sqlite_schema 的 type/name/tbl_name/SQL；忽略页号和实际数据，不执行输入 schema 提供的 SQL。增加 Rust 字符串复制前的条目数和全部 schema 字段字节准入上限。未知结构返回 UnsupportedFormat，不自动修表、删未知结构或升级原件。当前为严格的实验格式匹配，不保证接受人工重建的等价 SQL 或 ANALYZE 新增表。
 
 普通打开在读取 config 表、配置 WAL 和执行自动回收之前验证；恢复工具在其独立工作 catalog 内使用同一门禁。原件保全仍必须使用 Recovery；普通 open 仍是可写恢复 API，SQLite 自己可能恢复 WAL，不能把被拒绝的 open 宣称为原件字节完全不变的只读诊断。
 
