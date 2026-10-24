@@ -7,6 +7,7 @@
 #include <winfsp/winfsp.h>
 #include "portaweave_native.h"
 #include <stdio.h>
+#include <limits.h>
 #include <string.h>
 
 typedef struct PW_PROBE_VOLUME {
@@ -102,7 +103,7 @@ static NTSTATUS PwRead(
         volume->volume, file->file, offset, (uint8_t *)buffer, length, &done));
     if (!NT_SUCCESS(status))
         return status;
-    if (done > MAXULONG)
+    if (done > ULONG_MAX)
         return STATUS_INVALID_PARAMETER;
     *transferred = (ULONG)done;
     return STATUS_SUCCESS;
@@ -126,15 +127,15 @@ static NTSTATUS PwFlush(
     (void)info;
     return STATUS_NOT_SUPPORTED;
 }
-static VOID PwInterfaceInit(FSP_FILE_SYSTEM_INTERFACE *interface)
+static VOID PwInterfaceInit(FSP_FILE_SYSTEM_INTERFACE *callbacks)
 {
-    ZeroMemory(interface, sizeof(*interface));
-    interface->GetVolumeInfo = PwGetVolumeInfo;
-    interface->GetSecurityByName = PwGetSecurityByName;
-    interface->Open = PwOpen;
-    interface->Read = PwRead;
-    interface->Close = PwClose;
-    interface->Flush = PwFlush;
+    ZeroMemory(callbacks, sizeof(*callbacks));
+    callbacks->GetVolumeInfo = PwGetVolumeInfo;
+    callbacks->GetSecurityByName = PwGetSecurityByName;
+    callbacks->Open = PwOpen;
+    callbacks->Read = PwRead;
+    callbacks->Close = PwClose;
+    callbacks->Flush = PwFlush;
     /* Create, Write, Rename, Directory, ACL, mmap etc. remain unset. */
 }
 #define REQUIRE(condition) do { if (!(condition)) { \
@@ -143,7 +144,7 @@ static VOID PwInterfaceInit(FSP_FILE_SYSTEM_INTERFACE *interface)
 } } while (0)
 int main(int argc, char **argv)
 {
-    FSP_FILE_SYSTEM_INTERFACE interface;
+    FSP_FILE_SYSTEM_INTERFACE callbacks;
     FSP_FILE_SYSTEM fs = {0};
     FSP_FSCTL_VOLUME_INFO info = {0};
     FSP_FSCTL_FILE_INFO fileInfo = {0};
@@ -160,27 +161,27 @@ int main(int argc, char **argv)
         (const uint8_t *)argv[1], strlen(argv[1]), 65536, &volume));
     context.volume = volume;
     fs.UserContext = &context;
-    PwInterfaceInit(&interface);
-    REQUIRE(interface.GetVolumeInfo == PwGetVolumeInfo);
-    REQUIRE(interface.Open == PwOpen);
-    REQUIRE(interface.Flush == PwFlush);
-    REQUIRE(interface.Write == NULL);
-    REQUIRE(STATUS_SUCCESS == interface.GetVolumeInfo(&fs, &info));
+    PwInterfaceInit(&callbacks);
+    REQUIRE(callbacks.GetVolumeInfo == PwGetVolumeInfo);
+    REQUIRE(callbacks.Open == PwOpen);
+    REQUIRE(callbacks.Flush == PwFlush);
+    REQUIRE(callbacks.Write == NULL);
+    REQUIRE(STATUS_SUCCESS == callbacks.GetVolumeInfo(&fs, &info));
     REQUIRE(info.TotalSize == 65536 && info.FreeSize <= info.TotalSize);
-    REQUIRE(STATUS_ACCESS_DENIED == interface.GetSecurityByName(
+    REQUIRE(STATUS_ACCESS_DENIED == callbacks.GetSecurityByName(
         &fs, L"\\", NULL, NULL, NULL));
-    REQUIRE(STATUS_ACCESS_DENIED == interface.Open(
+    REQUIRE(STATUS_ACCESS_DENIED == callbacks.Open(
         &fs, L"\\", 0, 0, NULL, &fileInfo));
-    REQUIRE(STATUS_NOT_SUPPORTED == interface.Flush(&fs, NULL, NULL));
+    REQUIRE(STATUS_NOT_SUPPORTED == callbacks.Flush(&fs, NULL, NULL));
     REQUIRE(PW_OK == pw_file_create(volume, 1, (const uint8_t *)"probe.txt", 9, &node));
     REQUIRE(PW_OK == pw_file_open(volume, node, &file.file));
     REQUIRE(PW_OK == pw_file_write(
         volume, file.file, 0, (const uint8_t *)"payload", 7, &count));
     REQUIRE(count == 7);
-    REQUIRE(STATUS_SUCCESS == interface.Read(
+    REQUIRE(STATUS_SUCCESS == callbacks.Read(
         &fs, &file, output, 0, sizeof(output), &resultCount));
     REQUIRE(resultCount == 7 && 0 == memcmp(output, "payload", 7));
-    interface.Close(&fs, &file);
+    callbacks.Close(&fs, &file);
     REQUIRE(PW_OK == pw_volume_close(volume));
     puts("WINFSP_CALLBACK_CONTRACT_OK (no mount, no driver)");
     return 0;

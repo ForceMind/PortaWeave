@@ -329,16 +329,14 @@ impl Volume {
     /// A conservative capacity snapshot, not allocated/reserved disk space.
     pub fn capacity(&self) -> Result<CapacitySnapshot> {
         self.observe((|| {
-            let quota: i64 = self.db.query_row(
-                "SELECT quota FROM config WHERE id=1",
-                [],
-                |r| r.get(0),
-            )?;
-            let used: i64 = self.db.query_row(
-                "SELECT COALESCE(SUM(size),0) FROM objects",
-                [],
-                |r| r.get(0),
-            )?;
+            let quota: i64 = self
+                .db
+                .query_row("SELECT quota FROM config WHERE id=1", [], |r| r.get(0))?;
+            let used: i64 =
+                self.db
+                    .query_row("SELECT COALESCE(SUM(size),0) FROM objects", [], |r| {
+                        r.get(0)
+                    })?;
             if quota < 0 || used < 0 || used > quota {
                 return Err(Error::Corrupt("invalid quota or used bytes".into()));
             }
