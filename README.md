@@ -39,6 +39,10 @@ The repository now contains a real Xcode host App and embedded FSKit Extension t
 
 Normal open and original-preserving recovery now share an experimental schema check. Unexpected tables, columns, indexes, views and triggers are rejected before automatic reclamation; LF/CRLF source checkout differences are normalized. This is not a complete hostile SQLite parser or a read-only ordinary open. See [scope and regression evidence](docs/IMPLEMENTATION-M1F.zh-CN.md).
 
+## FSKit FSVolume callbacks (laboratory)
+
+A real FSVolume subclass now bridges namespace, handles, write/truncate, links, synchronization and resumable enumeration to the shared core on a per-volume serial queue. Direct SDK contract tests are distinct from an OS mount. Missing metadata/permissions are explicitly rejected; unary load, activation and mount remain closed. See [M0-K scope](docs/IMPLEMENTATION-M0K.zh-CN.md).
+
 ## Backend storage synchronization
 
 `pw_storage_synchronize` / `Volume::synchronize_storage` performs an explicit Unix host-file, catalog/WAL and container-directory barrier. It preserves live handles and leases; busy/error results are visible. Windows returns unsupported. Native cache drain, stronger device flush and safe eject remain separate gates. See [M1-G](docs/IMPLEMENTATION-M1G.zh-CN.md) and [ADR 0004](docs/adr/0004-backend-storage-barrier.md).

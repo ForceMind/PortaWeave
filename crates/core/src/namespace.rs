@@ -14,9 +14,43 @@ impl Volume {
             .map(FileId))
     }
     pub fn lookup(&self, parent: FileId, name: &str) -> Result<FileId> {
+        Ok(self.lookup_entry(parent, name)?.id)
+    }
+    /// Return the stored spelling without reimplementing name comparison in
+    /// native adapters. Hard-linked aliases may share an ID but not a name.
+    pub fn lookup_entry(&self, parent: FileId, name: &str) -> Result<Entry> {
         self.observe((|| {
             self.directory(parent)?;
-            self.lookup_key(parent, &names::key(name)?)?
+            self.db
+                .query_row(
+                    "SELECT display_name,object FROM entries WHERE parent=?1 AND name_key=?2",
+                    params![parent.0, names::key(name)?],
+                    |row| {
+                        Ok(Entry {
+                            name: row.get(0)?,
+                            id: FileId(row.get(1)?),
+                        })
+                    },
+                )
+                .optional()?
+                .ok_or(Error::NotFound)
+        })())
+    }
+    /// A directory's logical parent, bounded at this volume's own root.
+    pub fn parent_directory(&self, directory: FileId) -> Result<FileId> {
+        self.observe((|| {
+            self.directory(directory)?;
+            if directory == ROOT {
+                return Ok(ROOT);
+            }
+            self.db
+                .query_row(
+                    "SELECT parent FROM entries WHERE object=?1",
+                    [directory.0],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .map(FileId)
                 .ok_or(Error::NotFound)
         })())
     }

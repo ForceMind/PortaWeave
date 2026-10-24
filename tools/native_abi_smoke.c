@@ -58,6 +58,20 @@ int main(int argc, char **argv) {
     REQUIRE(pw_volume_open((const uint8_t *)path, strlen(path), &volume));
     REQUIRE(pw_lookup(volume, 1, (const uint8_t *)"renamed.txt", 11, &found));
     if (node != found) return 7;
+    REQUIRE(pw_lookup_entry(volume, 1, (const uint8_t *)"RENAMED.TXT", 11,
+                           buffer, sizeof(buffer), &count, &found));
+    if (count != 11 || memcmp(buffer, "renamed.txt", 11) != 0 || node != found) return 16;
+    int64_t parent = 0;
+    REQUIRE(pw_parent_directory(volume, 1, &parent));
+    if (parent != 1) return 17;
+    uint64_t cursor = 0;
+    REQUIRE(pw_dir_begin(volume, 1, &cursor));
+    REQUIRE(pw_dir_seek(volume, cursor, 1));
+    if (pw_dir_next(volume, cursor, buffer, sizeof(buffer), &count, &found) != PW_END) return 18;
+    REQUIRE(pw_dir_seek(volume, cursor, 0));
+    REQUIRE(pw_dir_next(volume, cursor, buffer, sizeof(buffer), &count, &found));
+    if (count != 11 || memcmp(buffer, "renamed.txt", 11) != 0) return 19;
+    REQUIRE(pw_dir_close(volume, cursor));
     PwStat stat = {0};
     REQUIRE(pw_stat(volume, found, &stat));
     if (stat.kind != 0 || stat.size != 5 || stat.links != 1) return 8;

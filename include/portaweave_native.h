@@ -52,6 +52,11 @@ int32_t pw_volume_open(const uint8_t *path, size_t path_len, uint64_t *out_volum
 int32_t pw_volume_close(uint64_t volume);
 int32_t pw_stat(uint64_t volume, int64_t object, PwStat *out_stat);
 int32_t pw_lookup(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, int64_t *out_object);
+/* Stored spelling for this alias; on BUFFER_TOO_SMALL only out_name_len changes. */
+int32_t pw_lookup_entry(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len,
+                       uint8_t *name_buffer, size_t capacity, size_t *out_name_len, int64_t *out_object);
+/* Logical directory parent; root returns itself, never a backing-host parent. */
+int32_t pw_parent_directory(uint64_t volume, int64_t object, int64_t *out_parent);
 int32_t pw_file_create(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, int64_t *out_object);
 int32_t pw_directory_create(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, int64_t *out_object);
 int32_t pw_file_open(uint64_t volume, int64_t object, uint64_t *out_file);
@@ -75,6 +80,8 @@ int32_t pw_hard_link(uint64_t volume, int64_t object, int64_t parent, const uint
 int32_t pw_dir_begin(uint64_t volume, int64_t parent, uint64_t *out_cursor);
 int32_t pw_dir_next(uint64_t volume, uint64_t cursor, uint8_t *name_buf, size_t capacity, size_t *out_name_len, int64_t *out_object);
 int32_t pw_dir_close(uint64_t volume, uint64_t cursor);
+/* Same snapshot, inclusive end position; invalid positions leave it unchanged. */
+int32_t pw_dir_seek(uint64_t volume, uint64_t cursor, uint64_t position);
 int32_t pw_health(uint64_t volume, uint32_t *out_maintenance, uint32_t *out_protected);
 int32_t pw_volume_space(uint64_t volume, PwSpace *out_space);
 /* Catalog FULL WAL checkpoint only. Never treat as filesystem fsync. */

@@ -329,6 +329,68 @@ pub unsafe extern "C" fn pw_lookup(
         })
     })
 }
+/// # Safety
+/// name is readable UTF-8; outputs are writable and non-aliasing. On a small
+/// buffer only out_name_len changes. No NUL terminator is written.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_lookup_entry(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    name_buffer: *mut u8,
+    capacity: usize,
+    out_name_len: *mut usize,
+    out_object: *mut i64,
+) -> i32 {
+    run(|| {
+        required(out_name_len)?;
+        required(out_object)?;
+        readable(name_buffer, capacity)?;
+        let name = unsafe { text(name, name_len)? };
+        with_session(volume, |s| {
+            let entry = s
+                .volume
+                .lookup_entry(file_id(parent)?, name)
+                .map_err(Fault::from)?;
+            let bytes = entry.name.as_bytes();
+            if bytes.len() > capacity {
+                unsafe {
+                    out_name_len.write(bytes.len());
+                }
+                return Ok(BUFFER_TOO_SMALL);
+            }
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), name_buffer, bytes.len());
+                out_name_len.write(bytes.len());
+                out_object.write(entry.id.raw());
+            }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// out_parent points to writable i64 storage.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_parent_directory(
+    volume: u64,
+    object: i64,
+    out_parent: *mut i64,
+) -> i32 {
+    run(|| {
+        required(out_parent)?;
+        with_session(volume, |s| {
+            let parent = s
+                .volume
+                .parent_directory(file_id(object)?)
+                .map_err(Fault::from)?;
+            unsafe {
+                out_parent.write(parent.raw());
+            }
+            Ok(OK)
+        })
+    })
+}
 fn create_node(
     volume: u64,
     parent: i64,
@@ -727,6 +789,22 @@ pub extern "C" fn pw_dir_close(volume: u64, cursor: u64) -> i32 {
     run(|| {
         with_session(volume, |s| {
             s.dirs.remove(&cursor).ok_or_else(Fault::invalid)?;
+            Ok(OK)
+        })
+    })
+}
+/// Seek inside the SAME bounded directory snapshot. Invalid positions do not
+/// advance it. The caller must invalidate native OS verifiers on mutations.
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_dir_seek(volume: u64, cursor: u64, position: u64) -> i32 {
+    run(|| {
+        let position = usize::try_from(position).map_err(|_| Fault::invalid())?;
+        with_session(volume, |s| {
+            let cursor = s.dirs.get_mut(&cursor).ok_or_else(Fault::invalid)?;
+            if position > cursor.entries.len() {
+                return Err(Fault::invalid());
+            }
+            cursor.position = position;
             Ok(OK)
         })
     })
