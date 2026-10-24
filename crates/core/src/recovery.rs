@@ -100,7 +100,9 @@ fn new_path(path: &Path) -> Result<PathBuf> {
 }
 fn copy_file(source: &Path, target: &Path, remaining: &mut u64) -> Result<(u64, String)> {
     segment::regular(source)?;
-    let mut input = File::open(source)?;
+    copy_open_file(&File::open(source)?, target, remaining)
+}
+fn copy_open_file(mut input: &File, target: &Path, remaining: &mut u64) -> Result<(u64, String)> {
     let expected = input.metadata()?.len();
     bounded(expected, *remaining)?;
     let mut output = File::create_new(target)?;
@@ -181,8 +183,14 @@ impl Recovery {
                 count = count.checked_add(1).ok_or(Error::RecoveryLimit)?;
                 bounded(count, limits.catalog_rows)?;
                 // Unknown regular files are preserved; links/devices/nested trees are refused.
-                let (bytes, hash) =
-                    copy_file(&entry.path(), &evidence.join(&relative), &mut remaining)?;
+                let target = evidence.join(&relative);
+                let (bytes, hash) = if relative == Path::new("session.lock") {
+                    // Windows rejects reading a locked range through a second handle.
+                    // Keep the lock and copy through the exact handle which owns it.
+                    copy_open_file(owner.file(), &target, &mut remaining)?
+                } else {
+                    copy_file(&entry.path(), &target, &mut remaining)?
+                };
                 writeln!(manifest, "{hash} {bytes} {relative:?}")?;
             }
         }
