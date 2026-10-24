@@ -1,0 +1,28 @@
+name: Temporary FSKit SDK contract inventory (no mount)
+on:
+  push:
+    branches: [codex/m0k-fskit-bridge]
+permissions:
+  contents: read
+jobs:
+  sdk-contract:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect public SDK declarations without installation or activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          export PW_SDK_ROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          python3 - <<'PY'
+          import os,pathlib,re
+          root=pathlib.Path(os.environ['PW_SDK_ROOT'])/'System/Library/Frameworks/FSKit.framework/Headers'
+          for path in sorted(root.glob('*.h')):
+              if any(word in path.name for word in ['Volume','Item','FileName','FileData','Directory','Types','Resource','Task']):
+                  print('PW_SDK_HEADER_BEGIN '+path.name)
+                  code=re.sub(r'/\*.*?\*/','',path.read_text(),flags=re.S)
+                  code=re.sub(r'//[^\n]*','',code)
+                  print('\n'.join(line for line in code.splitlines() if line.strip()))
+                  print('PW_SDK_HEADER_END '+path.name)
+          PY
