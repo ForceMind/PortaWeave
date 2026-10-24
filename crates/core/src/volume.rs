@@ -1,12 +1,13 @@
 use crate::{
     BLOCK_SIZE, Error, FORMAT, MAX_IO, Result,
+    owner::OwnerLock,
     segment::{self, BlockRef},
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File, TryLockError},
+    fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -87,7 +88,7 @@ pub struct Volume {
     fault: Option<FaultPoint>,
     #[cfg(feature = "fault-injection")]
     exit_on_fault: bool,
-    _owner: File,
+    _owner: OwnerLock,
 }
 
 impl Volume {
@@ -101,7 +102,7 @@ impl Volume {
         fs::create_dir(path.as_ref())?;
         let root = fs::canonicalize(path)?;
         let owner = File::create_new(root.join("session.lock"))?;
-        Self::lock(&owner)?;
+        let owner = OwnerLock::acquire(owner)?;
         fs::create_dir(root.join("segments"))?;
         drop(File::create_new(root.join("catalog.sqlite"))?);
         let mut db = Connection::open_with_flags(
@@ -155,7 +156,7 @@ impl Volume {
             .read(true)
             .write(true)
             .open(root.join("session.lock"))?;
-        Self::lock(&owner)?;
+        let owner = OwnerLock::acquire(owner)?;
         let db = Connection::open_with_flags(
             root.join("catalog.sqlite"),
             OpenFlags::SQLITE_OPEN_READ_WRITE,
@@ -184,13 +185,6 @@ impl Volume {
         }
         Ok(())
     }
-    fn lock(file: &File) -> Result<()> {
-        match file.try_lock() {
-            Ok(()) => Ok(()),
-            Err(TryLockError::WouldBlock) => Err(Error::Busy),
-            Err(TryLockError::Error(e)) => Err(e.into()),
-        }
-    }
     fn configure(db: &Connection) -> Result<()> {
         db.busy_timeout(std::time::Duration::ZERO)?;
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA fullfsync=ON; PRAGMA checkpoint_fullfsync=ON;")?;
@@ -200,7 +194,7 @@ impl Volume {
         }
         Ok(())
     }
-    fn assemble(root: PathBuf, db: Connection, owner: File) -> Self {
+    fn assemble(root: PathBuf, db: Connection, owner: OwnerLock) -> Self {
         Self {
             db,
             root,

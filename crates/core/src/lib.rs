@@ -8,6 +8,7 @@
 mod error;
 mod names;
 mod namespace;
+mod owner;
 mod segment;
 mod volume;
 

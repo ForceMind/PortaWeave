@@ -27,11 +27,19 @@ impl Drop for OwnerLock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     fn fixture(label: &str) -> (PathBuf, File) {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let path = std::env::temp_dir().join(format!("pw-owner-{label}-{}-{now}", std::process::id()));
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("pw-owner-{label}-{}-{now}", std::process::id()));
         let file = File::create_new(&path).unwrap();
         (path, file)
     }
@@ -57,7 +65,9 @@ mod tests {
         let inherited = owner.0.try_clone().unwrap();
         drop(owner);
         let other = File::options().read(true).write(true).open(&path).unwrap();
-        other.try_lock().expect("a stale duplicate must not retain ownership");
+        other
+            .try_lock()
+            .expect("a stale duplicate must not retain ownership");
         other.unlock().unwrap();
         drop(other);
         drop(inherited);
