@@ -43,6 +43,8 @@ Normal open and original-preserving recovery now share an experimental schema ch
 
 A real FSVolume subclass now bridges namespace, handles, write/truncate, links, synchronization and resumable enumeration to the shared core on a per-volume serial queue. Direct SDK contract tests are distinct from an OS mount. Missing metadata/permissions are explicitly rejected; unary load, activation and mount remain closed. See [M0-K scope](docs/IMPLEMENTATION-M0K.zh-CN.md).
 
+M0-L bridges v2 persistent UUID and stored owner/mode/timestamps into FSVolume identity, attribute reads and directory enumeration. v1 still rejects missing metadata; setters and effective permission gates remain closed. See [M0-L](docs/IMPLEMENTATION-M0L.zh-CN.md) for exact scope and SDK tests.
+
 ## Backend storage synchronization
 
 `pw_storage_synchronize` / `Volume::synchronize_storage` performs an explicit Unix host-file, catalog/WAL and container-directory barrier. It preserves live handles and leases; busy/error results are visible. Windows returns unsupported. Native cache drain, stronger device flush and safe eject remain separate gates. See [M1-G](docs/IMPLEMENTATION-M1G.zh-CN.md) and [ADR 0004](docs/adr/0004-backend-storage-barrier.md).
