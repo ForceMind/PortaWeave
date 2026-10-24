@@ -1,5 +1,7 @@
 use crate::{
-    BLOCK_SIZE, Error, FORMAT, MAX_IO, Result, SpacePolicy, SpaceStatus,
+    BLOCK_SIZE, CreateAttributes, Error, MAX_IO, Result, SpacePolicy, SpaceStatus, Timestamp,
+    catalog::CatalogVersion,
+    metadata,
     owner::OwnerLock,
     segment::{self, BlockRef},
     segment_io::IoControl,
@@ -159,6 +161,7 @@ fn token() -> Result<u64> {
 pub struct Volume {
     // Drop the connection before the owner lock.
     pub(crate) db: Connection,
+    pub(crate) catalog_version: CatalogVersion,
     root: PathBuf,
     handles: BTreeMap<Handle, FileId>,
     views: BTreeMap<ReadView, ViewState>,
@@ -179,11 +182,35 @@ impl Volume {
     /// Creates a NEW experimental container. Never opens or replaces an existing
     /// directory. An interrupted initialization is preserved for inspection.
     pub fn create(path: impl AsRef<Path>, quota: u64) -> Result<Self> {
+        Self::create_internal(path.as_ref(), quota, None)
+    }
+
+    /// Explicit v2 creation. Does NOT migrate or open an existing v1 container.
+    /// Root ownership/mode must come from the authorized caller, not this host.
+    pub fn create_with_metadata(
+        path: impl AsRef<Path>,
+        quota: u64,
+        root_attributes: CreateAttributes,
+    ) -> Result<Self> {
+        root_attributes.validate()?;
+        Self::create_internal(path.as_ref(), quota, Some(root_attributes))
+    }
+
+    fn create_internal(
+        path: &Path,
+        quota: u64,
+        root_attributes: Option<CreateAttributes>,
+    ) -> Result<Self> {
         if quota > i64::MAX as u64 {
             return Err(Error::InvalidRange);
         }
         Self::sqlite_version_gate()?;
-        fs::create_dir(path.as_ref())?;
+        let version = if root_attributes.is_some() {
+            CatalogVersion::MetadataV2
+        } else {
+            CatalogVersion::BlocksV1
+        };
+        fs::create_dir(path)?;
         let root = fs::canonicalize(path)?;
         let owner = File::create_new(root.join("session.lock"))?;
         let owner = OwnerLock::acquire(owner)?;
@@ -196,17 +223,20 @@ impl Volume {
         db.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
         Self::configure(&db)?;
         let tx = db.transaction()?;
-        tx.execute_batch(include_str!("schema.sql"))?;
+        tx.execute_batch(version.schema())?;
         tx.execute(
             "INSERT INTO config VALUES (1, ?1, ?2)",
-            params![quota as i64, FORMAT],
+            params![quota as i64, version.marker()],
         )?;
+        if let Some(attributes) = root_attributes {
+            metadata::initialize(&tx, attributes)?;
+        }
         tx.commit()?;
         let mut marker = File::create_new(root.join("format.txt"))?;
-        marker.write_all(FORMAT.as_bytes())?;
+        marker.write_all(version.marker().as_bytes())?;
         marker.sync_all()?;
         segment::sync_directory(&root)?;
-        Ok(Self::assemble(root, db, owner))
+        Ok(Self::assemble(root, db, owner, version))
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
@@ -219,13 +249,13 @@ impl Volume {
             segment::regular(&root.join(name))?;
         }
         if fs::metadata(root.join("format.txt"))?.len() > 128
-            || fs::read(root.join("format.txt"))? != FORMAT.as_bytes()
             || !fs::symlink_metadata(root.join("segments"))?
                 .file_type()
                 .is_dir()
         {
             return Err(Error::UnsupportedFormat);
         }
+        let version = CatalogVersion::from_marker(&fs::read(root.join("format.txt"))?)?;
         for name in ["catalog.sqlite-wal", "catalog.sqlite-shm"] {
             match fs::symlink_metadata(root.join(name)) {
                 Ok(m) if !m.file_type().is_file() => {
@@ -245,20 +275,17 @@ impl Volume {
             root.join("catalog.sqlite"),
             OpenFlags::SQLITE_OPEN_READ_WRITE,
         )?;
-        let app: i64 = db.query_row("PRAGMA application_id", [], |r| r.get(0))?;
-        let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if app != 1347898693 || version != 1 {
+        db.execute_batch("PRAGMA trusted_schema=OFF;")?;
+        if crate::catalog::validate_schema(&db)? != version {
             return Err(Error::UnsupportedFormat);
         }
-        db.execute_batch("PRAGMA trusted_schema=OFF;")?;
-        crate::catalog::validate_schema(&db)?;
         let format: String =
             db.query_row("SELECT format FROM config WHERE id=1", [], |r| r.get(0))?;
-        if format != FORMAT {
+        if format != version.marker() {
             return Err(Error::UnsupportedFormat);
         }
         Self::configure(&db)?;
-        let mut volume = Self::assemble(root, db, owner);
+        let mut volume = Self::assemble(root, db, owner, version);
         // Validate all CURRENT references before any destructive reclamation.
         volume.verify()?;
         volume.mutate(|_| Ok(()))?;
@@ -280,9 +307,15 @@ impl Volume {
         }
         Ok(())
     }
-    fn assemble(root: PathBuf, db: Connection, owner: OwnerLock) -> Self {
+    fn assemble(
+        root: PathBuf,
+        db: Connection,
+        owner: OwnerLock,
+        catalog_version: CatalogVersion,
+    ) -> Self {
         Self {
             db,
+            catalog_version,
             root,
             handles: BTreeMap::new(),
             views: BTreeMap::new(),
@@ -804,6 +837,7 @@ impl Volume {
             }
             let refs = this.stage(&changed)?;
             this.hit(0)?;
+            let time = Timestamp::now()?;
             let before = this.take_fault(1);
             let tx = this.db.transaction()?;
             Self::bind(&tx, id, &refs)?;
@@ -811,6 +845,7 @@ impl Volume {
                 "UPDATE objects SET size=?1,generation=generation+1 WHERE id=?2",
                 params![new as i64, id.0],
             )?;
+            metadata::touch(&tx, this.catalog_version, id, time, true, true)?;
             Self::interrupt(before)?;
             tx.commit()?;
             Ok(data.len())
@@ -832,6 +867,7 @@ impl Volume {
                 }
             }
             let before = this.take_fault(1);
+            let time = Timestamp::now()?;
             let tx = this.db.transaction()?;
             tx.execute(
                 "DELETE FROM blocks WHERE object=?1 AND block>=?2",
@@ -842,6 +878,7 @@ impl Volume {
                 "UPDATE objects SET size=?1,generation=generation+1 WHERE id=?2",
                 params![size as i64, id.0],
             )?;
+            metadata::touch(&tx, this.catalog_version, id, time, true, true)?;
             Self::interrupt(before)?;
             tx.commit()?;
             Ok(())
@@ -966,6 +1003,7 @@ impl Volume {
             if self.db.prepare("PRAGMA foreign_key_check")?.exists([])? {
                 return Err(Error::Corrupt("foreign key violation".into()));
             }
+            metadata::verify(&self.db, self.catalog_version)?;
             if self.stat(ROOT)?.kind != Kind::Directory || self.stat(ROOT)?.links != 0 {
                 return Err(Error::Corrupt("invalid root".into()));
             }

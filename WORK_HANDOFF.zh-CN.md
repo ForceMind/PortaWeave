@@ -4,12 +4,15 @@
 
 ## 当前工程
 
-已有 M1-A～M1-F Rust 持久化核心增量、统一原生 C ABI、Windows WinFsp Dispatcher 实验源码，以及 macOS Xcode 宿主 App/ExtensionKit 工程。不是可用的系统文件卷。
+已有 M1-A～M1-G Rust 持久化核心增量、统一原生 C ABI、Windows WinFsp Dispatcher 实验源码，以及 macOS Xcode 宿主 App/ExtensionKit 和 M0-K FSVolume 回调。M1-H 增加显式 v2 卷身份与 POSIX 元数据存储。不是可用的系统文件卷。
 
 - PR #13（M1-E）已合并，主线合并 SHA `b10ccd5ca09c374b8cab6b77dbbe9c613ba6df92`：范围租约只索引区间、保存原 EOF/旧版本、预算共用、C ABI token/关闭 BUSY。
-- PR #14（M0-J 第一增量）已合并，主线合并 SHA `c6691499055586b781c93ed789f82683ffdc8fb0`：真正 App+Extension 构建和静态链接，准确源码 CI 为 `7204052b55b46c6b943445233154533e10d20264`，Xcode 26.6 / SDK 26.5。没有开发者签名、公证或启用挂载。probe/load/unload 仍 ENOTSUP，FSVolume.Operations 尚未实现。
+- PR #14（M0-J 第一增量）已合并，主线合并 SHA `c6691499055586b781c93ed789f82683ffdc8fb0`：真正 App+Extension 构建和静态链接，准确源码 CI 为 `7204052b55b46c6b943445233154533e10d20264`，Xcode 26.6 / SDK 26.5。没有开发者签名、公证或启用挂载。此阶段尚无 FSVolume.Operations，随后由 PR #17 添加；probe/load 仍关闭。
 - PR #15（M1-F）拒绝未知 catalog schema；普通打开在 config/WAL配置/GC 前验证，恢复只检查工作副本。只规范 SQL CRLF→LF，不能绕过 Windows 校验。最终准确 head/测试/合并 SHA 以 PR #15 和实时 main 为准。
 - Windows CI 新增只读运行时/驱动清单；以原始 JSON 记录是否具备已安装 WinFsp，不安装、不启动/配置服务、不创建盘符。
+- PR #16（M1-G）已合并 `8cbcfc25e3d80f640863f1cecbdb9fb86a40b5c2`，Unix 后端存储屏障、busy/错误保护和非 Unix 拒绝；不等于安全弹出或内核缓存排空。
+- PR #17（M0-K）已合并 `372c3f5a57c6078a68a0ba4d0edbb6290099d561`，准确 head `557a57e9e464c3f1ddf72889f88e56e6e1a88400` 的 17 项检查全部通过，源码/候选/合并 tree `cf3b0111bd499600be4b386faa0973b7c94524c7` 一致。实际 SDK 对象回调、C readback/枚举算法与 App/Extension 构建均有证据，但未安装/挂载。评审发现重复 listing 耗尽 cursor，修复复用和 32-entry LRU 后跑 256/80 压力测试。保留首轮 Swift Int32/Int 失败。
+- M1-H 的 v2 只能显式新建，默认 v1 不变、无自动升级。uid/gid/mode/时间/UUID 是存储基础，不是有效权限。准确 CI/head/合并状态查看对应 PR；读文档不算测试通过。
 
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 
@@ -21,9 +24,9 @@ Recovery 保全原始文件并在独立副本恢复 SQLite/WAL；普通 Volume::
 
 ## 下一阶段
 
-1. 实现 FSKit FSVolume 生命周期、目录/文件操作和 security-scoped resource 的持有/释放；先补必要的时间/权限/执行位/链接/xattr 与真实同步。签名及系统授权需合适的已授权环境，不把类型检查或打包当真挂载。
+1. 将 v2 元数据/持久 UUID 接入 FSKit 属性，并实现 caller/目录遍历权限、security-scoped resource 持有/释放、符号链接/xattr 和真实缓存/同步。Operations 基本回调已有；load/activate/mount/access 仍关闭。签名及系统授权需合适的已授权环境，不把直接 SDK 调用或打包当真挂载。
 2. 推进 WinFsp ACL/共享/删除/缓存/同步及缺失回调；硬链接接口缺口仍 BLOCKED，需要上游或替代后端方案，不能用核心硬链接关闭。
-3. 继续核心空间预约、应急预留、SQLite VFS 故障矩阵、有界空闲维护、UUID/能力位、名称版本、迁移与完整解析器资源预算。
+3. 继续核心空间预约、应急预留、SQLite VFS 故障矩阵、有界空闲维护、名称版本、明确迁移工具与完整解析器资源预算；不得静默把 v1 升成 v2。
 4. 真挂载后完成 Git/npm/pnpm/Python/Cargo/IDE/SQLite 与实际 Codex 正常沙盒的正向和越界拒绝测试，原始 backing 目录也纳入权限边界。
 5. 再做真实 exFAT 介质往返、授权故障盘实验、安装签名/公证和稳定性发布。
 

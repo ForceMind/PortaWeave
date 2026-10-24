@@ -91,7 +91,7 @@ FSKit 的 API 文档只证明开发接口存在，不证明我们的文件系统
 
 | 层级 | 已有结果 | 尚未验证 |
 |---|---|---|
-| Rust 核心 | 范围租约、共享预算、未知 schema 门禁；准确结果见 PR #13/#15 | 完整元数据、有效权限、完整故障/解析器预算 |
+| Rust 核心 | 范围租约/共享预算、v1/v2 精确 schema 门禁、显式 v2 UUID/uid/gid/mode/时间存储；准确结果见对应 PR | 有效权限、符号链接/xattr/ACL、完整元数据、完整故障/解析器预算 |
 | macOS 接入 | App 与嵌入 FSKit ExtensionKit 的完整构建/链接检查通过（PR #14） | FSVolume 回调、签名/系统授权、实际挂载和开发工具 |
 | Windows 接入 | WinFsp Dispatcher/回调契约编译、自检及只读 runtime/driver 清单 | 系统挂载、ACL/共享/同步/缓存；硬链接接口仍 BLOCKED |
 | 开发盘验收 | 测试契约与宿主探针保留 | FS-01..14、DEV-01..10、真实 Codex 及沙盒负向测试均须在真卷重做 |

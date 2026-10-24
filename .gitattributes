@@ -1,2 +1,3 @@
 # Container schema must be reproducible across Git's host checkout defaults.
 crates/core/src/schema.sql text eol=lf
+crates/core/src/schema-v2.sql text eol=lf

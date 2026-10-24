@@ -7,6 +7,7 @@
 
 mod catalog;
 mod error;
+mod metadata;
 mod names;
 mod namespace;
 mod owner;
@@ -19,6 +20,7 @@ mod space_catalog_tests;
 mod volume;
 
 pub use error::{Error, Result};
+pub use metadata::{CreateAttributes, Metadata, MetadataUpdate, Timestamp, VolumeIdentity};
 pub use recovery::{ExportLinks, ExportReport, Recovery, RecoveryLimits, RecoveryReport};
 #[cfg(feature = "fault-injection")]
 pub use segment_io::StorageFault;
@@ -33,3 +35,5 @@ pub use volume::{
 pub const BLOCK_SIZE: usize = 64 * 1024;
 pub const MAX_IO: usize = 16 * 1024 * 1024;
 pub const FORMAT: &str = "experimental-m1a-block-v1";
+/// Explicit opt-in experimental format. Existing v1 containers are never upgraded.
+pub const METADATA_FORMAT: &str = "experimental-m1h-metadata-v2";

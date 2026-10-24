@@ -5,7 +5,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use portaweave_core::{
-    Entry, Error, FileId, Handle, Kind, MAX_IO, MaintenanceStatus, ROOT, ReadView, Volume,
+    CreateAttributes, Entry, Error, FileId, Handle, Kind, MAX_IO, MaintenanceStatus,
+    MetadataUpdate, ROOT, ReadView, Timestamp, Volume,
 };
 use std::{
     collections::BTreeMap,
@@ -194,6 +195,100 @@ pub struct PwStorageSync {
     pub wal_frames: u64,
     pub checkpointed_frames: u64,
 }
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwCreateAttributes {
+    pub uid: u32,
+    pub gid: u32,
+    pub mode: u32,
+    pub reserved: u32,
+}
+impl PwCreateAttributes {
+    fn core(self) -> FResult<CreateAttributes> {
+        if self.reserved != 0 || self.mode > 0o7777 {
+            return Err(Fault::invalid());
+        }
+        Ok(CreateAttributes {
+            uid: self.uid,
+            gid: self.gid,
+            mode: self.mode as u16,
+        })
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwTimestamp {
+    pub seconds: i64,
+    pub nanoseconds: u32,
+    pub reserved: u32,
+}
+impl From<Timestamp> for PwTimestamp {
+    fn from(t: Timestamp) -> Self {
+        Self {
+            seconds: t.seconds,
+            nanoseconds: t.nanoseconds,
+            reserved: 0,
+        }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwMetadata {
+    pub uid: u32,
+    pub gid: u32,
+    pub mode: u32,
+    pub reserved: u32,
+    pub created: PwTimestamp,
+    pub accessed: PwTimestamp,
+    pub modified: PwTimestamp,
+    pub changed: PwTimestamp,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwMetadataUpdate {
+    /// Bits 0..5: uid, gid, mode, created, accessed, modified.
+    pub valid: u64,
+    pub uid: u32,
+    pub gid: u32,
+    pub mode: u32,
+    pub reserved: u32,
+    pub created: PwTimestamp,
+    pub accessed: PwTimestamp,
+    pub modified: PwTimestamp,
+}
+impl PwMetadataUpdate {
+    fn core(self) -> FResult<MetadataUpdate> {
+        if self.valid & !63 != 0
+            || self.reserved != 0
+            || [self.created, self.accessed, self.modified]
+                .iter()
+                .any(|t| t.reserved != 0)
+            || (self.valid & 4 != 0 && self.mode > 0o7777)
+        {
+            return Err(Fault::invalid());
+        }
+        let time = |flag, t: PwTimestamp| {
+            (self.valid & flag != 0).then_some(Timestamp {
+                seconds: t.seconds,
+                nanoseconds: t.nanoseconds,
+            })
+        };
+        Ok(MetadataUpdate {
+            uid: (self.valid & 1 != 0).then_some(self.uid),
+            gid: (self.valid & 2 != 0).then_some(self.gid),
+            mode: (self.valid & 4 != 0).then_some(self.mode as u16),
+            created: time(8, self.created),
+            accessed: time(16, self.accessed),
+            modified: time(32, self.modified),
+        })
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwVolumeIdentity {
+    pub uuid: [u8; 16],
+    pub capabilities: u64,
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn pw_abi_version() -> u32 {
     1
@@ -233,6 +328,150 @@ pub unsafe extern "C" fn pw_volume_create(
             unsafe {
                 out_volume.write(token);
             }
+            Ok(OK)
+        })
+    })
+}
+
+/// Explicit opt-in v2 creation; no upgrade or OS identity inference.
+/// # Safety
+/// Path is valid UTF-8 bytes; attributes is readable; output writable/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_volume_create_with_metadata(
+    path: *const u8,
+    path_len: usize,
+    quota: u64,
+    attributes: *const PwCreateAttributes,
+    out_volume: *mut u64,
+) -> i32 {
+    run(|| {
+        required(out_volume)?;
+        readable(attributes, 1)?;
+        let path = unsafe { text(path, path_len)? };
+        let attributes = unsafe { attributes.read() }.core()?;
+        with_table(|all| {
+            if all.len() >= MAX_SESSIONS {
+                return Err(Fault::resource());
+            }
+            let token = next_token()?;
+            let volume = Volume::create_with_metadata(Path::new(path), quota, attributes)
+                .map_err(Fault::from)?;
+            all.insert(
+                token,
+                Session {
+                    volume,
+                    files: BTreeMap::new(),
+                    dirs: BTreeMap::new(),
+                    views: BTreeMap::new(),
+                },
+            );
+            unsafe { out_volume.write(token) };
+            Ok(OK)
+        })
+    })
+}
+
+/// # Safety
+/// Output points to a writable, aligned PwVolumeIdentity.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_volume_identity(
+    volume: u64,
+    out_identity: *mut PwVolumeIdentity,
+) -> i32 {
+    run(|| {
+        required(out_identity)?;
+        with_session(volume, |s| {
+            let i = s.volume.volume_identity().map_err(Fault::from)?;
+            unsafe {
+                out_identity.write(PwVolumeIdentity {
+                    uuid: i.uuid,
+                    capabilities: i.capabilities,
+                })
+            };
+            Ok(OK)
+        })
+    })
+}
+
+/// # Safety
+/// Output points to a writable, aligned PwMetadata.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_metadata_get(
+    volume: u64,
+    object: i64,
+    out_metadata: *mut PwMetadata,
+) -> i32 {
+    run(|| {
+        required(out_metadata)?;
+        with_session(volume, |s| {
+            let m = s.volume.metadata(file_id(object)?).map_err(Fault::from)?;
+            unsafe {
+                out_metadata.write(PwMetadata {
+                    uid: m.uid,
+                    gid: m.gid,
+                    mode: m.mode as u32,
+                    reserved: 0,
+                    created: m.created.into(),
+                    accessed: m.accessed.into(),
+                    modified: m.modified.into(),
+                    changed: m.changed.into(),
+                })
+            };
+            Ok(OK)
+        })
+    })
+}
+
+/// Trusted core metadata mutation. Does not authorize/authenticate OS callers.
+/// # Safety
+/// Update points to a readable, aligned PwMetadataUpdate.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_metadata_set(
+    volume: u64,
+    object: i64,
+    update: *const PwMetadataUpdate,
+) -> i32 {
+    run(|| {
+        readable(update, 1)?;
+        let update = unsafe { update.read() }.core()?;
+        with_session(volume, |s| {
+            s.volume
+                .set_metadata(file_id(object)?, update)
+                .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
+
+/// # Safety
+/// Name/attributes are readable, output writable; all pointers valid/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_node_create_with_metadata(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    directory: u8,
+    attributes: *const PwCreateAttributes,
+    out_object: *mut i64,
+) -> i32 {
+    run(|| {
+        required(out_object)?;
+        readable(attributes, 1)?;
+        if directory > 1 {
+            return Err(Fault::invalid());
+        }
+        let name = unsafe { text(name, name_len)? };
+        let a = unsafe { attributes.read() }.core()?;
+        with_session(volume, |s| {
+            let parent = file_id(parent)?;
+            let object = if directory == 1 {
+                s.volume.mkdir_with_attributes(parent, name, a)
+            } else {
+                s.volume.create_file_with_attributes(parent, name, a)
+            }
+            .map_err(Fault::from)?;
+            unsafe { out_object.write(object.raw()) };
             Ok(OK)
         })
     })

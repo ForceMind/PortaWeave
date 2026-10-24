@@ -1,7 +1,9 @@
 //! Offline diagnosis: copy evidence under the owner's lock, then let SQLite
 //! recover ONLY a separate catalog copy. Never call Volume::open or run GC.
 //! Requires a trusted, exclusively controlled source and workspace namespace.
-use crate::{BLOCK_SIZE, Error, FORMAT, Result, names, owner::OwnerLock, segment};
+use crate::{
+    BLOCK_SIZE, Error, Result, catalog::CatalogVersion, metadata, names, owner::OwnerLock, segment,
+};
 use rusqlite::{Connection, OpenFlags};
 use sha2::{Digest, Sha256};
 use std::{
@@ -72,6 +74,7 @@ struct Catalog {
 /// Dropping this object closes the catalog but intentionally preserves the workspace.
 pub struct Recovery {
     db: Connection,
+    catalog_version: CatalogVersion,
     source: PathBuf,
     workspace: PathBuf,
     evidence: PathBuf,
@@ -154,13 +157,13 @@ impl Recovery {
             segment::regular(&source.join(name))?;
         }
         if fs::metadata(source.join("format.txt"))?.len() > 128
-            || fs::read(source.join("format.txt"))? != FORMAT.as_bytes()
             || !fs::symlink_metadata(source.join("segments"))?
                 .file_type()
                 .is_dir()
         {
             return Err(Error::UnsupportedFormat);
         }
+        let catalog_version = CatalogVersion::from_marker(&fs::read(source.join("format.txt"))?)?;
         fs::create_dir(&workspace)?;
         File::create_new(workspace.join("SNAPSHOT_INCOMPLETE"))?.sync_all()?;
         let evidence = workspace.join("evidence");
@@ -227,6 +230,7 @@ impl Recovery {
         )?;
         Ok(Self {
             db,
+            catalog_version,
             source,
             workspace,
             evidence,
@@ -238,14 +242,9 @@ impl Recovery {
     }
 
     fn catalog(&self) -> Result<Catalog> {
-        let app: i64 = self
-            .db
-            .query_row("PRAGMA application_id", [], |r| r.get(0))?;
-        let version: i64 = self.db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if app != 1347898693 || version != 1 {
+        if crate::catalog::validate_schema(&self.db)? != self.catalog_version {
             return Err(Error::UnsupportedFormat);
         }
-        crate::catalog::validate_schema(&self.db)?;
         let checks = self
             .db
             .prepare("PRAGMA quick_check")?
@@ -262,11 +261,15 @@ impl Recovery {
                 .query_row("SELECT format,quota FROM config WHERE id=1", [], |r| {
                     Ok((r.get(0)?, r.get(1)?))
                 })?;
-        if format != FORMAT || quota < 0 {
+        if format != self.catalog_version.marker() || quota < 0 {
             return Err(Error::UnsupportedFormat);
         }
         let mut rows = 0_u64;
-        for table in ["objects", "entries", "blocks", "segments"] {
+        let mut tables = vec!["objects", "entries", "blocks", "segments"];
+        if self.catalog_version == CatalogVersion::MetadataV2 {
+            tables.extend(["volume_identity", "object_metadata"]);
+        }
+        for table in tables {
             let count: i64 =
                 self.db
                     .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))?;
@@ -275,6 +278,7 @@ impl Recovery {
                 .ok_or(Error::RecoveryLimit)?;
             bounded(rows, self.limits.catalog_rows)?;
         }
+        metadata::verify(&self.db, self.catalog_version)?;
         let mut objects = BTreeMap::new();
         let mut report = RecoveryReport::default();
         let mut statement = self
@@ -491,7 +495,7 @@ impl Recovery {
         let mut summary = File::create_new(target.join("report.txt"))?;
         writeln!(
             summary,
-            "PortaWeave strict content export\n{report:#?}\nlink_mode={mode:?}\nunnamed_orphans_not_exported={}\nACL, timestamps, xattrs and ADS are NOT exported.\nNot a physical-persistence guarantee.",
+            "PortaWeave strict content export\n{report:#?}\nlink_mode={mode:?}\nunnamed_orphans_not_exported={}\nPOSIX modes, uid/gid, timestamps, ACL, xattrs and ADS are NOT exported or applied to the host.\nThe evidence catalog retains supported source metadata.\nNot a physical-persistence guarantee.",
             catalog.report.orphan_files
         )?;
         summary.sync_all()?;
