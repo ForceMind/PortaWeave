@@ -10,9 +10,9 @@
 bash ci/build-macos-lab.sh
 ```
 
-脚本按当前主机构建 arm64 或 x86_64 单架构实验包，固定 Cargo.lock 和 Rust 工具链；首次下载 target/依赖需要正常网络。默认部署目标 26.0 来自 FSPathURLResource 的实际 SDK 可用性，不是产品兼容声明。首轮 Xcode 26.6 / macOS 26.5 SDK 构建 run 40106385275 因原先的 15.4 target 使用了仅 macOS 26+ 可用的 FSPathURLResource 而失败；保留该记录并将部署目标修正为 26.0，不添加运行时绕过。Apple Silicon 使用 `aarch64-apple-darwin`；Intel 使用 `x86_64-apple-darwin`。先构建原生静态库，再执行完整 `xcodebuild build`，验证宿主与嵌入扩展的实际 Mach-O、架构、bundle identity、Rust ABI 符号及动态依赖，保存日志和 JSON。已有证据目录不覆盖。
+脚本按当前主机构建 arm64 或 x86_64 单架构实验包，固定 Cargo.lock 和 Rust 工具链；首次下载 target/依赖需要正常网络。默认部署目标 26.0 来自 FSPathURLResource 的实际 SDK 可用性，不是产品兼容声明。首轮 Xcode 26.6 / macOS 26.5 SDK 构建 run 40106385275 因原先的 15.4 target 使用了仅 macOS 26+ 可用的 FSPathURLResource 而失败；保留该记录并将部署目标修正为 26.0，不添加运行时绕过。Apple Silicon 使用 `aarch64-apple-darwin`；Intel 使用 `x86_64-apple-darwin`。先构建原生静态库，再执行完整 `xcodebuild build`，验证宿主与嵌入扩展的实际 Mach-O、架构、bundle identity、Rust ABI 符号及动态依赖，保存日志和 JSON。已有证据目录不覆盖。第二轮 run 40106650467 已完成 Xcode 编译、链接和嵌入，但校验器把 otool 第一行的可执行文件路径误当成动态依赖而失败；修正为仅解析其后的 load command 行，并加入 Python 回归，仍拒绝真实的构建目录/dylib 依赖。
 
-CI 只构建 **unsigned lab bundle**，不安装、注册、启用扩展，不创建系统挂载点。`CODE_SIGNING_ALLOWED=NO` 仅用于编译与链接验证，不能把产物当作已授权安装包；产品签名、公证和系统授权仍未完成。工程保留 sandbox、hardened runtime 和 Xcode user script sandbox，未加入绕过文件权限的 entitlement。若在 Xcode 使用个人签名，应由授权开发者配置团队；本轮不访问任何用户本机或签名凭证。
+CI 只构建 **unsigned lab bundle**，不安装或启用扩展，不创建系统挂载点。最终脚本显式 REGISTER_WITH_LAUNCH_SERVICES=NO；此前 Xcode 默认在隔离 runner 对构建输出运行过 lsregister，不等于用户授权、签名或启用了 FSKit 扩展。`CODE_SIGNING_ALLOWED=NO` 仅用于编译与链接验证，不能把产物当作已授权安装包；产品签名、公证和系统授权仍未完成。工程保留 sandbox、hardened runtime 和 Xcode user script sandbox，未加入绕过文件权限的 entitlement。若在 Xcode 使用个人签名，应由授权开发者配置团队；本轮不访问任何用户本机或签名凭证。
 
 ## 尚未完成
 

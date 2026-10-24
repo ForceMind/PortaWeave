@@ -7,6 +7,18 @@ import subprocess
 import sys
 
 
+def dynamic_dependencies(output):
+    # otool prints the executable's own path as its first line; that is NOT a
+    # load command. Only inspect the indented dependency lines after it.
+    lines = output.splitlines()
+    if not lines or not lines[0].endswith(":"):
+        raise ValueError("Invalid otool dependency report")
+    libraries = [line.strip().split(" (", 1)[0] for line in lines[1:] if line.strip()]
+    if any("libportaweave_native.dylib" in lib or "/target/" in lib for lib in libraries):
+        raise ValueError("Build-tree dynamic dependency would make the bundle nonportable")
+    return libraries
+
+
 def check_bundle(app, arch):
     extension = app / "Contents/Extensions/PortaWeaveFSKit.appex"
     paths = [app, extension]
@@ -27,10 +39,10 @@ def check_bundle(app, arch):
         symbols = subprocess.check_output(["nm", "-gU", str(binary)], text=True)
         if " _pw_abi_version" not in symbols:
             raise ValueError("Shared Rust ABI is not linked into the executable")
-        dependencies = subprocess.check_output(["otool", "-L", str(binary)], text=True)
-        if "libportaweave_native.dylib" in dependencies or "/target/" in dependencies:
-            raise ValueError("Build-tree dynamic dependency would make the bundle nonportable")
-        binaries.append({"bundle": identifier, "architectures": architectures})
+        libraries = dynamic_dependencies(
+            subprocess.check_output(["otool", "-L", str(binary)], text=True)
+        )
+        binaries.append({"bundle": identifier, "architectures": architectures, "libraries": libraries})
     attrs = info["EXAppExtensionAttributes"]
     if attrs.get("EXExtensionPointIdentifier") != "com.apple.fskit.fsmodule":
         raise ValueError("Missing FSKit extension point")
