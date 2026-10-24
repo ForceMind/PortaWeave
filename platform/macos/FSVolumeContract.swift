@@ -98,6 +98,86 @@ func makeContainer(_ url: URL) throws {
 
 @main
 struct FSVolumeContract {
+    static func metadataContract(_ url: URL) throws {
+        var native: UInt64 = 0
+        var attributes = PwCreateAttributes(uid: 501, gid: 20, mode: 0o750, reserved: 0)
+        let path = Data(url.path.utf8)
+        try pwCheck(path.withUnsafeBytes {
+            pw_volume_create_with_metadata($0.bindMemory(to: UInt8.self).baseAddress,
+                                           path.count, 134_217_728, &attributes, &native)
+        })
+        var identity = PwVolumeIdentity()
+        try pwCheck(pw_volume_identity(native, &identity))
+        let expectedUUID = UUID(uuid: identity.uuid)
+        var object: Int64 = 0
+        attributes = PwCreateAttributes(uid: UInt32.max, gid: 80, mode: 0o6751, reserved: 0)
+        let name = Data("executable".utf8)
+        try pwCheck(name.withUnsafeBytes {
+            pw_node_create_with_metadata(native, pw_root_id(), $0.bindMemory(to: UInt8.self).baseAddress,
+                                         name.count, 0, &attributes, &object)
+        })
+        var update = PwMetadataUpdate()
+        update.valid = UInt64(PW_META_CREATED | PW_META_ACCESSED | PW_META_MODIFIED)
+        update.created = PwTimestamp(seconds: -123, nanoseconds: 999_999_999, reserved: 0)
+        update.accessed = update.created
+        update.modified = update.created
+        try pwCheck(pw_metadata_set(native, object, &update))
+        try pwCheck(pw_volume_close(native))
+
+        let volume = try PortaWeaveVolume(laboratoryContainerURL: url)
+        try require(volume.session.persistentIdentity == expectedUUID, "v2 UUID lost on SDK bridge")
+        try require(volume.supportedVolumeCapabilities.supportsPersistentObjectIDs, "v2 persistent IDs missing")
+        let item = try lookup(volume, "EXECUTABLE", volume.session.rootItem)
+        let request = FSItem.GetAttributesRequest()
+        request.wantedAttributes = [.uid, .gid, .mode, .birthTime, .accessTime, .modifyTime, .changeTime]
+        let result: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: item, replyHandler: $0) }
+        try require(result.uid == UInt32.max && result.gid == 80 && result.mode == 0o6751, "ownership/mode changed")
+        for time in [result.birthTime, result.accessTime, result.modifyTime] {
+            try require(time.tv_sec == -123 && time.tv_nsec == 999_999_999, "timestamp precision/sign lost")
+        }
+        try require(result.isValid(.birthTime) && result.isValid(.mode), "metadata validity missing")
+        try require(!result.isValid(.flags) && !result.isValid(.parentID), "unsupported attributes invented")
+        let denied = FSItem.GetAttributesRequest()
+        denied.wantedAttributes = [.mode, .flags]
+        try expect(.ENOTSUP) { done in volume.getAttributes(denied, of: item) { _, error in done(error) } }
+        let mutation = FSItem.SetAttributesRequest()
+        mutation.invalidateAllProperties()
+        mutation.mode = 0o600
+        mutation.size = 100
+        try expect(.ENOTSUP) { done in volume.setAttributes(mutation, on: item) { _, error in done(error) } }
+        try require(mutation.consumedAttributes.isEmpty, "refused metadata request was consumed")
+        try require(try volume.session.synchronized { try volume.session.status(item).size } == 0, "refusal truncated file")
+        try success { volume.openItem(item, modes: [.read, .write], replyHandler: $0) }
+        try write(volume, item, "code")
+        let changed: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: item, replyHandler: $0) }
+        try require(changed.mode == 0o751 && changed.modifyTime.tv_sec != -123, "write metadata not reflected")
+        try require(changed.accessTime.tv_sec == -123 && changed.accessTime.tv_nsec == 999_999_999, "atime was invented")
+        try success { done in volume.createLink(to: item, named: FSFileName(string: "alias"), inDirectory: volume.session.rootItem) { _, e in done(e) } }
+        let alias = try lookup(volume, "alias", volume.session.rootItem)
+        try require(alias === item, "v2 alias identity changed")
+        var rows = 0
+        _ = try volume.session.synchronized {
+            try volume.session.enumerate(volume.session.rootItem, cookie: 0, verifier: 0, attributes: request) {
+                _, _, _, _, attrs in
+                try require(attrs?.uid == UInt32.max && attrs?.mode == 0o751, "enumeration lost metadata")
+                rows += 1
+                return true
+            }
+        }
+        try require(rows == 2, "v2 enumeration count")
+        try expect(.EACCES) { done in volume.checkAccess(to: item, requestedAccess: .readData) { allowed, error in
+            done(allowed ? ContractFailure(message: "access gate opened") : error)
+        } }
+        try success { volume.closeItem(item, modes: [], replyHandler: $0) }
+        try success { volume.reclaimItem(item, replyHandler: $0) }
+        try success { volume.deactivate(options: [], replyHandler: $0) }
+        let reopened = try PortaWeaveVolume(laboratoryContainerURL: url)
+        try require(reopened.session.persistentIdentity == expectedUUID, "reopened UUID differs")
+        try require(reopened.volumeID.isEqual(volume.volumeID), "FSVolume persistent identifier differs")
+        try require(reopened.session.identity != volume.session.identity, "session tag incorrectly persisted")
+        try success { reopened.deactivate(options: [], replyHandler: $0) }
+        print("FSVOLUME_METADATA_CONTRACT_OK (v2 stored attributes/UUID; no OS permission or mount certification)")
+    }
     static func main() throws {
         guard CommandLine.arguments.count == 2 else { throw ContractFailure(message: "new scratch path required") }
         let url = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
@@ -107,6 +187,11 @@ struct FSVolumeContract {
         let volume = try PortaWeaveVolume(laboratoryContainerURL: url)
         let second = try PortaWeaveVolume(laboratoryContainerURL: other)
         let root = volume.session.rootItem
+        try require(volume.session.persistentIdentity == nil, "v1 persistent UUID invented")
+        try require(!volume.supportedVolumeCapabilities.supportsPersistentObjectIDs, "v1 persistent UUID advertised")
+        let unavailable = FSItem.GetAttributesRequest()
+        unavailable.wantedAttributes = [.uid, .birthTime]
+        try expect(.ENOTSUP) { done in volume.getAttributes(unavailable, of: root) { _, error in done(error) } }
         try require(try root.wireID().rawValue == 2, "root identifier collision")
 
         let file = try create(volume, "MiXeD.txt", root)
@@ -273,6 +358,7 @@ struct FSVolumeContract {
             pw_volume_open($0.bindMemory(to: UInt8.self).baseAddress, path.count, &reopened)
         })
         try pwCheck(pw_volume_close(reopened))
+        try metadataContract(url.appendingPathExtension("metadata"))
         print("FSVOLUME_CALLBACK_CONTRACT_OK (SDK callbacks/core ABI; no installation or OS mount)")
     }
 }

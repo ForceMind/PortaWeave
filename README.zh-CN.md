@@ -43,6 +43,8 @@ FSKit/WinFsp 仍为待验收候选。核心硬链接不代表 WinFsp 接口限�
 
 新增真正 FSVolume 子类，通过每卷串行队列接入共享核心的目录、句柄、写入/截断、硬链接、同步及分页枚举。直接 SDK 合同验证不等于 OS 挂载；缺失元数据和权限明确拒绝，unary load、activate、mount 继续关闭。详见 [M0-K 范围](docs/IMPLEMENTATION-M0K.zh-CN.md)。
 
+M0-L 将 v2 持久 UUID、所有者/权限位/时间接入 FSVolume 身份、属性读取和目录枚举。v1 缺失属性仍拒绝；设置权限与有效授权门槛继续关闭。准确范围和 SDK 测试见 [M0-L](docs/IMPLEMENTATION-M0L.zh-CN.md)。
+
 ## 后端存储同步
 
 `pw_storage_synchronize` / `Volume::synchronize_storage` 在 Unix 实际刷新数据段、catalog/WAL 与容器目录，保留活动句柄和租约，忙碌/错误明确返回。Windows 返回未支持。原生缓存排空、更强设备刷新和安全弹出仍需分别实现及验收。详见 [M1-G](docs/IMPLEMENTATION-M1G.zh-CN.md) 与 [ADR 0004](docs/adr/0004-backend-storage-barrier.md)。

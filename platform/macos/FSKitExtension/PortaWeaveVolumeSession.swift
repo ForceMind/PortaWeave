@@ -1,6 +1,7 @@
 // Native adapter contract, not an installed/mounted filesystem. The unary
 // loader remains closed until metadata, permissions and platform gates pass.
 import Foundation
+import Darwin
 import FSKit
 import OSLog
 import PortaWeaveNative
@@ -58,6 +59,7 @@ final class PortaWeaveItem: FSItem {
 /// not synchronously reenter it. This orders callbacks including barriers.
 final class PortaWeaveVolumeSession {
     let identity: UUID
+    private(set) var persistentIdentity: UUID?
     let rootItem: PortaWeaveItem
     let queue = DispatchQueue(label: "dev.portaweave.volume")
     private let queueKey = DispatchSpecificKey<UUID>()
@@ -81,6 +83,13 @@ final class PortaWeaveVolumeSession {
         }
         try pwCheck(status)
         do {
+            var storedIdentity = PwVolumeIdentity()
+            let identityStatus = pw_volume_identity(volume, &storedIdentity)
+            if identityStatus == PW_OK {
+                persistentIdentity = UUID(uuid: storedIdentity.uuid)
+            } else if identityStatus != PW_UNSUPPORTED {
+                try pwCheck(identityStatus)
+            }
             try pwCheck(pw_volume_space(volume, &capacity))
             items[pw_root_id()] = rootItem
         } catch {
@@ -191,10 +200,19 @@ final class PortaWeaveVolumeSession {
         let item = try self.item(raw)
         var supported: FSItem.Attribute = [.type, .size, .fileID]
         if item.kind == 0 { supported.insert(.linkCount) }
+        supported.formUnion(metadataAttributes)
         guard request.wantedAttributes.subtracting(supported).isEmpty else {
             throw POSIXError(.ENOTSUP)
         }
         let stat = try status(item)
+        return try storedAttributes(item, stat: stat)
+    }
+
+    private var metadataAttributes: FSItem.Attribute {
+        persistentIdentity == nil ? [] : [.uid, .gid, .mode, .birthTime, .accessTime, .modifyTime, .changeTime]
+    }
+
+    private func storedAttributes(_ item: PortaWeaveItem, stat: PwStat) throws -> FSItem.Attributes {
         let result = FSItem.Attributes()
         result.invalidateAllProperties()
         result.type = item.itemType
@@ -204,7 +222,25 @@ final class PortaWeaveVolumeSession {
             guard let count = UInt32(exactly: stat.links) else { throw POSIXError(.EOVERFLOW) }
             result.linkCount = count
         }
+        if persistentIdentity != nil {
+            var metadata = PwMetadata()
+            try pwCheck(pw_metadata_get(volume, item.object, &metadata))
+            result.uid = metadata.uid
+            result.gid = metadata.gid
+            result.mode = metadata.mode
+            result.birthTime = try sdkTime(metadata.created)
+            result.accessTime = try sdkTime(metadata.accessed)
+            result.modifyTime = try sdkTime(metadata.modified)
+            result.changeTime = try sdkTime(metadata.changed)
+        }
         return result
+    }
+
+    // Integer conversion keeps negative seconds and nanoseconds exact.
+    private func sdkTime(_ time: PwTimestamp) throws -> timespec {
+        guard time.reserved == 0, time.nanoseconds < 1_000_000_000,
+              let seconds = Int(exactly: time.seconds) else { throw POSIXError(.EOVERFLOW) }
+        return timespec(tv_sec: seconds, tv_nsec: Int(time.nanoseconds))
     }
 
     func invalidateEnumerations() {
@@ -262,7 +298,8 @@ final class PortaWeaveVolumeSession {
         guard directory.kind == 1 else { throw POSIXError(.ENOTDIR) }
         // No snapshot is allocated for a request needing missing metadata.
         if let request = attributes {
-            let allowed: FSItem.Attribute = [.type, .size, .fileID]
+            var allowed: FSItem.Attribute = [.type, .size, .fileID]
+            allowed.formUnion(metadataAttributes)
             guard request.wantedAttributes.subtracting(allowed).isEmpty else {
                 throw POSIXError(.ENOTSUP)
             }
@@ -309,12 +346,7 @@ final class PortaWeaveVolumeSession {
             let transient = PortaWeaveItem(owner: identity, object: object, kind: stat.kind)
             let values: FSItem.Attributes?
             if attributes != nil {
-                let value = FSItem.Attributes()
-                value.invalidateAllProperties()
-                value.type = transient.itemType
-                value.size = stat.size
-                value.fileID = try transient.wireID()
-                values = value
+                values = try storedAttributes(transient, stat: stat)
             } else { values = nil }
             guard try pack(FSFileName(data: Data(bytes.prefix(count))), transient.itemType,
                            transient.wireID(), position + 1, values) else { break }

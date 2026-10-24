@@ -11,9 +11,9 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
     init(laboratoryContainerURL url: URL) throws {
         let session = try PortaWeaveVolumeSession(laboratoryContainerURL: url)
         self.session = session
-        // The v1 container lacks a persistent UUID. This ID is deliberately
-        // session-only, one of the reasons activate/mount remain unsupported.
-        super.init(volumeID: FSVolume.Identifier(uuid: session.identity),
+        // v2 has a persistent UUID; v1 retains an explicitly session-only ID.
+        // The separate random session.identity still rejects stale FSItems.
+        super.init(volumeID: FSVolume.Identifier(uuid: session.persistentIdentity ?? session.identity),
                    volumeName: FSFileName(string: "PortaWeave Laboratory"))
     }
 
@@ -29,6 +29,7 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
         value.supportsHardLinks = true
         value.supportsSparseFiles = true
         value.supports64BitObjectIDs = true
+        value.supportsPersistentObjectIDs = session.persistentIdentity != nil
         value.caseFormat = .insensitiveCasePreserving
         value.doesNotSupportSettingFilePermissions = true
         value.doesNotSupportRootTimes = true

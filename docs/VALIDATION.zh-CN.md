@@ -128,3 +128,5 @@ M0-K / PR #17：准确源码 `557a57e9e464c3f1ddf72889f88e56e6e1a88400` 全部 1
 Work Linux 使用云端只读准备产物中的 Rust 1.99.1 和锁定 registry cache，核验 ZIP 与内部 SHA-256 后解包；首次 uid 保留解包失败，用 `--no-same-owner` 修正，未提升权限或关闭沙盒。本地完整 default/all-feature workspace、clippy/fmt、真实 C caller 和九项 Python 回归可实际运行。没有在用户机器安装工具链。
 
 M1-H 的新增元数据/ABI/恢复及交接范围见 [实现记录](IMPLEMENTATION-M1H.zh-CN.md)。本地四阶段运行不算跨 OS；准确三平台源码/流程状态由对应 PR 验收记录，不预先声明通过。未实测项保持上表状态。
+
+PR #18 已验收：准确 head `986c8c097f11fe05fbf68791537f38df90f00613` / tree `d96c3d018ba8760b61160a83a7ad2afb535700e5` 全部 17 检查 success。core 40114367973、native 40114367951、bundle 40114367966、handover 40114367950、host 40114367905 / 40114365081。v2 UUID `[157,51,47,184,177,121,67,205,184,43,51,100,225,202,81,239]` 随同一 artifact 经 macOS、Windows、Linux 返回保持一致；job 120933006011 输出 v2 recovery/link/original SHA-256 保全成功。合并 `e8700c9d8e63bec331f396be6a2faa950f51e8c8`，候选树与源码树一致，远端 main 已核验。M0-L 后续的 FSKit 属性接入须以自身 SDK/native/bundle CI 验收，不能继承此版本通过结论。
