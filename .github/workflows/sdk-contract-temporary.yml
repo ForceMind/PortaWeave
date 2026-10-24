@@ -26,3 +26,28 @@ jobs:
                   print('\n'.join(line for line in code.splitlines() if line.strip()))
                   print('PW_SDK_HEADER_END '+path.name)
           PY
+
+  cloud-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare pinned compiler and locked offline dependencies for the Work Linux workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+          cargo +1.99.1 fetch --locked
+          mkdir -p "$RUNNER_TEMP/portaweave-cloud-tools"
+          toolchain_path="$(rustc +1.99.1 --print sysroot)"
+          tar -I 'zstd -T0 -3' -cf "$RUNNER_TEMP/portaweave-cloud-tools/toolchain.tar.zst" -C "$toolchain_path" .
+          tar -I 'zstd -T0 -3' -cf "$RUNNER_TEMP/portaweave-cloud-tools/registry.tar.zst" -C "$HOME/.cargo" registry
+          cd "$RUNNER_TEMP/portaweave-cloud-tools"
+          sha256sum toolchain.tar.zst registry.tar.zst > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portaweave-cloud-rust-1.99.1
+          path: ${{ runner.temp }}/portaweave-cloud-tools/*
+          compression-level: 0
