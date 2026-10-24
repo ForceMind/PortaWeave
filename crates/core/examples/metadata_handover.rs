@@ -39,6 +39,20 @@ fn seed(path: &Path) -> TestResult {
         },
     )?;
     v.hard_link(id, ROOT, "alias")?;
+    let atomic = v.create_file_with_attributes(ROOT, "atomic", FILE_ATTR)?;
+    let h = v.open_file(atomic)?;
+    v.write(h, 0, b"abcdef")?;
+    v.truncate_with_metadata(
+        h,
+        3,
+        MetadataUpdate {
+            uid: Some(200),
+            mode: Some(0o6751),
+            modified: Some(stage_time(0)),
+            ..Default::default()
+        },
+    )?;
+    v.close_file(h)?;
     let identity = v.volume_identity()?;
     let marker = v.create_file(ROOT, "identity")?;
     let h = v.open_file(marker)?;
@@ -67,7 +81,33 @@ fn handover(path: &Path, expected: u8, next: Option<u8>) -> TestResult {
     assert_eq!(meta.modified, stage_time(expected));
     let h = v.open_file(id)?;
     assert_eq!(v.read(h, 0, 100)?, format!("stage-{expected}").as_bytes());
+    let atomic = v.lookup(ROOT, "atomic")?;
+    let atomic_handle = v.open_file(atomic)?;
+    let atomic_meta = v.metadata(atomic)?;
+    assert_eq!(
+        (atomic_meta.uid, atomic_meta.mode),
+        (200 + u32::from(expected), 0o751)
+    );
+    assert_eq!(atomic_meta.modified, stage_time(expected));
+    assert_eq!(
+        v.read(atomic_handle, 0, 10)?,
+        if expected == 1 {
+            b"abc\0\0\0".as_slice()
+        } else {
+            b"abc".as_slice()
+        }
+    );
     if let Some(stage) = next {
+        v.truncate_with_metadata(
+            atomic_handle,
+            if stage == 1 { 6 } else { 3 },
+            MetadataUpdate {
+                uid: Some(200 + u32::from(stage)),
+                mode: Some(0o6751),
+                modified: Some(stage_time(stage)),
+                ..Default::default()
+            },
+        )?;
         v.write(h, 0, format!("stage-{stage}").as_bytes())?;
         v.set_metadata(
             id,
@@ -82,6 +122,7 @@ fn handover(path: &Path, expected: u8, next: Option<u8>) -> TestResult {
         v.write(mh, 0, &data)?;
     }
     v.close_file(h)?;
+    v.close_file(atomic_handle)?;
     v.close_file(mh)?;
     v.verify()?;
     assert_eq!(v.metadata(ROOT)?.uid, 501);
@@ -90,6 +131,7 @@ fn handover(path: &Path, expected: u8, next: Option<u8>) -> TestResult {
         "METADATA_HANDOVER_OK incoming={expected} outgoing={next:?} UUID={:?}",
         identity.uuid
     );
+    println!("ATOMIC_ATTRIBUTES_HANDOVER_OK incoming={expected} outgoing={next:?}");
     Ok(())
 }
 fn main() -> TestResult {

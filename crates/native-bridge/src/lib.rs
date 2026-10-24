@@ -872,6 +872,28 @@ pub extern "C" fn pw_file_truncate(volume: u64, file: u64, size: u64) -> i32 {
         })
     })
 }
+/// Atomically commit v2 size/blocks and metadata; no caller authorization.
+/// # Safety
+/// Update points to a readable, aligned PwMetadataUpdate for the call duration.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_file_truncate_with_metadata(
+    volume: u64,
+    file: u64,
+    size: u64,
+    update: *const PwMetadataUpdate,
+) -> i32 {
+    run(|| {
+        readable(update, 1)?;
+        let update = unsafe { update.read() }.core()?;
+        with_session(volume, |s| {
+            let h = *s.files.get(&file).ok_or_else(Fault::invalid)?;
+            s.volume
+                .truncate_with_metadata(h, size, update)
+                .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
 /// # Safety
 /// name is valid UTF-8 of name_len bytes.
 #[unsafe(no_mangle)]

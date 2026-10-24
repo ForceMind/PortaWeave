@@ -104,6 +104,14 @@ int main(int argc, char **argv) {
     if (pw_metadata_set(volume, node, &update) != PW_INVALID) return 24;
     REQUIRE(pw_file_open(volume, node, &handle));
     REQUIRE(pw_file_write(volume, handle, 0, (const uint8_t *)"code", 4, &count));
+    if (pw_file_truncate_with_metadata(volume, handle, 2, NULL) != PW_INVALID) return 28;
+    REQUIRE(pw_stat(volume, node, &stat));
+    if (stat.size != 4) return 29;
+    update.valid = PW_META_MODE | PW_META_MODIFIED;
+    update.mode = 06751;
+    update.modified.seconds = -456;
+    update.modified.nanoseconds = 123456789;
+    REQUIRE(pw_file_truncate_with_metadata(volume, handle, 2, &update));
     REQUIRE(pw_file_close(volume, handle));
     REQUIRE(pw_volume_close(volume));
     REQUIRE(pw_volume_open((const uint8_t *)metadata_path, strlen(metadata_path), &volume));
@@ -111,7 +119,10 @@ int main(int argc, char **argv) {
     if (memcmp(identity.uuid, original_identity.uuid, 16) != 0) return 25;
     REQUIRE(pw_metadata_get(volume, node, &metadata));
     if (metadata.mode != 0751 || metadata.accessed.seconds != -123 ||
-        metadata.accessed.nanoseconds != 999999999 || metadata.modified.seconds == -123) return 26;
+        metadata.accessed.nanoseconds != 999999999 || metadata.modified.seconds != -456 ||
+        metadata.modified.nanoseconds != 123456789) return 26;
+    REQUIRE(pw_stat(volume, node, &stat));
+    if (stat.size != 2) return 27;
     REQUIRE(pw_volume_close(volume));
     puts("NATIVE_C_ABI_OK");
     return 0;

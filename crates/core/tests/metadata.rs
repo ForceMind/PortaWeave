@@ -475,3 +475,186 @@ fn recovery_validates_v2_without_modifying_original_and_counts_metadata_rows() {
     .unwrap();
     assert!(matches!(r.verify(), Err(Error::RecoveryLimit)));
 }
+
+#[test]
+fn combined_truncate_and_metadata_changes_are_one_generation_and_preserve_views() {
+    let s = Scratch::new();
+    let mut v = s.create();
+    let id = v.create_file(ROOT, "tool").unwrap();
+    let h = v.open_file(id).unwrap();
+    v.write(h, 0, b"abcdef").unwrap();
+    let view = v.acquire_view(h).unwrap();
+    let generation = v.stat(id).unwrap().generation;
+    let update = MetadataUpdate {
+        uid: Some(502),
+        mode: Some(0o6751),
+        accessed: Some(OLD),
+        modified: Some(OLD),
+        ..Default::default()
+    };
+    v.truncate_with_metadata(h, 3, update).unwrap();
+    assert_eq!(v.read(h, 0, 10).unwrap(), b"abc");
+    assert_eq!(v.read_view(view, 0, 10).unwrap(), b"abcdef");
+    assert_eq!(v.stat(id).unwrap().generation, generation + 1);
+    let meta = v.metadata(id).unwrap();
+    assert_eq!((meta.uid, meta.mode), (502, 0o751));
+    assert_eq!(meta.modified, OLD);
+    assert_eq!(meta.accessed, OLD);
+    assert_ne!(meta.changed, OLD);
+    v.truncate_with_metadata(
+        h,
+        6,
+        MetadataUpdate {
+            modified: Some(OLD),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(v.read(h, 0, 10).unwrap(), b"abc\0\0\0");
+    v.release_view(view).unwrap();
+    v.close_file(h).unwrap();
+    drop(v);
+    let v = Volume::open(s.path()).unwrap();
+    assert_eq!(v.metadata(id).unwrap().modified, OLD);
+    v.verify().unwrap();
+}
+
+#[test]
+fn invalid_combined_requests_and_quota_failure_do_not_touch_metadata_or_stage_data() {
+    let s = Scratch::new();
+    let mut v = s.create();
+    let id = v.create_file(ROOT, "file").unwrap();
+    let h = v.open_file(id).unwrap();
+    v.write(h, 0, b"abcdef").unwrap();
+    let meta = v.metadata(id).unwrap();
+    let stat = v.stat(id).unwrap();
+    let bytes = v.stats().unwrap().tracked_segment_bytes;
+    for update in [
+        MetadataUpdate {
+            mode: Some(0o10000),
+            ..Default::default()
+        },
+        MetadataUpdate {
+            modified: Some(Timestamp {
+                seconds: 0,
+                nanoseconds: 1_000_000_000,
+            }),
+            ..Default::default()
+        },
+    ] {
+        assert!(matches!(
+            v.truncate_with_metadata(h, 1, update),
+            Err(Error::InvalidRange)
+        ));
+    }
+    assert!(matches!(
+        v.truncate_with_metadata(
+            h,
+            1 << 27,
+            MetadataUpdate {
+                uid: Some(100),
+                ..Default::default()
+            }
+        ),
+        Err(Error::Quota)
+    ));
+    assert_eq!(v.metadata(id).unwrap(), meta);
+    assert_eq!(v.stat(id).unwrap(), stat);
+    assert_eq!(v.stats().unwrap().tracked_segment_bytes, bytes);
+    assert!(!v.is_write_protected());
+    v.close_file(h).unwrap();
+    drop(v);
+    let mut v1 = Volume::create(s.0.join("v1"), 100).unwrap();
+    let id = v1.create_file(ROOT, "v1").unwrap();
+    let h = v1.open_file(id).unwrap();
+    assert!(matches!(
+        v1.truncate_with_metadata(h, 1, MetadataUpdate::default()),
+        Err(Error::UnsupportedOperation)
+    ));
+    assert_eq!(v1.stat(id).unwrap().size, 0);
+    v1.close_file(h).unwrap();
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn combined_before_commit_failure_rolls_back_blocks_size_and_all_attributes() {
+    let s = Scratch::new();
+    let mut v = s.create();
+    let id = v.create_file(ROOT, "file").unwrap();
+    let h = v.open_file(id).unwrap();
+    v.write(h, 0, b"abcdef").unwrap();
+    let meta = v.metadata(id).unwrap();
+    let stat = v.stat(id).unwrap();
+    v.inject_once(portaweave_core::FaultPoint::BeforeCommit);
+    assert!(matches!(
+        v.truncate_with_metadata(
+            h,
+            3,
+            MetadataUpdate {
+                uid: Some(502),
+                modified: Some(OLD),
+                ..Default::default()
+            }
+        ),
+        Err(Error::Injected)
+    ));
+    assert_eq!(v.metadata(id).unwrap(), meta);
+    assert_eq!(v.stat(id).unwrap(), stat);
+    assert_eq!(v.read(h, 0, 10).unwrap(), b"abcdef");
+    drop(v);
+    let mut v = Volume::open(s.path()).unwrap();
+    assert_eq!(v.metadata(id).unwrap(), meta);
+    assert_eq!(v.stat(id).unwrap(), stat);
+    v.inject_once(portaweave_core::FaultPoint::BeforeCommit);
+    assert!(matches!(
+        v.set_metadata(
+            id,
+            MetadataUpdate {
+                mode: Some(0o711),
+                ..Default::default()
+            }
+        ),
+        Err(Error::Injected)
+    ));
+    assert_eq!(v.metadata(id).unwrap(), meta);
+    assert_eq!(v.stat(id).unwrap(), stat);
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn combined_committed_result_stays_successful_when_later_maintenance_fails() {
+    let s = Scratch::new();
+    let mut v = s.create();
+    let id = v.create_file(ROOT, "file").unwrap();
+    let h = v.open_file(id).unwrap();
+    v.write(h, 0, b"abcdef").unwrap();
+    v.inject_once(portaweave_core::FaultPoint::AfterCommit);
+    v.truncate_with_metadata(
+        h,
+        3,
+        MetadataUpdate {
+            uid: Some(502),
+            mode: Some(0o6751),
+            modified: Some(OLD),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(v.is_write_protected());
+    assert!(matches!(
+        v.maintenance_status(),
+        portaweave_core::MaintenanceStatus::Failed { .. }
+    ));
+    let meta = v.metadata(id).unwrap();
+    assert_eq!(meta.uid, 502);
+    assert_eq!(meta.mode, 0o751);
+    assert_eq!(meta.modified, OLD);
+    assert_eq!(v.read(h, 0, 10).unwrap(), b"abc");
+    drop(v);
+    let mut v = Volume::open(s.path()).unwrap();
+    assert_eq!(v.metadata(id).unwrap(), meta);
+    let h = v.open_file(id).unwrap();
+    assert_eq!(v.read(h, 0, 10).unwrap(), b"abc");
+    v.close_file(h).unwrap();
+    v.verify().unwrap();
+}

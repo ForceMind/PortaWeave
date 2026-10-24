@@ -53,6 +53,8 @@ M0-L 将 v2 持久 UUID、所有者/权限位/时间接入 FSVolume 身份、属
 
 `Volume::create_with_metadata` / `pw_volume_create_with_metadata` 显式新建实验 v2 容器，持久化 UUID、uid/gid/mode 和纳秒时间。元数据与内容/名字空间变更共用事务，覆盖硬链接和替换后旧打开对象。默认创建仍为 v1，不自动升级已有容器。这些是受信任的存储接口，尚不实施有效 OS 权限或认证调用者。见[范围、测试及限制](docs/IMPLEMENTATION-M1H.zh-CN.md)与 [ADR 0005](docs/adr/0005-opt-in-metadata-format.md)。
 
+M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提交前故障与提交后维护失败，旧内容租约继续有效。见 [M1-I](docs/IMPLEMENTATION-M1I.zh-CN.md)；原生有效权限及 setter 接入仍需完成。
+
 ## 运行存储实验
 
 使用 `rust-toolchain.toml` 锁定的工具链和 Cargo.lock。示例只接受全新可丢弃目录，不挂载或格式化磁盘。

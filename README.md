@@ -53,6 +53,8 @@ M0-L bridges v2 persistent UUID and stored owner/mode/timestamps into FSVolume i
 
 `Volume::create_with_metadata` / `pw_volume_create_with_metadata` explicitly creates a NEW experimental v2 container with persistent UUID, uid/gid/mode and nanosecond timestamps. Metadata changes share content/namespace transactions, including links and still-open replaced objects. Default creation remains v1; existing containers are never automatically upgraded. These are trusted storage APIs, not effective OS permissions or caller authentication. See [scope, tests and limits](docs/IMPLEMENTATION-M1H.zh-CN.md) and [ADR 0005](docs/adr/0005-opt-in-metadata-format.md).
 
+M1-I adds a single-transaction size/metadata mutation for native adapters, with explicit timestamp precedence and tested commit/maintenance failures. Existing views retain old content. See [M1-I](docs/IMPLEMENTATION-M1I.zh-CN.md); native permission enforcement and setter integration remain separate work.
+
 ## Run the storage lab
 
 Use `rust-toolchain.toml` and the committed dependency lock. The example accepts only a NEW disposable directory; it does not mount or format a drive.
