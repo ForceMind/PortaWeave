@@ -598,3 +598,15 @@ fn failed_compaction_keeps_committed_data_and_retries_after_reopen() {
     );
     reopened.verify().unwrap();
 }
+
+#[test]
+fn bounded_directory_snapshot_refuses_without_poisoning() {
+    let (_scratch, mut v) = lab();
+    let a = v.create_file(ROOT, "a").unwrap();
+    let b = v.create_file(ROOT, "b").unwrap();
+    assert_eq!(v.list_bounded(ROOT, 2).unwrap().len(), 2);
+    assert!(matches!(v.list_bounded(ROOT, 1), Err(Error::ResourceLimit)));
+    assert_eq!(v.lookup(ROOT, "a").unwrap(), a);
+    assert_eq!(v.lookup(ROOT, "b").unwrap(), b);
+    assert!(!v.is_write_protected());
+}

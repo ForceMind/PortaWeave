@@ -556,10 +556,10 @@ pub unsafe extern "C" fn pw_dir_begin(volume: u64, parent: i64, out_cursor: *mut
             if s.dirs.len() >= MAX_CURSORS {
                 return Err(Fault::resource());
             }
-            let entries = s.volume.list(file_id(parent)?).map_err(Fault::from)?;
-            if entries.len() > MAX_DIRECTORY_ENTRIES {
-                return Err(Fault::resource());
-            }
+            let entries = s
+                .volume
+                .list_bounded(file_id(parent)?, MAX_DIRECTORY_ENTRIES)
+                .map_err(Fault::from)?;
             let token = next_token()?;
             s.dirs.insert(
                 token,

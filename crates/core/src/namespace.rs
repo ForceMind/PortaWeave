@@ -20,6 +20,23 @@ impl Volume {
                 .ok_or(Error::NotFound)
         })())
     }
+    /// Directory snapshot cap checked before materializing all names.
+    /// The sole Volume owner serializes catalog modifications.
+    pub fn list_bounded(&self, parent: FileId, maximum: usize) -> Result<Vec<Entry>> {
+        self.observe((|| {
+            self.directory(parent)?;
+            let count: i64 = self.db.query_row(
+                "SELECT COUNT(*) FROM entries WHERE parent=?1",
+                [parent.0],
+                |row| row.get(0),
+            )?;
+            let count = usize::try_from(count).map_err(|_| Error::ResourceLimit)?;
+            if count > maximum {
+                return Err(Error::ResourceLimit);
+            }
+            self.list(parent)
+        })())
+    }
     pub fn list(&self, parent: FileId) -> Result<Vec<Entry>> {
         self.observe((|| {
             self.directory(parent)?;
