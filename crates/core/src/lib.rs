@@ -12,9 +12,9 @@ mod segment;
 mod volume;
 
 pub use error::{Error, Result};
-pub use volume::{Entry, FileId, Handle, Kind, ReadView, Stat, Stats, Volume, ROOT};
 #[cfg(feature = "fault-injection")]
 pub use volume::FaultPoint;
+pub use volume::{Entry, FileId, Handle, Kind, ROOT, ReadView, Stat, Stats, Volume};
 
 pub const BLOCK_SIZE: usize = 64 * 1024;
 pub const MAX_IO: usize = 16 * 1024 * 1024;

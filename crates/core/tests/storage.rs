@@ -1,32 +1,38 @@
-use portaweave_core::{BLOCK_SIZE, Error, FORMAT, Kind, MAX_IO, ROOT, Volume};
-use std::{fs, io::{Read, Seek, SeekFrom, Write}, path::PathBuf, process::Command,
-    sync::atomic::{AtomicU64, Ordering}, time::{SystemTime, UNIX_EPOCH}};
 #[cfg(feature = "fault-injection")]
 use portaweave_core::FaultPoint;
+use portaweave_core::{BLOCK_SIZE, Error, FORMAT, Kind, MAX_IO, ROOT, Volume};
+use std::{
+    fs,
+    io::{Read, Seek, SeekFrom, Write},
+    path::PathBuf,
+    process::Command,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
 struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Self {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         Self(std::env::temp_dir().join(format!("pw-core-{}-{time}-{n}", std::process::id())))
     }
 }
 impl Drop for Scratch {
-    fn drop(&mut self) { if self.0.exists() { fs::remove_dir_all(&self.0).expect("close all owners before cleanup"); } }
+    fn drop(&mut self) {
+        if self.0.exists() {
+            fs::remove_dir_all(&self.0).expect("close all owners before cleanup");
+        }
+    }
 }
 fn lab() -> (Scratch, Volume) {
     let scratch = Scratch::new();
     let volume = Volume::create(&scratch.0, 128 * 1024 * 1024).unwrap();
     (scratch, volume)
-}
-fn contents(volume: &Volume, name: &str) -> Vec<u8> {
-    // This helper intentionally only obtains the file ID; callers needing a new
-    // handle use mutable access. The query below is used to validate namespace.
-    let id = volume.lookup(ROOT, name).unwrap();
-    assert_eq!(volume.stat(id).unwrap().kind, Kind::File);
-    Vec::new()
 }
 
 #[test]
@@ -50,10 +56,11 @@ fn sparse_cross_block_write_and_eof() {
     let (_scratch, mut v) = lab();
     let id = v.create_file(ROOT, "sparse").unwrap();
     let h = v.open_file(id).unwrap();
-    v.write(h, (BLOCK_SIZE - 3) as u64, b"cross boundary").unwrap();
+    v.write(h, (BLOCK_SIZE - 3) as u64, b"cross boundary")
+        .unwrap();
     let bytes = v.read(h, 0, BLOCK_SIZE + 100).unwrap();
-    assert!(bytes[..BLOCK_SIZE-3].iter().all(|b| *b == 0));
-    assert_eq!(&bytes[BLOCK_SIZE-3..], b"cross boundary");
+    assert!(bytes[..BLOCK_SIZE - 3].iter().all(|b| *b == 0));
+    assert_eq!(&bytes[BLOCK_SIZE - 3..], b"cross boundary");
     assert_eq!(v.read(h, 999_999, 10).unwrap(), Vec::<u8>::new());
     v.verify().unwrap();
 }
@@ -140,7 +147,8 @@ fn replacement_preserves_destination_open_handle() {
     let h_new = v.open_file(next).unwrap();
     v.write(h_old, 0, b"old version").unwrap();
     v.write(h_new, 0, b"new version").unwrap();
-    v.rename(ROOT, "document.next", ROOT, "document", true).unwrap();
+    v.rename(ROOT, "document.next", ROOT, "document", true)
+        .unwrap();
     assert_eq!(v.lookup(ROOT, "document").unwrap(), next);
     assert_eq!(v.read(h_old, 0, 100).unwrap(), b"old version");
     assert_eq!(v.read(h_new, 0, 100).unwrap(), b"new version");
@@ -155,7 +163,10 @@ fn no_replace_is_non_destructive_and_same_inode_rename_is_noop() {
     let (_scratch, mut v) = lab();
     let a = v.create_file(ROOT, "a").unwrap();
     let b = v.create_file(ROOT, "b").unwrap();
-    assert!(matches!(v.rename(ROOT, "a", ROOT, "b", false), Err(Error::Exists)));
+    assert!(matches!(
+        v.rename(ROOT, "a", ROOT, "b", false),
+        Err(Error::Exists)
+    ));
     assert_eq!(v.lookup(ROOT, "a").unwrap(), a);
     assert_eq!(v.lookup(ROOT, "b").unwrap(), b);
     v.hard_link(a, ROOT, "alias").unwrap();
@@ -169,7 +180,10 @@ fn unicode_case_preservation_and_canonical_collisions() {
     let (_scratch, mut v) = lab();
     let id = v.create_file(ROOT, "Café.txt").unwrap();
     assert_eq!(v.lookup(ROOT, "CAFE\u{301}.TXT").unwrap(), id);
-    assert!(matches!(v.create_file(ROOT, "Cafe\u{301}.txt"), Err(Error::Exists)));
+    assert!(matches!(
+        v.create_file(ROOT, "Cafe\u{301}.txt"),
+        Err(Error::Exists)
+    ));
     v.rename(ROOT, "café.txt", ROOT, "CAFÉ.TXT", false).unwrap();
     assert_eq!(v.list(ROOT).unwrap()[0].name, "CAFÉ.TXT");
     v.create_file(ROOT, "计划-😀.txt").unwrap();
@@ -178,8 +192,13 @@ fn unicode_case_preservation_and_canonical_collisions() {
 #[test]
 fn invalid_names_do_not_poison_or_modify_namespace() {
     let (_scratch, mut v) = lab();
-    for name in ["", ".", "..", "a/b", "a\\b", "a:b", "tail.", "tail ", "NUL.txt", "COM1", "LPT²", "a\0b"] {
-        assert!(matches!(v.create_file(ROOT, name), Err(Error::InvalidName)), "{name:?}");
+    for name in [
+        "", ".", "..", "a/b", "a\\b", "a:b", "tail.", "tail ", "NUL.txt", "COM1", "LPT²", "a\0b",
+    ] {
+        assert!(
+            matches!(v.create_file(ROOT, name), Err(Error::InvalidName)),
+            "{name:?}"
+        );
     }
     assert!(v.list(ROOT).unwrap().is_empty());
     assert!(!v.is_write_protected());
@@ -190,12 +209,24 @@ fn directory_cycles_type_conflicts_and_nonempty_removal() {
     let (_scratch, mut v) = lab();
     let a = v.mkdir(ROOT, "a").unwrap();
     let b = v.mkdir(a, "b").unwrap();
-    assert!(matches!(v.rename(ROOT, "a", b, "cycle", true), Err(Error::Cycle)));
+    assert!(matches!(
+        v.rename(ROOT, "a", b, "cycle", true),
+        Err(Error::Cycle)
+    ));
     assert!(matches!(v.rmdir(ROOT, "a"), Err(Error::NotEmpty)));
-    assert!(matches!(v.hard_link(a, ROOT, "bad"), Err(Error::IsDirectory)));
+    assert!(matches!(
+        v.hard_link(a, ROOT, "bad"),
+        Err(Error::IsDirectory)
+    ));
     v.create_file(ROOT, "file").unwrap();
-    assert!(matches!(v.rename(ROOT, "file", ROOT, "a", true), Err(Error::IsDirectory)));
-    assert!(matches!(v.rename(ROOT, "a", ROOT, "file", true), Err(Error::NotDirectory)));
+    assert!(matches!(
+        v.rename(ROOT, "file", ROOT, "a", true),
+        Err(Error::IsDirectory)
+    ));
+    assert!(matches!(
+        v.rename(ROOT, "a", ROOT, "file", true),
+        Err(Error::NotDirectory)
+    ));
     v.rmdir(a, "b").unwrap();
     v.rmdir(ROOT, "a").unwrap();
     v.verify().unwrap();
@@ -258,7 +289,10 @@ fn unknown_format_refused_without_reformatting() {
     drop(v);
     let db = fs::read(scratch.0.join("catalog.sqlite")).unwrap();
     fs::write(scratch.0.join("format.txt"), b"future-format").unwrap();
-    assert!(matches!(Volume::open(&scratch.0), Err(Error::UnsupportedFormat)));
+    assert!(matches!(
+        Volume::open(&scratch.0),
+        Err(Error::UnsupportedFormat)
+    ));
     assert_eq!(fs::read(scratch.0.join("catalog.sqlite")).unwrap(), db);
 }
 
@@ -268,15 +302,30 @@ fn checksum_error_protects_writes_and_preserves_evidence() {
     let id = v.create_file(ROOT, "corrupt-me").unwrap();
     let h = v.open_file(id).unwrap();
     v.write(h, 0, b"important bytes").unwrap();
-    let path = fs::read_dir(scratch.0.join("segments")).unwrap().next().unwrap().unwrap().path();
-    let mut raw = fs::OpenOptions::new().read(true).write(true).open(&path).unwrap();
+    let path = fs::read_dir(scratch.0.join("segments"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut raw = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
     raw.seek(SeekFrom::Start(24)).unwrap();
-    let mut byte = [0]; raw.read_exact(&mut byte).unwrap();
-    raw.seek(SeekFrom::Start(24)).unwrap(); raw.write_all(&[byte[0] ^ 1]).unwrap(); raw.sync_all().unwrap();
+    let mut byte = [0];
+    raw.read_exact(&mut byte).unwrap();
+    raw.seek(SeekFrom::Start(24)).unwrap();
+    raw.write_all(&[byte[0] ^ 1]).unwrap();
+    raw.sync_all().unwrap();
     drop(raw);
     assert!(matches!(v.read(h, 0, 100), Err(Error::Corrupt(_))));
     assert!(v.is_write_protected());
-    assert!(matches!(v.write(h, 0, b"must fail"), Err(Error::WriteProtected)));
+    assert!(matches!(
+        v.write(h, 0, b"must fail"),
+        Err(Error::WriteProtected)
+    ));
     drop(v);
     assert!(Volume::open(&scratch.0).is_err());
     assert!(path.exists());
@@ -287,7 +336,10 @@ fn invalid_range_and_empty_write_are_non_destructive() {
     let (_scratch, mut v) = lab();
     let id = v.create_file(ROOT, "range").unwrap();
     let h = v.open_file(id).unwrap();
-    assert!(matches!(v.write(h, i64::MAX as u64, b"x"), Err(Error::InvalidRange)));
+    assert!(matches!(
+        v.write(h, i64::MAX as u64, b"x"),
+        Err(Error::InvalidRange)
+    ));
     assert!(matches!(v.read(h, 0, MAX_IO + 1), Err(Error::InvalidRange)));
     v.write(h, 10_000, b"").unwrap();
     assert_eq!(v.stat(id).unwrap().size, 0);
@@ -304,10 +356,13 @@ fn mixed_segment_reclamation_is_automatic() {
     v.write(h, 0, &vec![2; BLOCK_SIZE * 3]).unwrap();
     // A manual compact/gc call was NOT made. One surviving old block is moved
     // into a new segment; the 4-block old segment has been retired.
-    assert_eq!(v.stats().unwrap().tracked_segment_bytes, (BLOCK_SIZE * 4 + 48) as u64);
+    assert_eq!(
+        v.stats().unwrap().tracked_segment_bytes,
+        (BLOCK_SIZE * 4 + 48) as u64
+    );
     let data = v.read(h, 0, BLOCK_SIZE * 4).unwrap();
-    assert!(data[..BLOCK_SIZE*3].iter().all(|b| *b == 2));
-    assert!(data[BLOCK_SIZE*3..].iter().all(|b| *b == 1));
+    assert!(data[..BLOCK_SIZE * 3].iter().all(|b| *b == 2));
+    assert!(data[BLOCK_SIZE * 3..].iter().all(|b| *b == 1));
     v.verify().unwrap();
 }
 
@@ -319,10 +374,21 @@ fn mixed_compaction_waits_for_read_lease() {
     v.write(h, 0, &vec![1; BLOCK_SIZE * 4]).unwrap();
     let view = v.acquire_view(h).unwrap();
     v.write(h, 0, &vec![2; BLOCK_SIZE * 3]).unwrap();
-    assert_eq!(v.stats().unwrap().tracked_segment_bytes, (BLOCK_SIZE * 7 + 48) as u64);
-    assert!(v.read_view(view, 0, BLOCK_SIZE * 4).unwrap().iter().all(|b| *b == 1));
+    assert_eq!(
+        v.stats().unwrap().tracked_segment_bytes,
+        (BLOCK_SIZE * 7 + 48) as u64
+    );
+    assert!(
+        v.read_view(view, 0, BLOCK_SIZE * 4)
+            .unwrap()
+            .iter()
+            .all(|b| *b == 1)
+    );
     v.release_view(view).unwrap();
-    assert_eq!(v.stats().unwrap().tracked_segment_bytes, (BLOCK_SIZE * 4 + 48) as u64);
+    assert_eq!(
+        v.stats().unwrap().tracked_segment_bytes,
+        (BLOCK_SIZE * 4 + 48) as u64
+    );
 }
 
 #[test]
@@ -338,7 +404,10 @@ fn stale_and_cross_volume_handles_are_rejected() {
     let (_other, mut other) = lab();
     let other_id = other.create_file(ROOT, "other").unwrap();
     other.open_file(other_id).unwrap();
-    assert!(matches!(other.write(fresh, 0, b"x"), Err(Error::InvalidHandle)));
+    assert!(matches!(
+        other.write(fresh, 0, b"x"),
+        Err(Error::InvalidHandle)
+    ));
     again.close_file(fresh).unwrap();
     assert!(matches!(again.close_file(fresh), Err(Error::InvalidHandle)));
 }
@@ -353,8 +422,14 @@ fn terabyte_logical_hole_does_not_allocate_a_terabyte() {
     v.truncate(h, size).unwrap();
     assert_eq!(v.stats().unwrap().tracked_segment_bytes, 0);
     v.write(h, size - 1, b"z").unwrap();
-    assert_eq!(v.read(h, size - 10, 100).unwrap(), [vec![0; 9], b"z".to_vec()].concat());
-    assert_eq!(v.stats().unwrap().tracked_segment_bytes, (BLOCK_SIZE + 24) as u64);
+    assert_eq!(
+        v.read(h, size - 10, 100).unwrap(),
+        [vec![0; 9], b"z".to_vec()].concat()
+    );
+    assert_eq!(
+        v.stats().unwrap().tracked_segment_bytes,
+        (BLOCK_SIZE + 24) as u64
+    );
     v.truncate(h, 0).unwrap();
     assert_eq!(v.stats().unwrap().tracked_segment_bytes, 0);
 }
@@ -376,7 +451,9 @@ fn model_based_write_truncate_alias_and_reopen() {
         } else {
             let data = vec![(seed >> 32) as u8; (seed % 79 + 1) as usize];
             v.write(h, position as u64, &data).unwrap();
-            if model.len() < position + data.len() { model.resize(position + data.len(), 0); }
+            if model.len() < position + data.len() {
+                model.resize(position + data.len(), 0);
+            }
             model[position..position + data.len()].copy_from_slice(&data);
         }
         assert_eq!(v.read(h, 0, 8192).unwrap(), model, "step {step}");
@@ -408,9 +485,16 @@ fn orphan_from_ended_session_is_reclaimed_on_reopen() {
 #[test]
 fn format_and_bundled_sqlite_gate() {
     assert!(rusqlite::version_number() >= 3_051_003);
-    println!("bundled SQLite: {} ({})", rusqlite::version(), rusqlite::version_number());
+    println!(
+        "bundled SQLite: {} ({})",
+        rusqlite::version(),
+        rusqlite::version_number()
+    );
     let (scratch, v) = lab();
-    assert_eq!(fs::read_to_string(scratch.0.join("format.txt")).unwrap(), FORMAT);
+    assert_eq!(
+        fs::read_to_string(scratch.0.join("format.txt")).unwrap(),
+        FORMAT
+    );
     v.verify().unwrap();
 }
 
@@ -419,7 +503,10 @@ fn cross_process_owner_lock() {
     let (scratch, _v) = lab();
     let status = Command::new(std::env::current_exe().unwrap())
         .args(["--ignored", "--exact", "child_helper", "--nocapture"])
-        .env("PW_TEST_ROOT", &scratch.0).env("PW_TEST_ACTION", "lock").status().unwrap();
+        .env("PW_TEST_ROOT", &scratch.0)
+        .env("PW_TEST_ACTION", "lock")
+        .status()
+        .unwrap();
     assert!(status.success());
 }
 
@@ -436,12 +523,15 @@ fn child_helper() {
     {
         let mut v = Volume::open(path).unwrap();
         let h = v.open_file(v.lookup(ROOT, "crash").unwrap()).unwrap();
-        let point = match action.as_str() { "data" => FaultPoint::AfterDataSync, "before" => FaultPoint::BeforeCommit,
-            "after" => FaultPoint::AfterCommit, _ => panic!("bad action") };
-        v.inject_once(point);
-        assert!(matches!(v.write(h, 0, b"NEW-BYTES"), Err(Error::Injected)));
-        // Exit without running Rust destructors or SQLite close/checkpoint.
-        std::process::exit(86);
+        let point = match action.as_str() {
+            "data" => FaultPoint::AfterDataSync,
+            "before" => FaultPoint::BeforeCommit,
+            "after" => FaultPoint::AfterCommit,
+            _ => panic!("bad action"),
+        };
+        v.inject_process_exit_once(point);
+        let _ = v.write(h, 0, b"NEW-BYTES");
+        panic!("fault did not terminate the child process");
     }
     #[cfg(not(feature = "fault-injection"))]
     panic!("fault-injection feature required");
@@ -458,11 +548,18 @@ fn process_exit_at_data_and_commit_boundaries_recovers_expected_version() {
         drop(v);
         let status = Command::new(std::env::current_exe().unwrap())
             .args(["--ignored", "--exact", "child_helper", "--nocapture"])
-            .env("PW_TEST_ROOT", &scratch.0).env("PW_TEST_ACTION", action).status().unwrap();
+            .env("PW_TEST_ROOT", &scratch.0)
+            .env("PW_TEST_ACTION", action)
+            .status()
+            .unwrap();
         assert_eq!(status.code(), Some(86), "{action}");
         let mut reopened = Volume::open(&scratch.0).unwrap();
         let h = reopened.open_file(id).unwrap();
-        let expected: &[u8] = if action == "after" { b"NEW-BYTES" } else { b"OLD-BYTES" };
+        let expected: &[u8] = if action == "after" {
+            b"NEW-BYTES"
+        } else {
+            b"OLD-BYTES"
+        };
         assert_eq!(reopened.read(h, 0, 100).unwrap(), expected, "{action}");
         assert_eq!(reopened.stats().unwrap().segments, 1);
         reopened.verify().unwrap();
@@ -475,17 +572,23 @@ fn failed_compaction_keeps_committed_data_and_retries_after_reopen() {
     let (scratch, mut v) = lab();
     let id = v.create_file(ROOT, "compact-crash").unwrap();
     let h = v.open_file(id).unwrap();
-    v.write(h, 0, &vec![1; BLOCK_SIZE*4]).unwrap();
+    v.write(h, 0, &vec![1; BLOCK_SIZE * 4]).unwrap();
     v.inject_once(FaultPoint::BeforeCompactionCommit);
     // User write commits, maintenance fails. Err is not a rollback promise.
-    assert!(matches!(v.write(h, 0, &vec![2; BLOCK_SIZE*3]), Err(Error::Injected)));
+    assert!(matches!(
+        v.write(h, 0, &vec![2; BLOCK_SIZE * 3]),
+        Err(Error::Injected)
+    ));
     assert!(v.is_write_protected());
-    let expected = [vec![2; BLOCK_SIZE*3], vec![1; BLOCK_SIZE]].concat();
-    assert_eq!(v.read(h, 0, BLOCK_SIZE*4).unwrap(), expected);
+    let expected = [vec![2; BLOCK_SIZE * 3], vec![1; BLOCK_SIZE]].concat();
+    assert_eq!(v.read(h, 0, BLOCK_SIZE * 4).unwrap(), expected);
     drop(v);
     let mut reopened = Volume::open(&scratch.0).unwrap();
     let h = reopened.open_file(id).unwrap();
-    assert_eq!(reopened.read(h, 0, BLOCK_SIZE*4).unwrap(), expected);
-    assert_eq!(reopened.stats().unwrap().tracked_segment_bytes, (BLOCK_SIZE*4+48) as u64);
+    assert_eq!(reopened.read(h, 0, BLOCK_SIZE * 4).unwrap(), expected);
+    assert_eq!(
+        reopened.stats().unwrap().tracked_segment_bytes,
+        (BLOCK_SIZE * 4 + 48) as u64
+    );
     reopened.verify().unwrap();
 }

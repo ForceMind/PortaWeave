@@ -1,21 +1,42 @@
-use crate::{BLOCK_SIZE, Error, FORMAT, MAX_IO, Result, segment::{self, BlockRef}};
+use crate::{
+    BLOCK_SIZE, Error, FORMAT, MAX_IO, Result,
+    segment::{self, BlockRef},
+};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
-use std::{cell::Cell, collections::{BTreeMap, BTreeSet}, fs::{self, File, TryLockError},
-    io::Write, path::{Path, PathBuf}, sync::atomic::{AtomicU64, Ordering}};
+use std::{
+    cell::Cell,
+    collections::{BTreeMap, BTreeSet},
+    fs::{self, File, TryLockError},
+    io::Write,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct FileId(pub(crate) i64);
 pub const ROOT: FileId = FileId(1);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Kind { File, Directory }
+pub enum Kind {
+    File,
+    Directory,
+}
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Handle(u64);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ReadView(u64);
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Stat { pub id: FileId, pub kind: Kind, pub size: u64, pub links: u64, pub generation: u64 }
+pub struct Stat {
+    pub id: FileId,
+    pub kind: Kind,
+    pub size: u64,
+    pub links: u64,
+    pub generation: u64,
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Entry { pub name: String, pub id: FileId }
+pub struct Entry {
+    pub name: String,
+    pub id: FileId,
+}
 #[derive(Clone, Debug)]
 pub struct Stats {
     pub logical_bytes: u64,
@@ -29,13 +50,27 @@ pub struct Stats {
 #[cfg(feature = "fault-injection")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub enum FaultPoint { AfterDataSync = 0, BeforeCommit = 1, AfterCommit = 2, BeforeCompactionCommit = 3 }
+pub enum FaultPoint {
+    AfterDataSync = 0,
+    BeforeCommit = 1,
+    AfterCommit = 2,
+    BeforeCompactionCommit = 3,
+}
 
-struct ViewState { size: u64, blocks: Vec<BlockRef> }
+struct ViewState {
+    size: u64,
+    blocks: Vec<BlockRef>,
+}
 static TOKENS: AtomicU64 = AtomicU64::new(1);
 fn token() -> Result<u64> {
-    TOKENS.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
-        .map_err(|_| Error::InvalidRange)
+    let mut current = TOKENS.load(Ordering::Relaxed);
+    loop {
+        let next = current.checked_add(1).ok_or(Error::InvalidRange)?;
+        match TOKENS.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(value) => return Ok(value),
+            Err(observed) => current = observed,
+        }
+    }
 }
 
 /// Experimental, serialized storage engine. Requires an exclusively controlled
@@ -50,6 +85,8 @@ pub struct Volume {
     protected: Cell<bool>,
     #[cfg(feature = "fault-injection")]
     fault: Option<FaultPoint>,
+    #[cfg(feature = "fault-injection")]
+    exit_on_fault: bool,
     _owner: File,
 }
 
@@ -57,7 +94,9 @@ impl Volume {
     /// Creates a NEW experimental container. Never opens or replaces an existing
     /// directory. An interrupted initialization is preserved for inspection.
     pub fn create(path: impl AsRef<Path>, quota: u64) -> Result<Self> {
-        if quota > i64::MAX as u64 { return Err(Error::InvalidRange); }
+        if quota > i64::MAX as u64 {
+            return Err(Error::InvalidRange);
+        }
         Self::sqlite_version_gate()?;
         fs::create_dir(path.as_ref())?;
         let root = fs::canonicalize(path)?;
@@ -65,12 +104,18 @@ impl Volume {
         Self::lock(&owner)?;
         fs::create_dir(root.join("segments"))?;
         drop(File::create_new(root.join("catalog.sqlite"))?);
-        let mut db = Connection::open_with_flags(root.join("catalog.sqlite"), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        let mut db = Connection::open_with_flags(
+            root.join("catalog.sqlite"),
+            OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )?;
         db.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
         Self::configure(&db)?;
         let tx = db.transaction()?;
         tx.execute_batch(include_str!("schema.sql"))?;
-        tx.execute("INSERT INTO config VALUES (1, ?1, ?2)", params![quota as i64, FORMAT])?;
+        tx.execute(
+            "INSERT INTO config VALUES (1, ?1, ?2)",
+            params![quota as i64, FORMAT],
+        )?;
         tx.commit()?;
         let mut marker = File::create_new(root.join("format.txt"))?;
         marker.write_all(FORMAT.as_bytes())?;
@@ -81,29 +126,50 @@ impl Volume {
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         Self::sqlite_version_gate()?;
-        if !fs::symlink_metadata(path.as_ref())?.file_type().is_dir() { return Err(Error::UnsupportedFormat); }
+        if !fs::symlink_metadata(path.as_ref())?.file_type().is_dir() {
+            return Err(Error::UnsupportedFormat);
+        }
         let root = fs::canonicalize(path)?;
-        for name in ["format.txt", "catalog.sqlite", "session.lock"] { segment::regular(&root.join(name))?; }
+        for name in ["format.txt", "catalog.sqlite", "session.lock"] {
+            segment::regular(&root.join(name))?;
+        }
         if fs::metadata(root.join("format.txt"))?.len() > 128
             || fs::read(root.join("format.txt"))? != FORMAT.as_bytes()
-            || !fs::symlink_metadata(root.join("segments"))?.file_type().is_dir()
-        { return Err(Error::UnsupportedFormat); }
+            || !fs::symlink_metadata(root.join("segments"))?
+                .file_type()
+                .is_dir()
+        {
+            return Err(Error::UnsupportedFormat);
+        }
         for name in ["catalog.sqlite-wal", "catalog.sqlite-shm"] {
             match fs::symlink_metadata(root.join(name)) {
-                Ok(m) if !m.file_type().is_file() => return Err(Error::Corrupt("nonregular SQLite auxiliary file".into())),
+                Ok(m) if !m.file_type().is_file() => {
+                    return Err(Error::Corrupt("nonregular SQLite auxiliary file".into()));
+                }
                 Ok(_) => (),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
                 Err(e) => return Err(e.into()),
             }
         }
-        let owner = File::options().read(true).write(true).open(root.join("session.lock"))?;
+        let owner = File::options()
+            .read(true)
+            .write(true)
+            .open(root.join("session.lock"))?;
         Self::lock(&owner)?;
-        let db = Connection::open_with_flags(root.join("catalog.sqlite"), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        let db = Connection::open_with_flags(
+            root.join("catalog.sqlite"),
+            OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )?;
         let app: i64 = db.query_row("PRAGMA application_id", [], |r| r.get(0))?;
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if app != 1347898693 || version != 1 { return Err(Error::UnsupportedFormat); }
-        let format: String = db.query_row("SELECT format FROM config WHERE id=1", [], |r| r.get(0))?;
-        if format != FORMAT { return Err(Error::UnsupportedFormat); }
+        if app != 1347898693 || version != 1 {
+            return Err(Error::UnsupportedFormat);
+        }
+        let format: String =
+            db.query_row("SELECT format FROM config WHERE id=1", [], |r| r.get(0))?;
+        if format != FORMAT {
+            return Err(Error::UnsupportedFormat);
+        }
         Self::configure(&db)?;
         let mut volume = Self::assemble(root, db, owner);
         // Validate all CURRENT references before any destructive reclamation.
@@ -113,7 +179,9 @@ impl Volume {
     }
 
     fn sqlite_version_gate() -> Result<()> {
-        if rusqlite::version_number() < 3_051_003 { return Err(Error::UnsupportedFormat); }
+        if rusqlite::version_number() < 3_051_003 {
+            return Err(Error::UnsupportedFormat);
+        }
         Ok(())
     }
     fn lock(file: &File) -> Result<()> {
@@ -127,16 +195,33 @@ impl Volume {
         db.busy_timeout(std::time::Duration::ZERO)?;
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA fullfsync=ON; PRAGMA checkpoint_fullfsync=ON;")?;
         let mode: String = db.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
-        if mode != "wal" { return Err(Error::UnsupportedFormat); }
+        if mode != "wal" {
+            return Err(Error::UnsupportedFormat);
+        }
         Ok(())
     }
     fn assemble(root: PathBuf, db: Connection, owner: File) -> Self {
-        Self { db, root, handles: BTreeMap::new(), views: BTreeMap::new(), protected: Cell::new(false),
-            #[cfg(feature = "fault-injection")] fault: None, _owner: owner }
+        Self {
+            db,
+            root,
+            handles: BTreeMap::new(),
+            views: BTreeMap::new(),
+            protected: Cell::new(false),
+            #[cfg(feature = "fault-injection")]
+            fault: None,
+            #[cfg(feature = "fault-injection")]
+            exit_on_fault: false,
+            _owner: owner,
+        }
     }
-    pub fn is_write_protected(&self) -> bool { self.protected.get() }
+    pub fn is_write_protected(&self) -> bool {
+        self.protected.get()
+    }
     pub(crate) fn observe<T>(&self, result: Result<T>) -> Result<T> {
-        if matches!(&result, Err(Error::Io(_) | Error::Sql(_) | Error::Corrupt(_) | Error::Injected)) {
+        if matches!(
+            &result,
+            Err(Error::Io(_) | Error::Sql(_) | Error::Corrupt(_) | Error::Injected)
+        ) {
             self.protected.set(true);
         }
         result
@@ -144,20 +229,45 @@ impl Volume {
     // An I/O error may follow a committed mutation (e.g. failed maintenance).
     // Callers must not assume Err means rollback, or blindly retry a mutation.
     pub(crate) fn mutate<T>(&mut self, action: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
-        if self.protected.get() { return Err(Error::WriteProtected); }
-        let result = action(self).and_then(|value| { self.maintain()?; Ok(value) });
+        if self.protected.get() {
+            return Err(Error::WriteProtected);
+        }
+        let result = action(self).and_then(|value| {
+            self.maintain()?;
+            Ok(value)
+        });
         self.observe(result)
     }
     #[cfg(feature = "fault-injection")]
-    pub fn inject_once(&mut self, point: FaultPoint) { self.fault = Some(point); }
-    fn take_fault(&mut self, point: u8) -> bool {
+    pub fn inject_once(&mut self, point: FaultPoint) {
+        self.fault = Some(point);
+        self.exit_on_fault = false;
+    }
+    /// Test-only process termination, including INSIDE an active SQLite transaction.
+    /// Never enable the fault-injection feature for a user-facing application.
+    #[cfg(feature = "fault-injection")]
+    pub fn inject_process_exit_once(&mut self, point: FaultPoint) {
+        self.fault = Some(point);
+        self.exit_on_fault = true;
+    }
+    fn take_fault(&mut self, point: u8) -> Option<bool> {
         #[cfg(feature = "fault-injection")]
-        if self.fault.is_some_and(|f| f as u8 == point) { self.fault = None; return true; }
+        if self.fault.is_some_and(|f| f as u8 == point) {
+            self.fault = None;
+            return Some(self.exit_on_fault);
+        }
         let _ = point;
-        false
+        None
+    }
+    fn interrupt(action: Option<bool>) -> Result<()> {
+        match action {
+            Some(true) => std::process::exit(86),
+            Some(false) => Err(Error::Injected),
+            None => Ok(()),
+        }
     }
     fn hit(&mut self, point: u8) -> Result<()> {
-        if self.take_fault(point) { Err(Error::Injected) } else { Ok(()) }
+        Self::interrupt(self.take_fault(point))
     }
 
     pub fn stat(&self, id: FileId) -> Result<Stat> {
@@ -172,27 +282,45 @@ impl Volume {
         })())
     }
     pub(crate) fn directory(&self, id: FileId) -> Result<()> {
-        if self.stat(id)?.kind != Kind::Directory { return Err(Error::NotDirectory); }
+        if self.stat(id)?.kind != Kind::Directory {
+            return Err(Error::NotDirectory);
+        }
         Ok(())
     }
     pub fn open_file(&mut self, id: FileId) -> Result<Handle> {
-        if self.stat(id)?.kind != Kind::File { return Err(Error::IsDirectory); }
+        if self.stat(id)?.kind != Kind::File {
+            return Err(Error::IsDirectory);
+        }
         let handle = Handle(token()?);
         self.handles.insert(handle, id);
         Ok(handle)
     }
     fn object(&self, handle: Handle) -> Result<FileId> {
-        self.handles.get(&handle).copied().ok_or(Error::InvalidHandle)
+        self.handles
+            .get(&handle)
+            .copied()
+            .ok_or(Error::InvalidHandle)
     }
     pub fn close_file(&mut self, handle: Handle) -> Result<()> {
         // Closing remains possible in protection mode, but does not run GC there.
         self.handles.remove(&handle).ok_or(Error::InvalidHandle)?;
-        if self.protected.get() { return Ok(()); }
+        if self.protected.get() {
+            return Ok(());
+        }
         self.mutate(|_| Ok(()))
     }
     fn refs(&self, id: FileId) -> Result<Vec<BlockRef>> {
-        let mut statement = self.db.prepare("SELECT block,segment,offset,checksum FROM blocks WHERE object=?1 ORDER BY block")?;
-        let rows = statement.query_map([id.0], |r| Ok(BlockRef { index: r.get(0)?, segment: r.get(1)?, offset: r.get(2)?, checksum: r.get(3)? }))?;
+        let mut statement = self.db.prepare(
+            "SELECT block,segment,offset,checksum FROM blocks WHERE object=?1 ORDER BY block",
+        )?;
+        let rows = statement.query_map([id.0], |r| {
+            Ok(BlockRef {
+                index: r.get(0)?,
+                segment: r.get(1)?,
+                offset: r.get(2)?,
+                checksum: r.get(3)?,
+            })
+        })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
     pub fn acquire_view(&mut self, handle: Handle) -> Result<ReadView> {
@@ -205,7 +333,9 @@ impl Volume {
     }
     pub fn release_view(&mut self, view: ReadView) -> Result<()> {
         self.views.remove(&view).ok_or(Error::InvalidHandle)?;
-        if self.protected.get() { return Ok(()); }
+        if self.protected.get() {
+            return Ok(());
+        }
         self.mutate(|_| Ok(()))
     }
     pub fn read(&self, handle: Handle, offset: u64, len: usize) -> Result<Vec<u8>> {
@@ -222,28 +352,50 @@ impl Volume {
         })())
     }
     fn read_refs(&self, size: u64, refs: &[BlockRef], offset: u64, len: usize) -> Result<Vec<u8>> {
-        if len > MAX_IO || offset > i64::MAX as u64 { return Err(Error::InvalidRange); }
+        if len > MAX_IO || offset > i64::MAX as u64 {
+            return Err(Error::InvalidRange);
+        }
         let len = (size.saturating_sub(offset)).min(len as u64) as usize;
         let mut out = vec![0; len];
-        if len == 0 { return Ok(out); }
+        if len == 0 {
+            return Ok(out);
+        }
         let end = offset + len as u64;
         for reference in refs {
-            let start = u64::try_from(reference.index).map_err(|_| Error::Corrupt("negative block".into()))?
-                .checked_mul(BLOCK_SIZE as u64).ok_or_else(|| Error::Corrupt("block overflow".into()))?;
-            let stop = start.checked_add(BLOCK_SIZE as u64).ok_or_else(|| Error::Corrupt("block overflow".into()))?;
-            if stop <= offset || start >= end { continue; }
+            let start = u64::try_from(reference.index)
+                .map_err(|_| Error::Corrupt("negative block".into()))?
+                .checked_mul(BLOCK_SIZE as u64)
+                .ok_or_else(|| Error::Corrupt("block overflow".into()))?;
+            let stop = start
+                .checked_add(BLOCK_SIZE as u64)
+                .ok_or_else(|| Error::Corrupt("block overflow".into()))?;
+            if stop <= offset || start >= end {
+                continue;
+            }
             let bytes = segment::read(&self.root, reference)?;
             let lo = start.max(offset);
             let hi = stop.min(end);
-            out[(lo-offset) as usize..(hi-offset) as usize].copy_from_slice(&bytes[(lo-start) as usize..(hi-start) as usize]);
+            out[(lo - offset) as usize..(hi - offset) as usize]
+                .copy_from_slice(&bytes[(lo - start) as usize..(hi - start) as usize]);
         }
         Ok(out)
     }
     fn quota(&self, old: u64, new: u64) -> Result<()> {
-        let used: i64 = self.db.query_row("SELECT COALESCE(SUM(size),0) FROM objects", [], |r| r.get(0))?;
-        let quota: i64 = self.db.query_row("SELECT quota FROM config WHERE id=1", [], |r| r.get(0))?;
-        let total = (used as u64).checked_sub(old).and_then(|n| n.checked_add(new)).ok_or(Error::InvalidRange)?;
-        if new > i64::MAX as u64 || total > quota as u64 { return Err(Error::Quota); }
+        let used: i64 =
+            self.db
+                .query_row("SELECT COALESCE(SUM(size),0) FROM objects", [], |r| {
+                    r.get(0)
+                })?;
+        let quota: i64 = self
+            .db
+            .query_row("SELECT quota FROM config WHERE id=1", [], |r| r.get(0))?;
+        let total = (used as u64)
+            .checked_sub(old)
+            .and_then(|n| n.checked_add(new))
+            .ok_or(Error::InvalidRange)?;
+        if new > i64::MAX as u64 || total > quota as u64 {
+            return Err(Error::Quota);
+        }
         Ok(())
     }
     fn stage(&mut self, blocks: &[(i64, Vec<u8>)]) -> Result<Vec<BlockRef>> {
@@ -253,7 +405,10 @@ impl Volume {
         let id = self.db.last_insert_rowid();
         let refs = segment::write(&self.root, id, blocks)?;
         let bytes = segment::HEADER + blocks.len() as u64 * BLOCK_SIZE as u64;
-        self.db.execute("UPDATE segments SET bytes=?1 WHERE id=?2", params![bytes, id])?;
+        self.db.execute(
+            "UPDATE segments SET bytes=?1 WHERE id=?2",
+            params![i64::try_from(bytes).map_err(|_| Error::InvalidRange)?, id],
+        )?;
         Ok(refs)
     }
     fn bind(tx: &rusqlite::Transaction<'_>, id: FileId, refs: &[BlockRef]) -> Result<()> {
@@ -266,22 +421,31 @@ impl Volume {
     pub fn write(&mut self, handle: Handle, offset: u64, data: &[u8]) -> Result<usize> {
         self.mutate(|this| {
             let id = this.object(handle)?;
-            if data.len() > MAX_IO || offset > i64::MAX as u64 { return Err(Error::InvalidRange); }
-            if data.is_empty() { return Ok(0); }
-            let end = offset.checked_add(data.len() as u64).filter(|e| *e <= i64::MAX as u64).ok_or(Error::InvalidRange)?;
+            if data.len() > MAX_IO || offset > i64::MAX as u64 {
+                return Err(Error::InvalidRange);
+            }
+            if data.is_empty() {
+                return Ok(0);
+            }
+            let end = offset
+                .checked_add(data.len() as u64)
+                .filter(|e| *e <= i64::MAX as u64)
+                .ok_or(Error::InvalidRange)?;
             let old = this.stat(id)?.size;
             let new = old.max(end);
             this.quota(old, new)?;
             let old_refs = this.refs(id)?;
             let mut changed = Vec::new();
-            for index in offset / BLOCK_SIZE as u64..=(end-1) / BLOCK_SIZE as u64 {
+            for index in offset / BLOCK_SIZE as u64..=(end - 1) / BLOCK_SIZE as u64 {
                 let mut block = match old_refs.iter().find(|r| r.index == index as i64) {
-                    Some(r) => segment::read(&this.root, r)?, None => vec![0; BLOCK_SIZE],
+                    Some(r) => segment::read(&this.root, r)?,
+                    None => vec![0; BLOCK_SIZE],
                 };
                 let start = index * BLOCK_SIZE as u64;
                 let lo = start.max(offset);
                 let hi = (start + BLOCK_SIZE as u64).min(end);
-                block[(lo-start) as usize..(hi-start) as usize].copy_from_slice(&data[(lo-offset) as usize..(hi-offset) as usize]);
+                block[(lo - start) as usize..(hi - start) as usize]
+                    .copy_from_slice(&data[(lo - offset) as usize..(hi - offset) as usize]);
                 changed.push((index as i64, block));
             }
             let refs = this.stage(&changed)?;
@@ -289,8 +453,11 @@ impl Volume {
             let before = this.take_fault(1);
             let tx = this.db.transaction()?;
             Self::bind(&tx, id, &refs)?;
-            tx.execute("UPDATE objects SET size=?1,generation=generation+1 WHERE id=?2", params![new, id.0])?;
-            if before { return Err(Error::Injected); }
+            tx.execute(
+                "UPDATE objects SET size=?1,generation=generation+1 WHERE id=?2",
+                params![new as i64, id.0],
+            )?;
+            Self::interrupt(before)?;
             tx.commit()?;
             this.hit(2)?;
             Ok(data.len())
@@ -302,7 +469,7 @@ impl Volume {
             let old = this.stat(id)?.size;
             this.quota(old, size)?;
             let mut tail = Vec::new();
-            if size < old && size % BLOCK_SIZE as u64 != 0 {
+            if size < old && !size.is_multiple_of(BLOCK_SIZE as u64) {
                 let index = (size / BLOCK_SIZE as u64) as i64;
                 if let Some(r) = this.refs(id)?.into_iter().find(|r| r.index == index) {
                     let mut bytes = segment::read(&this.root, &r)?;
@@ -313,10 +480,16 @@ impl Volume {
             }
             let before = this.take_fault(1);
             let tx = this.db.transaction()?;
-            tx.execute("DELETE FROM blocks WHERE object=?1 AND block>=?2", params![id.0, size.div_ceil(BLOCK_SIZE as u64)])?;
+            tx.execute(
+                "DELETE FROM blocks WHERE object=?1 AND block>=?2",
+                params![id.0, size.div_ceil(BLOCK_SIZE as u64) as i64],
+            )?;
             Self::bind(&tx, id, &tail)?;
-            tx.execute("UPDATE objects SET size=?1,generation=generation+1 WHERE id=?2", params![size, id.0])?;
-            if before { return Err(Error::Injected); }
+            tx.execute(
+                "UPDATE objects SET size=?1,generation=generation+1 WHERE id=?2",
+                params![size as i64, id.0],
+            )?;
+            Self::interrupt(before)?;
             tx.commit()?;
             this.hit(2)?;
             Ok(())
@@ -324,16 +497,23 @@ impl Volume {
     }
 
     fn pinned_segments(&self) -> BTreeSet<i64> {
-        self.views.values().flat_map(|v| v.blocks.iter().map(|b| b.segment)).collect()
+        self.views
+            .values()
+            .flat_map(|v| v.blocks.iter().map(|b| b.segment))
+            .collect()
     }
     fn dead_segments(&mut self) -> Result<()> {
         let pinned = self.pinned_segments();
         let dead: Vec<i64> = self.db.prepare("SELECT id FROM segments WHERE NOT EXISTS (SELECT 1 FROM blocks WHERE segment=segments.id)")?
             .query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
         for id in dead {
-            if pinned.contains(&id) { continue; }
+            if pinned.contains(&id) {
+                continue;
+            }
             // Names are generated exclusively from positive database identities.
-            if id <= 0 { return Err(Error::Corrupt("invalid segment identity".into())); }
+            if id <= 0 {
+                return Err(Error::Corrupt("invalid segment identity".into()));
+            }
             match fs::remove_file(segment::path(&self.root, id)) {
                 Ok(()) => segment::sync_directory(&self.root.join("segments"))?,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
@@ -363,28 +543,44 @@ impl Volume {
         let pinned = self.pinned_segments();
         let candidates: Vec<i64> = self.db.prepare("SELECT s.id FROM segments s JOIN blocks b ON b.segment=s.id GROUP BY s.id HAVING COUNT(*)*65536 <= (s.bytes-24)/2 ORDER BY s.id")?
             .query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
-        let Some(id) = candidates.into_iter().find(|s| !pinned.contains(s)) else { return Ok(()); };
+        let Some(id) = candidates.into_iter().find(|s| !pinned.contains(s)) else {
+            return Ok(());
+        };
         let records: Vec<(i64, BlockRef)> = self.db.prepare("SELECT object,block,offset,checksum FROM blocks WHERE segment=?1 ORDER BY object,block")?
             .query_map([id], |r| Ok((r.get(0)?, BlockRef { index: r.get(1)?, segment: id, offset: r.get(2)?, checksum: r.get(3)? })))?
             .collect::<std::result::Result<_, _>>()?;
         let mut payload = Vec::with_capacity(records.len());
-        for (_, old) in &records { payload.push((old.index, segment::read(&self.root, old)?)); }
+        for (_, old) in &records {
+            payload.push((old.index, segment::read(&self.root, old)?));
+        }
         let refs = self.stage(&payload)?;
         let before = self.take_fault(3);
         let tx = self.db.transaction()?;
         for ((object, old), new) in records.iter().zip(&refs) {
             let changed = tx.execute("UPDATE blocks SET segment=?1,offset=?2,checksum=?3 WHERE object=?4 AND block=?5 AND segment=?6 AND offset=?7",
                 params![new.segment, new.offset, &new.checksum, object, old.index, old.segment, old.offset])?;
-            if changed != 1 { return Err(Error::Corrupt("compaction reference changed".into())); }
+            if changed != 1 {
+                return Err(Error::Corrupt("compaction reference changed".into()));
+            }
         }
-        if before { return Err(Error::Injected); }
+        Self::interrupt(before)?;
         tx.commit()?;
         Ok(())
     }
     pub fn stats(&self) -> Result<Stats> {
         self.observe((|| {
-            let logical_bytes: u64 = self.db.query_row("SELECT COALESCE(SUM(size),0) FROM objects", [], |r| r.get(0))?;
-            let ids: Vec<i64> = self.db.prepare("SELECT id FROM segments")?.query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
+            let logical_raw: i64 =
+                self.db
+                    .query_row("SELECT COALESCE(SUM(size),0) FROM objects", [], |r| {
+                        r.get(0)
+                    })?;
+            let logical_bytes = u64::try_from(logical_raw)
+                .map_err(|_| Error::Corrupt("negative logical usage".into()))?;
+            let ids: Vec<i64> = self
+                .db
+                .prepare("SELECT id FROM segments")?
+                .query_map([], |r| r.get(0))?
+                .collect::<std::result::Result<_, _>>()?;
             let mut bytes = 0_u64;
             for id in &ids {
                 match fs::metadata(segment::path(&self.root, *id)) {
@@ -393,8 +589,14 @@ impl Volume {
                     Err(e) => return Err(e.into()),
                 }
             }
-            Ok(Stats { logical_bytes, tracked_segment_bytes: bytes, segments: ids.len(),
-                open_handles: self.handles.len(), read_views: self.views.len(), portable_directory_sync_available: cfg!(unix) })
+            Ok(Stats {
+                logical_bytes,
+                tracked_segment_bytes: bytes,
+                segments: ids.len(),
+                open_handles: self.handles.len(),
+                read_views: self.views.len(),
+                portable_directory_sync_available: cfg!(unix),
+            })
         })())
     }
     /// Checks current references. Not a repair API, forensic read-only open, or
@@ -402,29 +604,68 @@ impl Volume {
     pub fn verify(&self) -> Result<()> {
         self.observe((|| {
             let check: String = self.db.query_row("PRAGMA quick_check", [], |r| r.get(0))?;
-            if check != "ok" { return Err(Error::Corrupt(check)); }
-            if self.db.prepare("PRAGMA foreign_key_check")?.exists([])? { return Err(Error::Corrupt("foreign key violation".into())); }
+            if check != "ok" {
+                return Err(Error::Corrupt(check));
+            }
+            if self.db.prepare("PRAGMA foreign_key_check")?.exists([])? {
+                return Err(Error::Corrupt("foreign key violation".into()));
+            }
             if self.stat(ROOT)?.kind != Kind::Directory || self.stat(ROOT)?.links != 0 {
                 return Err(Error::Corrupt("invalid root".into()));
             }
-            let bad: i64 = self.db.query_row("SELECT COUNT(*) FROM entries e JOIN objects p ON p.id=e.parent WHERE p.kind<>1", [], |r| r.get(0))?;
-            if bad != 0 { return Err(Error::Corrupt("nondirectory parent".into())); }
-            let ids: Vec<i64> = self.db.prepare("SELECT id FROM objects")?.query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
+            let bad: i64 = self.db.query_row(
+                "SELECT COUNT(*) FROM entries e JOIN objects p ON p.id=e.parent WHERE p.kind<>1",
+                [],
+                |r| r.get(0),
+            )?;
+            if bad != 0 {
+                return Err(Error::Corrupt("nondirectory parent".into()));
+            }
+            let names: Vec<(String, String)> = self
+                .db
+                .prepare("SELECT name_key,display_name FROM entries")?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<std::result::Result<_, _>>()?;
+            for (key, display) in names {
+                if crate::names::key(&display).ok().as_ref() != Some(&key) {
+                    return Err(Error::Corrupt("invalid name comparison key".into()));
+                }
+            }
+            let ids: Vec<i64> = self
+                .db
+                .prepare("SELECT id FROM objects")?
+                .query_map([], |r| r.get(0))?
+                .collect::<std::result::Result<_, _>>()?;
             for id in ids {
-                if id <= 0 { return Err(Error::Corrupt("invalid object identity".into())); }
+                if id <= 0 {
+                    return Err(Error::Corrupt("invalid object identity".into()));
+                }
                 let stat = self.stat(FileId(id))?;
                 if stat.kind == Kind::Directory {
-                    if stat.size != 0 { return Err(Error::Corrupt("directory size".into())); }
+                    if stat.size != 0 {
+                        return Err(Error::Corrupt("directory size".into()));
+                    }
                     let mut cursor = FileId(id);
                     let mut seen = BTreeSet::new();
                     while cursor != ROOT {
-                        if !seen.insert(cursor) { return Err(Error::Corrupt("directory cycle".into())); }
-                        if self.stat(cursor)?.links != 1 { return Err(Error::Corrupt("directory link count".into())); }
-                        cursor = FileId(self.db.query_row("SELECT parent FROM entries WHERE object=?1", [cursor.0], |r| r.get(0))?);
+                        if !seen.insert(cursor) {
+                            return Err(Error::Corrupt("directory cycle".into()));
+                        }
+                        if self.stat(cursor)?.links != 1 {
+                            return Err(Error::Corrupt("directory link count".into()));
+                        }
+                        cursor = FileId(self.db.query_row(
+                            "SELECT parent FROM entries WHERE object=?1",
+                            [cursor.0],
+                            |r| r.get(0),
+                        )?);
                     }
                 }
                 for reference in self.refs(FileId(id))? {
-                    if stat.kind != Kind::File || reference.index < 0 || reference.index as u64 >= stat.size.div_ceil(BLOCK_SIZE as u64) {
+                    if stat.kind != Kind::File
+                        || reference.index < 0
+                        || reference.index as u64 >= stat.size.div_ceil(BLOCK_SIZE as u64)
+                    {
                         return Err(Error::Corrupt("block outside file".into()));
                     }
                     segment::read(&self.root, &reference)?;

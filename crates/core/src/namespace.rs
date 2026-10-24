@@ -3,20 +3,36 @@ use rusqlite::{OptionalExtension, params};
 
 impl Volume {
     fn lookup_key(&self, parent: FileId, key: &str) -> Result<Option<FileId>> {
-        Ok(self.db.query_row("SELECT object FROM entries WHERE parent=?1 AND name_key=?2",
-            params![parent.0, key], |r| r.get::<_, i64>(0)).optional()?.map(FileId))
+        Ok(self
+            .db
+            .query_row(
+                "SELECT object FROM entries WHERE parent=?1 AND name_key=?2",
+                params![parent.0, key],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .map(FileId))
     }
     pub fn lookup(&self, parent: FileId, name: &str) -> Result<FileId> {
         self.observe((|| {
             self.directory(parent)?;
-            self.lookup_key(parent, &names::key(name)?)?.ok_or(Error::NotFound)
+            self.lookup_key(parent, &names::key(name)?)?
+                .ok_or(Error::NotFound)
         })())
     }
     pub fn list(&self, parent: FileId) -> Result<Vec<Entry>> {
         self.observe((|| {
             self.directory(parent)?;
-            let mut statement = self.db.prepare("SELECT display_name,object FROM entries WHERE parent=?1 ORDER BY name_key")?;
-            Ok(statement.query_map([parent.0], |r| Ok(Entry { name: r.get(0)?, id: FileId(r.get(1)?) }))?
+            let mut statement = self.db.prepare(
+                "SELECT display_name,object FROM entries WHERE parent=?1 ORDER BY name_key",
+            )?;
+            Ok(statement
+                .query_map([parent.0], |r| {
+                    Ok(Entry {
+                        name: r.get(0)?,
+                        id: FileId(r.get(1)?),
+                    })
+                })?
                 .collect::<std::result::Result<_, _>>()?)
         })())
     }
@@ -24,27 +40,43 @@ impl Volume {
         self.mutate(|this| {
             this.directory(parent)?;
             let key = names::key(name)?;
-            if this.lookup_key(parent, &key)?.is_some() { return Err(Error::Exists); }
+            if this.lookup_key(parent, &key)?.is_some() {
+                return Err(Error::Exists);
+            }
             let tx = this.db.transaction()?;
             tx.execute("INSERT INTO objects(kind) VALUES (?1)", [kind])?;
             let id = tx.last_insert_rowid();
-            tx.execute("INSERT INTO entries VALUES (?1,?2,?3,?4)", params![parent.0, key, name, id])?;
+            tx.execute(
+                "INSERT INTO entries VALUES (?1,?2,?3,?4)",
+                params![parent.0, key, name, id],
+            )?;
             tx.commit()?;
             Ok(FileId(id))
         })
     }
-    pub fn create_file(&mut self, parent: FileId, name: &str) -> Result<FileId> { self.create_node(parent, name, 0) }
-    pub fn mkdir(&mut self, parent: FileId, name: &str) -> Result<FileId> { self.create_node(parent, name, 1) }
+    pub fn create_file(&mut self, parent: FileId, name: &str) -> Result<FileId> {
+        self.create_node(parent, name, 0)
+    }
+    pub fn mkdir(&mut self, parent: FileId, name: &str) -> Result<FileId> {
+        self.create_node(parent, name, 1)
+    }
 
     /// A second directory entry for the SAME object, not copied content.
     pub fn hard_link(&mut self, object: FileId, parent: FileId, name: &str) -> Result<()> {
         self.mutate(|this| {
-            if this.stat(object)?.kind != Kind::File { return Err(Error::IsDirectory); }
+            if this.stat(object)?.kind != Kind::File {
+                return Err(Error::IsDirectory);
+            }
             this.directory(parent)?;
             let key = names::key(name)?;
-            if this.lookup_key(parent, &key)?.is_some() { return Err(Error::Exists); }
+            if this.lookup_key(parent, &key)?.is_some() {
+                return Err(Error::Exists);
+            }
             let tx = this.db.transaction()?;
-            tx.execute("INSERT INTO entries VALUES (?1,?2,?3,?4)", params![parent.0, key, name, object.0])?;
+            tx.execute(
+                "INSERT INTO entries VALUES (?1,?2,?3,?4)",
+                params![parent.0, key, name, object.0],
+            )?;
             tx.commit()?;
             Ok(())
         })
@@ -52,8 +84,13 @@ impl Volume {
     pub fn unlink(&mut self, parent: FileId, name: &str) -> Result<()> {
         self.mutate(|this| {
             let id = this.lookup(parent, name)?;
-            if this.stat(id)?.kind != Kind::File { return Err(Error::IsDirectory); }
-            this.db.execute("DELETE FROM entries WHERE parent=?1 AND name_key=?2", params![parent.0, names::key(name)?])?;
+            if this.stat(id)?.kind != Kind::File {
+                return Err(Error::IsDirectory);
+            }
+            this.db.execute(
+                "DELETE FROM entries WHERE parent=?1 AND name_key=?2",
+                params![parent.0, names::key(name)?],
+            )?;
             Ok(())
         })
     }
@@ -61,9 +98,14 @@ impl Volume {
         self.mutate(|this| {
             let id = this.lookup(parent, name)?;
             this.directory(id)?;
-            if !this.list(id)?.is_empty() { return Err(Error::NotEmpty); }
+            if !this.list(id)?.is_empty() {
+                return Err(Error::NotEmpty);
+            }
             let tx = this.db.transaction()?;
-            tx.execute("DELETE FROM entries WHERE parent=?1 AND name_key=?2", params![parent.0, names::key(name)?])?;
+            tx.execute(
+                "DELETE FROM entries WHERE parent=?1 AND name_key=?2",
+                params![parent.0, names::key(name)?],
+            )?;
             tx.execute("DELETE FROM objects WHERE id=?1", [id.0])?;
             tx.commit()?;
             Ok(())
@@ -72,7 +114,14 @@ impl Volume {
 
     /// POSIX-style namespace replacement in one SQLite transaction. Windows
     /// sharing/deletion rules must be enforced by a future platform adapter.
-    pub fn rename(&mut self, from_parent: FileId, from: &str, to_parent: FileId, to: &str, replace: bool) -> Result<()> {
+    pub fn rename(
+        &mut self,
+        from_parent: FileId,
+        from: &str,
+        to_parent: FileId,
+        to: &str,
+        replace: bool,
+    ) -> Result<()> {
         self.mutate(|this| {
             this.directory(from_parent)?;
             this.directory(to_parent)?;
