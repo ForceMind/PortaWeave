@@ -21,7 +21,7 @@ mkdir -p "$build_root"
 xcodebuild -version | tee "$build_root/xcode-version.txt"
 xcrun --sdk macosx --show-sdk-version | tee "$build_root/sdk-version.txt"
 rustup target add "$rust_target"
-MACOSX_DEPLOYMENT_TARGET=15.4 cargo build --locked --release \
+MACOSX_DEPLOYMENT_TARGET=26.0 cargo build --locked --release \
     -p portaweave-native --target "$rust_target" 2>&1 | tee "$build_root/rust-build.log"
 plutil -lint platform/macos/PortaWeave.xcodeproj/project.pbxproj
 xcodebuild -project platform/macos/PortaWeave.xcodeproj -scheme PortaWeave \
