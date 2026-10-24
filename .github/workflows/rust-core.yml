@@ -1,6 +1,7 @@
 name: Experimental Rust core (not mounted-volume certification)
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -28,6 +29,14 @@ jobs:
           cargo tree --locked -p libsqlite3-sys
       - name: Build and test persistent core, including injected failures
         run: cargo test --workspace --all-features --locked -- --nocapture
+      - name: Repeated parallel lifetime regression on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          for attempt in $(seq 1 10); do
+            echo "Parallel regression repetition $attempt/10"
+            cargo test --locked -p portaweave-core --all-features --test storage -- --test-threads=8
+          done
       - name: Run scratch-only persistence and automatic reclamation example
         shell: bash
         run: cargo run --locked -p portaweave-core --example scratch -- "$RUNNER_TEMP/portaweave-scratch-$GITHUB_RUN_ID"
