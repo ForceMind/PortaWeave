@@ -27,6 +27,22 @@ pub enum Kind {
 pub struct Handle(u64);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ReadView(u64);
+
+/// Per-owner admission limits for copied snapshot indexes, NOT an exact
+/// heap allocation or a byte limit on the underlying file contents.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReadViewLimits {
+    pub max_active_views: usize,
+    pub max_indexed_block_refs: usize,
+}
+impl Default for ReadViewLimits {
+    fn default() -> Self {
+        Self {
+            max_active_views: 128,
+            max_indexed_block_refs: 65_536,
+        }
+    }
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Stat {
     pub id: FileId,
@@ -64,6 +80,8 @@ pub struct Stats {
     pub segments: usize,
     pub open_handles: usize,
     pub read_views: usize,
+    pub indexed_view_block_refs: usize,
+    pub read_view_limits: ReadViewLimits,
     pub portable_directory_sync_available: bool,
 }
 #[cfg(feature = "fault-injection")]
@@ -101,6 +119,8 @@ pub struct Volume {
     root: PathBuf,
     handles: BTreeMap<Handle, FileId>,
     views: BTreeMap<ReadView, ViewState>,
+    indexed_view_block_refs: usize,
+    read_view_limits: ReadViewLimits,
     protected: Cell<bool>,
     maintenance: MaintenanceStatus,
     space: SpaceGate,
@@ -221,6 +241,8 @@ impl Volume {
             root,
             handles: BTreeMap::new(),
             views: BTreeMap::new(),
+            indexed_view_block_refs: 0,
+            read_view_limits: ReadViewLimits::default(),
             protected: Cell::new(false),
             maintenance: MaintenanceStatus::Healthy,
             space: SpaceGate::default(),
@@ -258,6 +280,17 @@ impl Volume {
             return Err(Error::InvalidRange);
         }
         self.io_control.next_fault = Some(fault);
+        Ok(())
+    }
+    /// Adjusts future read-view admission; cannot evict a live snapshot.
+    /// A refused change never latches data write protection.
+    pub fn set_read_view_limits(&mut self, limits: ReadViewLimits) -> Result<()> {
+        if self.views.len() > limits.max_active_views
+            || self.indexed_view_block_refs > limits.max_indexed_block_refs
+        {
+            return Err(Error::ResourceLimit);
+        }
+        self.read_view_limits = limits;
         Ok(())
     }
     pub fn is_write_protected(&self) -> bool {
@@ -388,16 +421,54 @@ impl Volume {
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
+    fn refs_range(&self, id: FileId, first: i64, last: i64) -> Result<Vec<BlockRef>> {
+        let mut statement = self.db.prepare(
+            "SELECT block,segment,offset,checksum FROM blocks WHERE object=?1 AND block BETWEEN ?2 AND ?3 ORDER BY block",
+        )?;
+        let rows = statement.query_map(params![id.0, first, last], |r| {
+            Ok(BlockRef {
+                index: r.get(0)?,
+                segment: r.get(1)?,
+                offset: r.get(2)?,
+                checksum: r.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
     pub fn acquire_view(&mut self, handle: Handle) -> Result<ReadView> {
         let id = self.object(handle)?;
+        if self.views.len() >= self.read_view_limits.max_active_views {
+            return Err(Error::ResourceLimit);
+        }
+        // Probe the SQLite index size BEFORE allocating its Vec. An active
+        // view retains its exact old block mapping across rename/overwrite/GC.
+        let count: i64 = self.observe(self.db.query_row(
+            "SELECT COUNT(*) FROM blocks WHERE object=?1",
+            [id.0],
+            |r| r.get(0),
+        ).map_err(Error::from))?;
+        let count = usize::try_from(count)
+            .map_err(|_| Error::Corrupt("negative or oversized block-ref count".into()))?;
+        let next = self.indexed_view_block_refs
+            .checked_add(count)
+            .ok_or(Error::ResourceLimit)?;
+        if next > self.read_view_limits.max_indexed_block_refs {
+            return Err(Error::ResourceLimit);
+        }
         let size = self.stat(id)?.size;
         let blocks = self.observe(self.refs(id))?;
+        if blocks.len() != count {
+            self.protected.set(true);
+            return Err(Error::Corrupt("read-view index changed during acquisition".into()));
+        }
         let view = ReadView(token()?);
         self.views.insert(view, ViewState { size, blocks });
+        self.indexed_view_block_refs = next;
         Ok(view)
     }
     pub fn release_view(&mut self, view: ReadView) -> Result<()> {
-        self.views.remove(&view).ok_or(Error::InvalidHandle)?;
+        let old = self.views.remove(&view).ok_or(Error::InvalidHandle)?;
+        self.indexed_view_block_refs -= old.blocks.len();
         if self.protected.get() {
             return Ok(());
         }
@@ -406,7 +477,18 @@ impl Volume {
     pub fn read(&self, handle: Handle, offset: u64, len: usize) -> Result<Vec<u8>> {
         self.observe((|| {
             let id = self.object(handle)?;
-            self.read_refs(self.stat(id)?.size, &self.refs(id)?, offset, len)
+            let size = self.stat(id)?.size;
+            if len > MAX_IO || offset > i64::MAX as u64 {
+                return Err(Error::InvalidRange);
+            }
+            let available = size.saturating_sub(offset).min(len as u64);
+            if available == 0 {
+                return Ok(Vec::new());
+            }
+            let first = (offset / BLOCK_SIZE as u64) as i64;
+            let last = ((offset + available - 1) / BLOCK_SIZE as u64) as i64;
+            let refs = self.refs_range(id, first, last)?;
+            self.read_refs(size, &refs, offset, len)
         })())
     }
     /// A bounded in-flight snapshot lease, not an OS memory mapping or a user snapshot.
@@ -502,9 +584,11 @@ impl Volume {
             let old = this.stat(id)?.size;
             let new = old.max(end);
             this.quota(old, new)?;
-            let old_refs = this.refs(id)?;
+            let first = offset / BLOCK_SIZE as u64;
+            let last = (end - 1) / BLOCK_SIZE as u64;
+            let old_refs = this.refs_range(id, first as i64, last as i64)?;
             let mut changed = Vec::new();
-            for index in offset / BLOCK_SIZE as u64..=(end - 1) / BLOCK_SIZE as u64 {
+            for index in first..=last {
                 let mut block = match old_refs.iter().find(|r| r.index == index as i64) {
                     Some(r) => segment::read(&this.root, r)?,
                     None => vec![0; BLOCK_SIZE],
@@ -538,7 +622,7 @@ impl Volume {
             let mut tail = Vec::new();
             if size < old && !size.is_multiple_of(BLOCK_SIZE as u64) {
                 let index = (size / BLOCK_SIZE as u64) as i64;
-                if let Some(r) = this.refs(id)?.into_iter().find(|r| r.index == index) {
+                if let Some(r) = this.refs_range(id, index, index)?.into_iter().next() {
                     let mut bytes = segment::read(&this.root, &r)?;
                     bytes[(size % BLOCK_SIZE as u64) as usize..].fill(0);
                     tail = this.stage(&[(index, bytes)])?;
@@ -663,6 +747,8 @@ impl Volume {
                 segments: ids.len(),
                 open_handles: self.handles.len(),
                 read_views: self.views.len(),
+                indexed_view_block_refs: self.indexed_view_block_refs,
+                read_view_limits: self.read_view_limits,
                 portable_directory_sync_available: cfg!(unix),
             })
         })())
