@@ -4,8 +4,12 @@
  classes = {};
  objectVersion = 56;
  objects = {
+  BE12E13420921232FBB842AB = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FSKitExtension/PortaWeaveVolumeSession.swift; sourceTree = "<group>"; };
+  7190D73B55315733475FAAF5 = {isa = PBXBuildFile; fileRef = BE12E13420921232FBB842AB; };
+  330CE0EE563F8616DCDEDEB2 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FSKitExtension/PortaWeaveVolume.swift; sourceTree = "<group>"; };
+  B65BD13B6F9592A505C2DE19 = {isa = PBXBuildFile; fileRef = 330CE0EE563F8616DCDEDEB2; };
   4C96F116F0D3131310F9FE57 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 1600; }; buildConfigurationList = E1A16920B52404B49448CE38; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en, Base); mainGroup = EEB2BFA69EF74C17646DF682; productRefGroup = 5DB25555E01F75D30DBAB63B; projectDirPath = ""; projectRoot = ""; targets = (4E9273C4785E5A953E1128B6, 258E133CD8427F805CC8A881); };
-  EEB2BFA69EF74C17646DF682 = {isa = PBXGroup; children = (53590E5EDFB0CC86BA4FCC29, BCA42F999ACDAB9B1A49BFF2, 345AB0A019F710A08067E4CF, 5DB25555E01F75D30DBAB63B); sourceTree = "<group>"; };
+  EEB2BFA69EF74C17646DF682 = {isa = PBXGroup; children = (53590E5EDFB0CC86BA4FCC29, BCA42F999ACDAB9B1A49BFF2, 345AB0A019F710A08067E4CF, 330CE0EE563F8616DCDEDEB2, BE12E13420921232FBB842AB, 5DB25555E01F75D30DBAB63B); sourceTree = "<group>"; };
   5DB25555E01F75D30DBAB63B = {isa = PBXGroup; children = (DE34FA9D9CB2FFD5A83F78E2, BBC32309FA8188A18DF26BEA); name = Products; sourceTree = "<group>"; };
   53590E5EDFB0CC86BA4FCC29 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostApp/PortaWeaveApp.swift; sourceTree = "<group>"; };
   BCA42F999ACDAB9B1A49BFF2 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FSKitExtension/PortaWeaveFSKitExtension.swift; sourceTree = "<group>"; };
@@ -17,7 +21,7 @@
   25297313E428EB0BEFAB61C8 = {isa = PBXBuildFile; fileRef = 345AB0A019F710A08067E4CF; };
   FDFCFFD5F4F92C9B9B5B8398 = {isa = PBXBuildFile; fileRef = BBC32309FA8188A18DF26BEA; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy); }; };
   8936A81B184C243E4BC02A94 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D4EE38B2D3DC559750F06D18); runOnlyForDeploymentPostprocessing = 0; };
-  FA649056E2D80B6B7173D561 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A9F3B3729EDF0F057C739981, 25297313E428EB0BEFAB61C8); runOnlyForDeploymentPostprocessing = 0; };
+  FA649056E2D80B6B7173D561 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A9F3B3729EDF0F057C739981, 25297313E428EB0BEFAB61C8, B65BD13B6F9592A505C2DE19, 7190D73B55315733475FAAF5); runOnlyForDeploymentPostprocessing = 0; };
   9EB88F3B5EC35139D528FE8B = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
   8D7F159DA3141AF2F816272E = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
   D42F764A8C01D4EB1C631336 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "$(EXTENSIONS_FOLDER_PATH)"; dstSubfolderSpec = 16; files = (FDFCFFD5F4F92C9B9B5B8398); name = "Embed ExtensionKit Extensions"; runOnlyForDeploymentPostprocessing = 0; };

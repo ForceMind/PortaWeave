@@ -103,6 +103,13 @@ pub struct CheckpointStatus {
     pub checkpointed_frames: u64,
 }
 
+/// Backend host-file barrier, not kernel-cache drain or safe device eject.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StorageSyncStatus {
+    pub segment_files: u64,
+    pub checkpoint: CheckpointStatus,
+}
+
 #[derive(Clone, Debug)]
 pub struct Stats {
     pub maintenance: MaintenanceStatus,
@@ -125,6 +132,8 @@ pub enum FaultPoint {
     BeforeCommit = 1,
     AfterCommit = 2,
     BeforeCompactionCommit = 3,
+    StorageSegmentsSynced = 4,
+    StorageCatalogSynced = 5,
 }
 
 struct ViewState {
@@ -378,6 +387,62 @@ impl Volume {
             })
         })();
         self.observe(result)
+    }
+
+    /// Synchronize tracked segment files, their directory, the SQLite catalog
+    /// and WAL, the format marker and container directory in this serial owner.
+    /// A native adapter must first drain its own/OS pending writes. This is not
+    /// safe eject, hardware certification or a Windows directory-flush fallback.
+    pub fn synchronize_storage(&mut self) -> Result<StorageSyncStatus> {
+        #[cfg(not(unix))]
+        {
+            Err(Error::UnsupportedOperation)
+        }
+        #[cfg(unix)]
+        {
+            if self.protected.get() {
+                return Err(Error::WriteProtected);
+            }
+            let result = (|| {
+                let mut segment_files = 0_u64;
+                {
+                    let mut statement = self.db.prepare("SELECT id FROM segments ORDER BY id")?;
+                    let mut rows = statement.query([])?;
+                    while let Some(row) = rows.next()? {
+                        let id: i64 = row.get(0)?;
+                        if id <= 0 {
+                            return Err(Error::Corrupt("invalid segment identity".into()));
+                        }
+                        let path = segment::path(&self.root, id);
+                        segment::regular(&path)?;
+                        File::open(path)?.sync_all()?;
+                        segment_files = segment_files.checked_add(1).ok_or(Error::ResourceLimit)?;
+                    }
+                }
+                segment::sync_directory(&self.root.join("segments"))?;
+                self.hit(4)?;
+                let checkpoint = self.checkpoint_catalog()?;
+                for name in ["catalog.sqlite", "format.txt"] {
+                    let path = self.root.join(name);
+                    segment::regular(&path)?;
+                    File::open(path)?.sync_all()?;
+                }
+                let wal = self.root.join("catalog.sqlite-wal");
+                match fs::symlink_metadata(&wal) {
+                    Ok(meta) if meta.file_type().is_file() => File::open(&wal)?.sync_all()?,
+                    Ok(_) => return Err(Error::Corrupt("nonregular SQLite WAL".into())),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(error) => return Err(error.into()),
+                }
+                self.hit(5)?;
+                segment::sync_directory(&self.root)?;
+                Ok(StorageSyncStatus {
+                    segment_files,
+                    checkpoint,
+                })
+            })();
+            self.observe(result)
+        }
     }
 
     pub fn is_write_protected(&self) -> bool {

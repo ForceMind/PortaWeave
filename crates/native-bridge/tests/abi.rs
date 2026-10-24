@@ -6,6 +6,140 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 static NEXT: AtomicU64 = AtomicU64::new(1);
+
+#[test]
+fn canonical_alias_spelling_directory_parent_and_snapshot_seek_are_volume_scoped() {
+    let s = Scratch::new();
+    let mut volume = 0;
+    assert_eq!(
+        unsafe { pw_volume_create(s.path().as_ptr(), s.path().len(), 100_000_000, &mut volume) },
+        0
+    );
+    let mut file = 0_i64;
+    let name = b"MiXeD.txt";
+    assert_eq!(
+        unsafe { pw_file_create(volume, 1, name.as_ptr(), name.len(), &mut file) },
+        0
+    );
+    assert_eq!(
+        unsafe { pw_hard_link(volume, file, 1, b"Alias.txt".as_ptr(), 9) },
+        0
+    );
+    let mut buf = [0_u8; 255];
+    let mut count = 0;
+    let mut found = 77;
+    assert_eq!(
+        unsafe {
+            pw_lookup_entry(
+                volume,
+                1,
+                b"ALIAS.TXT".as_ptr(),
+                9,
+                buf.as_mut_ptr(),
+                1,
+                &mut count,
+                &mut found,
+            )
+        },
+        -16
+    );
+    assert_eq!(count, 9);
+    assert_eq!(found, 77);
+    assert_eq!(
+        unsafe {
+            pw_lookup_entry(
+                volume,
+                1,
+                b"ALIAS.TXT".as_ptr(),
+                9,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut count,
+                &mut found,
+            )
+        },
+        0
+    );
+    assert_eq!(&buf[..count], b"Alias.txt");
+    assert_eq!(found, file);
+    assert_eq!(
+        unsafe {
+            pw_lookup_entry(
+                volume,
+                1,
+                b"mixed.txt".as_ptr(),
+                9,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut count,
+                &mut found,
+            )
+        },
+        0
+    );
+    assert_eq!(&buf[..count], b"MiXeD.txt");
+    let mut parent = 88;
+    assert_eq!(unsafe { pw_parent_directory(volume, 1, &mut parent) }, 0);
+    assert_eq!(parent, 1);
+    assert_eq!(
+        unsafe { pw_parent_directory(volume, file, &mut parent) },
+        -4
+    );
+    assert_eq!(parent, 1);
+    let mut cursor = 0;
+    assert_eq!(unsafe { pw_dir_begin(volume, 1, &mut cursor) }, 0);
+    assert_eq!(pw_dir_seek(volume, cursor, 2), 0);
+    assert_eq!(
+        unsafe {
+            pw_dir_next(
+                volume,
+                cursor,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut count,
+                &mut found,
+            )
+        },
+        1
+    );
+    assert_eq!(pw_dir_seek(volume, cursor, u64::MAX), -1);
+    assert_eq!(pw_dir_seek(volume, cursor, 0), 0);
+    assert_eq!(
+        unsafe {
+            pw_dir_next(
+                volume,
+                cursor,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut count,
+                &mut found,
+            )
+        },
+        0
+    );
+    assert_eq!(&buf[..count], b"Alias.txt");
+    for _ in 0..2 {
+        assert_eq!(pw_dir_seek(volume, cursor, 1), 0);
+        assert_eq!(
+            unsafe {
+                pw_dir_next(
+                    volume,
+                    cursor,
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    &mut count,
+                    &mut found,
+                )
+            },
+            0
+        );
+        assert_eq!(&buf[..count], b"MiXeD.txt");
+    }
+    assert_eq!(pw_dir_seek(0, cursor, 0), -1);
+    assert_eq!(pw_dir_close(volume, cursor), 0);
+    assert_eq!(pw_dir_seek(volume, cursor, 0), -1);
+    assert_eq!(pw_volume_close(volume), 0);
+}
 struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Self {

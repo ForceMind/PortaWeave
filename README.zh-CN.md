@@ -39,6 +39,14 @@ FSKit/WinFsp 仍为待验收候选。核心硬链接不代表 WinFsp 接口限�
 
 普通打开和保全恢复共用实验 schema 检查，在自动回收前拒绝未知表、列、索引、view 和 trigger，兼容源码 checkout 的 LF/CRLF 差异。这不是完整恶意 SQLite 解析器防护，普通 open 也不是只读诊断。详见 [M1-F 实现与回归记录](docs/IMPLEMENTATION-M1F.zh-CN.md)。
 
+## FSKit FSVolume 回调（实验）
+
+新增真正 FSVolume 子类，通过每卷串行队列接入共享核心的目录、句柄、写入/截断、硬链接、同步及分页枚举。直接 SDK 合同验证不等于 OS 挂载；缺失元数据和权限明确拒绝，unary load、activate、mount 继续关闭。详见 [M0-K 范围](docs/IMPLEMENTATION-M0K.zh-CN.md)。
+
+## 后端存储同步
+
+`pw_storage_synchronize` / `Volume::synchronize_storage` 在 Unix 实际刷新数据段、catalog/WAL 与容器目录，保留活动句柄和租约，忙碌/错误明确返回。Windows 返回未支持。原生缓存排空、更强设备刷新和安全弹出仍需分别实现及验收。详见 [M1-G](docs/IMPLEMENTATION-M1G.zh-CN.md) 与 [ADR 0004](docs/adr/0004-backend-storage-barrier.md)。
+
 ## 运行存储实验
 
 使用 `rust-toolchain.toml` 锁定的工具链和 Cargo.lock。示例只接受全新可丢弃目录，不挂载或格式化磁盘。

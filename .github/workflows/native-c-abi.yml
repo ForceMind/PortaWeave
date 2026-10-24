@@ -81,3 +81,13 @@ jobs:
           set -euo pipefail
           xcrun swiftc -I include -L target/debug -lportaweave_native -framework FSKit platform/macos/NativeBridgeSmoke.swift -o "$RUNNER_TEMP/portaweave-swift-abi"
           DYLD_LIBRARY_PATH="$PWD/target/debug" "$RUNNER_TEMP/portaweave-swift-abi" "$RUNNER_TEMP/portaweave-swift-c-smoke-$GITHUB_RUN_ID"
+      - name: Build and exercise FSVolume operations with actual SDK objects (no OS mount)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun swiftc -parse-as-library -warnings-as-errors -I include -L target/debug -lportaweave_native -framework FSKit \
+            platform/macos/FSKitExtension/PortaWeaveVolumeSession.swift \
+            platform/macos/FSKitExtension/PortaWeaveVolume.swift \
+            platform/macos/FSVolumeContract.swift -o "$RUNNER_TEMP/portaweave-fsvolume-contract"
+          DYLD_LIBRARY_PATH="$PWD/target/debug" "$RUNNER_TEMP/portaweave-fsvolume-contract" "$RUNNER_TEMP/portaweave-fsvolume-$GITHUB_RUN_ID"

@@ -58,7 +58,7 @@ impl From<Error> for Fault {
             Error::Quota => QUOTA,
             Error::HostSpace { .. } => NO_SPACE,
             Error::WriteProtected => READ_ONLY,
-            Error::UnsupportedFormat => UNSUPPORTED,
+            Error::UnsupportedFormat | Error::UnsupportedOperation => UNSUPPORTED,
             Error::Corrupt(_) => CORRUPT,
             Error::ResourceLimit | Error::RecoveryLimit => RESOURCE,
             Error::Io(ref io) => match io.kind() {
@@ -184,6 +184,13 @@ pub struct PwSpace {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PwCheckpoint {
+    pub wal_frames: u64,
+    pub checkpointed_frames: u64,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwStorageSync {
+    pub segment_files: u64,
     pub wal_frames: u64,
     pub checkpointed_frames: u64,
 }
@@ -317,6 +324,68 @@ pub unsafe extern "C" fn pw_lookup(
                 .map_err(Fault::from)?;
             unsafe {
                 out_object.write(id.raw());
+            }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// name is readable UTF-8; outputs are writable and non-aliasing. On a small
+/// buffer only out_name_len changes. No NUL terminator is written.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_lookup_entry(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    name_buffer: *mut u8,
+    capacity: usize,
+    out_name_len: *mut usize,
+    out_object: *mut i64,
+) -> i32 {
+    run(|| {
+        required(out_name_len)?;
+        required(out_object)?;
+        readable(name_buffer, capacity)?;
+        let name = unsafe { text(name, name_len)? };
+        with_session(volume, |s| {
+            let entry = s
+                .volume
+                .lookup_entry(file_id(parent)?, name)
+                .map_err(Fault::from)?;
+            let bytes = entry.name.as_bytes();
+            if bytes.len() > capacity {
+                unsafe {
+                    out_name_len.write(bytes.len());
+                }
+                return Ok(BUFFER_TOO_SMALL);
+            }
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), name_buffer, bytes.len());
+                out_name_len.write(bytes.len());
+                out_object.write(entry.id.raw());
+            }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// out_parent points to writable i64 storage.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_parent_directory(
+    volume: u64,
+    object: i64,
+    out_parent: *mut i64,
+) -> i32 {
+    run(|| {
+        required(out_parent)?;
+        with_session(volume, |s| {
+            let parent = s
+                .volume
+                .parent_directory(file_id(object)?)
+                .map_err(Fault::from)?;
+            unsafe {
+                out_parent.write(parent.raw());
             }
             Ok(OK)
         })
@@ -724,6 +793,22 @@ pub extern "C" fn pw_dir_close(volume: u64, cursor: u64) -> i32 {
         })
     })
 }
+/// Seek inside the SAME bounded directory snapshot. Invalid positions do not
+/// advance it. The caller must invalidate native OS verifiers on mutations.
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_dir_seek(volume: u64, cursor: u64, position: u64) -> i32 {
+    run(|| {
+        let position = usize::try_from(position).map_err(|_| Fault::invalid())?;
+        with_session(volume, |s| {
+            let cursor = s.dirs.get_mut(&cursor).ok_or_else(Fault::invalid)?;
+            if position > cursor.entries.len() {
+                return Err(Fault::invalid());
+            }
+            cursor.position = position;
+            Ok(OK)
+        })
+    })
+}
 /// # Safety
 /// out_space points to a valid, writable, aligned PwSpace.
 #[unsafe(no_mangle)]
@@ -757,6 +842,29 @@ pub unsafe extern "C" fn pw_catalog_checkpoint(volume: u64, out_result: *mut PwC
                 out_result.write(PwCheckpoint {
                     wal_frames: result.wal_frames,
                     checkpointed_frames: result.checkpointed_frames,
+                });
+            }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// out_result points to writable PwStorageSync. Output is unchanged on failure.
+/// This is a backend host-file barrier, NOT OS cache drain or safe device eject.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_storage_synchronize(
+    volume: u64,
+    out_result: *mut PwStorageSync,
+) -> i32 {
+    run(|| {
+        required(out_result)?;
+        with_session(volume, |s| {
+            let result = s.volume.synchronize_storage().map_err(Fault::from)?;
+            unsafe {
+                out_result.write(PwStorageSync {
+                    segment_files: result.segment_files,
+                    wal_frames: result.checkpoint.wal_frames,
+                    checkpointed_frames: result.checkpoint.checkpointed_frames,
                 });
             }
             Ok(OK)
