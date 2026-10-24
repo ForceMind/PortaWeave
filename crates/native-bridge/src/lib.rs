@@ -1,0 +1,425 @@
+//! C ABI for the two future *native* filesystem adapters.
+//! An ABI call is not an OS mount: FSKit and WinFsp must still provide
+//! their own permission, locking, notification, mmap and flush semantics.
+//! Raw callers must respect the ownership and buffer requirements in the header.
+#![deny(unsafe_op_in_unsafe_fn)]
+
+use portaweave_core::{Entry, Error, FileId, Handle, Kind, MaintenanceStatus, ROOT, Volume, MAX_IO};
+use std::{
+    collections::BTreeMap,
+    panic::{catch_unwind, AssertUnwindSafe},
+    path::Path,
+    slice, str,
+    sync::{atomic::{AtomicU64, Ordering}, Mutex, OnceLock},
+};
+
+const OK: i32 = 0;
+const EOF: i32 = 1;
+const INVALID: i32 = -1;
+const NOT_FOUND: i32 = -2;
+const EXISTS: i32 = -3;
+const NOT_DIR: i32 = -4;
+const IS_DIR: i32 = -5;
+const NOT_EMPTY: i32 = -6;
+const BUSY: i32 = -7;
+const NO_SPACE: i32 = -8;
+const QUOTA: i32 = -9;
+const READ_ONLY: i32 = -10;
+const UNSUPPORTED: i32 = -11;
+const CORRUPT: i32 = -12;
+const IO: i32 = -13;
+const RESOURCE: i32 = -14;
+const INTERNAL: i32 = -15;
+const BUFFER_TOO_SMALL: i32 = -16;
+
+const MAX_STRING: usize = 32 * 1024;
+const MAX_SESSIONS: usize = 16;
+const MAX_HANDLES: usize = 4096;
+const MAX_CURSORS: usize = 64;
+const MAX_DIRECTORY_ENTRIES: usize = 100_000;
+
+#[derive(Clone, Copy, Debug)]
+struct Fault(i32);
+type FResult<T> = Result<T, Fault>;
+impl From<Error> for Fault {
+    fn from(e: Error) -> Self {
+        Self(match e {
+            Error::NotFound => NOT_FOUND,
+            Error::Exists => EXISTS,
+            Error::NotDirectory => NOT_DIR,
+            Error::IsDirectory => IS_DIR,
+            Error::NotEmpty => NOT_EMPTY,
+            Error::Busy => BUSY,
+            Error::Quota => QUOTA,
+            Error::HostSpace { .. } => NO_SPACE,
+            Error::WriteProtected => READ_ONLY,
+            Error::UnsupportedFormat => UNSUPPORTED,
+            Error::Corrupt(_) => CORRUPT,
+            Error::ResourceLimit | Error::RecoveryLimit => RESOURCE,
+            Error::Io(ref io) => match io.kind() {
+                std::io::ErrorKind::NotFound => NOT_FOUND,
+                std::io::ErrorKind::AlreadyExists => EXISTS,
+                std::io::ErrorKind::StorageFull => NO_SPACE,
+                std::io::ErrorKind::PermissionDenied => READ_ONLY,
+                _ => IO,
+            },
+            Error::Sql(_) => IO,
+            Error::Cycle | Error::InvalidHandle | Error::InvalidRange | Error::InvalidName => INVALID,
+            Error::Injected => INTERNAL,
+        })
+    }
+}
+impl Fault {
+    fn invalid() -> Self { Self(INVALID) }
+    fn busy() -> Self { Self(BUSY) }
+    fn resource() -> Self { Self(RESOURCE) }
+}
+
+#[derive(Default)]
+struct Cursor {
+    entries: Vec<Entry>,
+    position: usize,
+}
+struct Session {
+    volume: Volume,
+    files: BTreeMap<u64, Handle>,
+    dirs: BTreeMap<u64, Cursor>,
+}
+static TABLE: OnceLock<Mutex<BTreeMap<u64, Session>>> = OnceLock::new();
+static NEXT: AtomicU64 = AtomicU64::new(1);
+
+fn next_token() -> FResult<u64> {
+    NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+        .map_err(|_| Fault::resource())
+}
+fn sessions() -> &'static Mutex<BTreeMap<u64, Session>> {
+    TABLE.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+fn with_table<T>(op: impl FnOnce(&mut BTreeMap<u64, Session>) -> FResult<T>) -> FResult<T> {
+    // Refuse service after a panic rather than reusing potentially inconsistent state.
+    let mut lock = sessions().lock().map_err(|_| Fault(INTERNAL))?;
+    op(&mut lock)
+}
+fn with_session<T>(id: u64, op: impl FnOnce(&mut Session) -> FResult<T>) -> FResult<T> {
+    with_table(|all| {
+        let session = all.get_mut(&id).ok_or_else(Fault::invalid)?;
+        op(session)
+    })
+}
+fn run(op: impl FnOnce() -> FResult<i32>) -> i32 {
+    match catch_unwind(AssertUnwindSafe(op)) {
+        Ok(Ok(code)) => code,
+        Ok(Err(e)) => e.0,
+        Err(_) => INTERNAL,
+    }
+}
+
+/// # Safety
+/// Pointer must reference len readable bytes for the duration of this call.
+unsafe fn text<'a>(pointer: *const u8, len: usize) -> FResult<&'a str> {
+    if pointer.is_null() || len == 0 || len > MAX_STRING {
+        return Err(Fault::invalid());
+    }
+    let bytes = unsafe { slice::from_raw_parts(pointer, len) };
+    if bytes.contains(&0) { return Err(Fault::invalid()); }
+    str::from_utf8(bytes).map_err(|_| Fault::invalid())
+}
+fn file_id(raw: i64) -> FResult<FileId> {
+    FileId::from_raw(raw).map_err(Fault::from)
+}
+fn required<T>(p: *mut T) -> FResult<()> {
+    if p.is_null() { Err(Fault::invalid()) } else { Ok(()) }
+}
+fn readable<T>(p: *const T, len: usize) -> FResult<()> {
+    if len > 0 && p.is_null() { Err(Fault::invalid()) } else { Ok(()) }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwStat {
+    pub kind: u32, // 0=file, 1=directory
+    pub size: u64,
+    pub links: u64,
+    pub generation: u64,
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_abi_version() -> u32 { 1 }
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_root_id() -> i64 { ROOT.raw() }
+
+/// # Safety
+/// path points to path_len valid UTF-8 bytes. out_volume is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_volume_create(path: *const u8, path_len: usize, quota: u64, out_volume: *mut u64) -> i32 {
+    run(|| {
+        required(out_volume)?;
+        let path = unsafe { text(path, path_len)? };
+        with_table(|all| {
+            if all.len() >= MAX_SESSIONS { return Err(Fault::resource()); }
+            let token = next_token()?;
+            let volume = Volume::create(Path::new(path), quota).map_err(Fault::from)?;
+            all.insert(token, Session { volume, files: BTreeMap::new(), dirs: BTreeMap::new() });
+            unsafe { out_volume.write(token); }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// path points to path_len valid UTF-8 bytes. out_volume is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_volume_open(path: *const u8, path_len: usize, out_volume: *mut u64) -> i32 {
+    run(|| {
+        required(out_volume)?;
+        let path = unsafe { text(path, path_len)? };
+        with_table(|all| {
+            if all.len() >= MAX_SESSIONS { return Err(Fault::resource()); }
+            let token = next_token()?;
+            let volume = Volume::open(Path::new(path)).map_err(Fault::from)?;
+            all.insert(token, Session { volume, files: BTreeMap::new(), dirs: BTreeMap::new() });
+            unsafe { out_volume.write(token); }
+            Ok(OK)
+        })
+    })
+}
+/// Releases engine ownership. Not an operating-system unmount or a durability certification.
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
+    run(|| with_table(|all| {
+        let session = all.get(&volume).ok_or_else(Fault::invalid)?;
+        if !session.files.is_empty() || !session.dirs.is_empty() {
+            return Err(Fault::busy());
+        }
+        all.remove(&volume);
+        Ok(OK)
+    }))
+}
+/// # Safety
+/// out_stat must be valid writable memory for a PwStat.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_stat(volume: u64, object: i64, out_stat: *mut PwStat) -> i32 {
+    run(|| {
+        required(out_stat)?;
+        with_session(volume, |s| {
+            let stat = s.volume.stat(file_id(object)?).map_err(Fault::from)?;
+            unsafe { out_stat.write(PwStat {
+                kind: if stat.kind == Kind::File { 0 } else { 1 },
+                size: stat.size, links: stat.links, generation: stat.generation
+            }); }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// name is valid UTF-8 of name_len bytes; out_object is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_lookup(volume: u64, parent: i64, name: *const u8, name_len: usize, out_object: *mut i64) -> i32 {
+    run(|| {
+        required(out_object)?;
+        let name = unsafe { text(name, name_len)? };
+        with_session(volume, |s| {
+            let id = s.volume.lookup(file_id(parent)?, name).map_err(Fault::from)?;
+            unsafe { out_object.write(id.raw()); }
+            Ok(OK)
+        })
+    })
+}
+fn create_node(volume: u64, parent: i64, name: &str, directory: bool, out: *mut i64) -> FResult<i32> {
+    required(out)?;
+    with_session(volume, |s| {
+        let parent = file_id(parent)?;
+        let id = if directory { s.volume.mkdir(parent, name) } else { s.volume.create_file(parent, name) }
+            .map_err(Fault::from)?;
+        unsafe { out.write(id.raw()); }
+        Ok(OK)
+    })
+}
+/// # Safety
+/// name is valid UTF-8 of name_len bytes; out_object is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_file_create(volume: u64, parent: i64, name: *const u8, name_len: usize, out_object: *mut i64) -> i32 {
+    run(|| create_node(volume, parent, unsafe { text(name, name_len)? }, false, out_object))
+}
+/// # Safety
+/// name is valid UTF-8 of name_len bytes; out_object is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_directory_create(volume: u64, parent: i64, name: *const u8, name_len: usize, out_object: *mut i64) -> i32 {
+    run(|| create_node(volume, parent, unsafe { text(name, name_len)? }, true, out_object))
+}
+/// # Safety
+/// out_file must be valid writable memory for a u64.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_file_open(volume: u64, object: i64, out_file: *mut u64) -> i32 {
+    run(|| {
+        required(out_file)?;
+        with_session(volume, |s| {
+            if s.files.len() >= MAX_HANDLES { return Err(Fault::resource()); }
+            let token = next_token()?;
+            let h = s.volume.open_file(file_id(object)?).map_err(Fault::from)?;
+            s.files.insert(token, h);
+            unsafe { out_file.write(token); }
+            Ok(OK)
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_file_close(volume: u64, file: u64) -> i32 {
+    run(|| with_session(volume, |s| {
+        let h = *s.files.get(&file).ok_or_else(Fault::invalid)?;
+        s.volume.close_file(h).map_err(Fault::from)?;
+        s.files.remove(&file);
+        Ok(OK)
+    }))
+}
+/// # Safety
+/// If capacity > 0, buffer points to capacity writable bytes, out_read to a writable usize.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_file_read(volume: u64, file: u64, offset: u64, buffer: *mut u8, capacity: usize, out_read: *mut usize) -> i32 {
+    run(|| {
+        required(out_read)?;
+        readable(buffer, capacity)?;
+        if capacity > MAX_IO { return Err(Fault::invalid()); }
+        with_session(volume, |s| {
+            let h = *s.files.get(&file).ok_or_else(Fault::invalid)?;
+            let bytes = s.volume.read(h, offset, capacity).map_err(Fault::from)?;
+            if !bytes.is_empty() { unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, bytes.len()); } }
+            unsafe { out_read.write(bytes.len()); }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// If length > 0, data points to length readable bytes; out_written is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_file_write(volume: u64, file: u64, offset: u64, data: *const u8, length: usize, out_written: *mut usize) -> i32 {
+    run(|| {
+        required(out_written)?;
+        readable(data, length)?;
+        if length > MAX_IO { return Err(Fault::invalid()); }
+        with_session(volume, |s| {
+            let h = *s.files.get(&file).ok_or_else(Fault::invalid)?;
+            let empty: &[u8] = &[];
+            let bytes = if length == 0 { empty } else { unsafe { slice::from_raw_parts(data, length) } };
+            let n = s.volume.write(h, offset, bytes).map_err(Fault::from)?;
+            unsafe { out_written.write(n); }
+            Ok(OK)
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_file_truncate(volume: u64, file: u64, size: u64) -> i32 {
+    run(|| with_session(volume, |s| {
+        let h = *s.files.get(&file).ok_or_else(Fault::invalid)?;
+        s.volume.truncate(h, size).map_err(Fault::from)?;
+        Ok(OK)
+    }))
+}
+/// # Safety
+/// name is valid UTF-8 of name_len bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_remove(volume: u64, parent: i64, name: *const u8, name_len: usize, directory: u8) -> i32 {
+    run(|| {
+        let name = unsafe { text(name, name_len)? };
+        if directory > 1 { return Err(Fault::invalid()); }
+        with_session(volume, |s| {
+            let parent = file_id(parent)?;
+            if directory == 1 { s.volume.rmdir(parent, name) } else { s.volume.unlink(parent, name) }
+                .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// from_name and to_name point to the respective valid UTF-8 lengths.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_rename(volume: u64, from_parent: i64, from_name: *const u8, from_len: usize, to_parent: i64, to_name: *const u8, to_len: usize, replace: u8) -> i32 {
+    run(|| {
+        let from = unsafe { text(from_name, from_len)? };
+        let to = unsafe { text(to_name, to_len)? };
+        if replace > 1 { return Err(Fault::invalid()); }
+        with_session(volume, |s| {
+            s.volume.rename(file_id(from_parent)?, from, file_id(to_parent)?, to, replace == 1)
+                .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// name points to name_len valid UTF-8 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_hard_link(volume: u64, object: i64, parent: i64, name: *const u8, name_len: usize) -> i32 {
+    run(|| {
+        let name = unsafe { text(name, name_len)? };
+        with_session(volume, |s| {
+            s.volume.hard_link(file_id(object)?, file_id(parent)?, name).map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// out_cursor points to writable u64 memory.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_dir_begin(volume: u64, parent: i64, out_cursor: *mut u64) -> i32 {
+    run(|| {
+        required(out_cursor)?;
+        with_session(volume, |s| {
+            if s.dirs.len() >= MAX_CURSORS { return Err(Fault::resource()); }
+            let entries = s.volume.list(file_id(parent)?).map_err(Fault::from)?;
+            if entries.len() > MAX_DIRECTORY_ENTRIES { return Err(Fault::resource()); }
+            let token = next_token()?;
+            s.dirs.insert(token, Cursor { entries, position: 0 });
+            unsafe { out_cursor.write(token); }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// out_name_len and out_object must be writable. If capacity is sufficient,
+/// name_buf must reference capacity writable bytes. On BUFFER_TOO_SMALL,
+/// out_name_len receives the required byte length and the cursor does not advance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_dir_next(volume: u64, cursor: u64, name_buf: *mut u8, capacity: usize, out_name_len: *mut usize, out_object: *mut i64) -> i32 {
+    run(|| {
+        required(out_name_len)?;
+        required(out_object)?;
+        readable(name_buf, capacity)?;
+        with_session(volume, |s| {
+            let cursor = s.dirs.get_mut(&cursor).ok_or_else(Fault::invalid)?;
+            let Some(entry) = cursor.entries.get(cursor.position) else { return Ok(EOF); };
+            let bytes = entry.name.as_bytes();
+            unsafe { out_name_len.write(bytes.len()); }
+            if bytes.len() > capacity { return Ok(BUFFER_TOO_SMALL); }
+            if !bytes.is_empty() { unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), name_buf, bytes.len()); } }
+            unsafe { out_object.write(entry.id.raw()); }
+            cursor.position += 1;
+            Ok(OK)
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_dir_close(volume: u64, cursor: u64) -> i32 {
+    run(|| with_session(volume, |s| {
+        s.dirs.remove(&cursor).ok_or_else(Fault::invalid)?;
+        Ok(OK)
+    }))
+}
+/// # Safety
+/// out_maintenance and out_protected point to writable u32 values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_health(volume: u64, out_maintenance: *mut u32, out_protected: *mut u32) -> i32 {
+    run(|| {
+        required(out_maintenance)?;
+        required(out_protected)?;
+        with_session(volume, |s| {
+            let status = match s.volume.maintenance_status() {
+                MaintenanceStatus::Healthy => 0,
+                MaintenanceStatus::DeferredSpace { .. } => 1,
+                MaintenanceStatus::Failed { .. } => 2,
+            };
+            unsafe {
+                out_maintenance.write(status);
+                out_protected.write(u32::from(s.volume.is_write_protected()));
+            }
+            Ok(OK)
+        })
+    })
+}
