@@ -89,7 +89,7 @@ static TABLE: OnceLock<Mutex<BTreeMap<u64, Session>>> = OnceLock::new();
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
 fn next_token() -> FResult<u64> {
-    NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+    NEXT.try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
         .map_err(|_| Fault::resource())
 }
 fn sessions() -> &'static Mutex<BTreeMap<u64, Session>> {
