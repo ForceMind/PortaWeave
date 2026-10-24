@@ -52,6 +52,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./ci/run-winfsp-service-build-windows.ps1
+      - name: Validate FSKit unary extension Swift types and metadata (no signing/mount)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun swiftc -parse-as-library -typecheck -warnings-as-errors -framework FSKit \
+            platform/macos/FSKitExtension/PortaWeaveFSKitExtension.swift \
+            platform/macos/FSKitExtension/PortaWeaveUnaryFileSystem.swift
+          plutil -lint platform/macos/FSKitExtension/Info.plist
+          plutil -lint platform/macos/FSKitExtension/PortaWeaveFSKitExtension.entitlements
+          test "$(/usr/libexec/PlistBuddy -c 'Print :EXAppExtensionAttributes:FSShortName' platform/macos/FSKitExtension/Info.plist)" = portaweave
       - name: Build and run Swift caller with macOS FSKit SDK available
         if: runner.os == 'macOS'
         shell: bash
