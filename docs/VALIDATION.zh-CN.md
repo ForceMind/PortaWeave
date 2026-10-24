@@ -130,3 +130,7 @@ Work Linux 使用云端只读准备产物中的 Rust 1.99.1 和锁定 registry c
 M1-H 的新增元数据/ABI/恢复及交接范围见 [实现记录](IMPLEMENTATION-M1H.zh-CN.md)。本地四阶段运行不算跨 OS；准确三平台源码/流程状态由对应 PR 验收记录，不预先声明通过。未实测项保持上表状态。
 
 PR #18 已验收：准确 head `986c8c097f11fe05fbf68791537f38df90f00613` / tree `d96c3d018ba8760b61160a83a7ad2afb535700e5` 全部 17 检查 success。core 40114367973、native 40114367951、bundle 40114367966、handover 40114367950、host 40114367905 / 40114365081。v2 UUID `[157,51,47,184,177,121,67,205,184,43,51,100,225,202,81,239]` 随同一 artifact 经 macOS、Windows、Linux 返回保持一致；job 120933006011 输出 v2 recovery/link/original SHA-256 保全成功。合并 `e8700c9d8e63bec331f396be6a2faa950f51e8c8`，候选树与源码树一致，远端 main 已核验。M0-L 后续的 FSKit 属性接入须以自身 SDK/native/bundle CI 验收，不能继承此版本通过结论。
+
+PR #19 已验收：准确 head `0ab866f517b417cb8b908e83ea5d2d0d79bfc012` / tree `4e6c1605c909c9f78acc847c2f5db70241707e4f` 全部 17 检查 success。native 40114673042 的 macOS job 120933385643 实际输出 FSVOLUME_METADATA_CONTRACT_OK 和 FSVOLUME_CALLBACK_CONTRACT_OK，包含重开后 SDK FSVolume identifier 相等、独立 session tag、v1 拒绝、v2 整数属性/纳秒/有效位、链接及拒绝混合设置无副作用。core 40114673015、bundle 40114673050、handover 40114673034、host 40114673014 / 40114669780 全通过。合并 `3098c4cb24a06d8a4695b82dc57ee444297e63a1`，候选树与源码相同。没有启用 load/mount/access；没有系统挂载认证。
+
+M1-I 大小/元数据混合事务新增 4 项场景，元数据套件累计 all-feature 13 / default 10 项；Work Linux 全 workspace/default/all-feature、clippy/fmt、实际 C caller 及四阶段程序验证已运行。源码对应的三平台与交接结果见 M1-I PR 验收；不把本地程序的 macos/windows 阶段参数当作这些 OS。

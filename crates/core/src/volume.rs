@@ -1,5 +1,6 @@
 use crate::{
-    BLOCK_SIZE, CreateAttributes, Error, MAX_IO, Result, SpacePolicy, SpaceStatus, Timestamp,
+    BLOCK_SIZE, CreateAttributes, Error, MAX_IO, MetadataUpdate, Result, SpacePolicy, SpaceStatus,
+    Timestamp,
     catalog::CatalogVersion,
     metadata,
     owner::OwnerLock,
@@ -533,7 +534,7 @@ impl Volume {
         self.fault = Some(point);
         self.exit_on_fault = true;
     }
-    fn take_fault(&mut self, point: u8) -> Option<bool> {
+    pub(crate) fn take_fault(&mut self, point: u8) -> Option<bool> {
         #[cfg(feature = "fault-injection")]
         if self.fault.is_some_and(|f| f as u8 == point) {
             self.fault = None;
@@ -542,7 +543,7 @@ impl Volume {
         let _ = point;
         None
     }
-    fn interrupt(action: Option<bool>) -> Result<()> {
+    pub(crate) fn interrupt(action: Option<bool>) -> Result<()> {
         match action {
             Some(true) => std::process::exit(86),
             Some(false) => Err(Error::Injected),
@@ -852,6 +853,26 @@ impl Volume {
         })
     }
     pub fn truncate(&mut self, handle: Handle, size: u64) -> Result<()> {
+        self.truncate_internal(handle, size, MetadataUpdate::default())
+    }
+    /// Trusted v2 primitive: size/blocks and requested metadata commit together.
+    /// Authorization remains the native adapter's responsibility.
+    pub fn truncate_with_metadata(
+        &mut self,
+        handle: Handle,
+        size: u64,
+        update: MetadataUpdate,
+    ) -> Result<()> {
+        self.require_metadata()?;
+        metadata::validate_update(update)?;
+        self.truncate_internal(handle, size, update)
+    }
+    fn truncate_internal(
+        &mut self,
+        handle: Handle,
+        size: u64,
+        update: MetadataUpdate,
+    ) -> Result<()> {
         self.mutate(|this| {
             let id = this.object(handle)?;
             let old = this.stat(id)?.size;
@@ -878,7 +899,15 @@ impl Volume {
                 "UPDATE objects SET size=?1,generation=generation+1 WHERE id=?2",
                 params![size as i64, id.0],
             )?;
-            metadata::touch(&tx, this.catalog_version, id, time, true, true)?;
+            metadata::apply_update(
+                &tx,
+                this.catalog_version,
+                id,
+                Kind::File,
+                update,
+                time,
+                true,
+            )?;
             Self::interrupt(before)?;
             tx.commit()?;
             Ok(())

@@ -109,6 +109,11 @@ int32_t pw_read_view_close(uint64_t volume, uint64_t view);
 int32_t pw_file_read(uint64_t volume, uint64_t file, uint64_t offset, uint8_t *buffer, size_t capacity, size_t *out_read);
 int32_t pw_file_write(uint64_t volume, uint64_t file, uint64_t offset, const uint8_t *data, size_t length, size_t *out_written);
 int32_t pw_file_truncate(uint64_t volume, uint64_t file, uint64_t size);
+/* v2 only. Size/block references and metadata commit together. Explicit mtime
+ * wins over the truncate clock; file setid is cleared even in a requested mode.
+ * Trusted storage API, not OS caller authentication or access enforcement.
+ */
+int32_t pw_file_truncate_with_metadata(uint64_t volume, uint64_t file, uint64_t size, const PwMetadataUpdate *update);
 int32_t pw_remove(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, uint8_t directory);
 int32_t pw_rename(uint64_t volume, int64_t from_parent, const uint8_t *from_name, size_t from_len,
                   int64_t to_parent, const uint8_t *to_name, size_t to_len, uint8_t replace);

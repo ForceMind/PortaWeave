@@ -13,7 +13,8 @@
 - PR #16（M1-G）已合并 `8cbcfc25e3d80f640863f1cecbdb9fb86a40b5c2`，Unix 后端存储屏障、busy/错误保护和非 Unix 拒绝；不等于安全弹出或内核缓存排空。
 - PR #17（M0-K）已合并 `372c3f5a57c6078a68a0ba4d0edbb6290099d561`，准确 head `557a57e9e464c3f1ddf72889f88e56e6e1a88400` 的 17 项检查全部通过，源码/候选/合并 tree `cf3b0111bd499600be4b386faa0973b7c94524c7` 一致。实际 SDK 对象回调、C readback/枚举算法与 App/Extension 构建均有证据，但未安装/挂载。评审发现重复 listing 耗尽 cursor，修复复用和 32-entry LRU 后跑 256/80 压力测试。保留首轮 Swift Int32/Int 失败。
 - PR #18（M1-H）已合并 `e8700c9d8e63bec331f396be6a2faa950f51e8c8`，准确 head `986c8c097f11fe05fbf68791537f38df90f00613` / tree `d96c3d018ba8760b61160a83a7ad2afb535700e5` 17 检查通过，v1/v2 实际 macOS/Windows/返回交接与恢复保全通过。v2 只能显式新建，默认 v1 不变、无自动升级。uid/gid/mode/时间/UUID 是存储基础，不是有效权限。
-- M0-L 将 v2 UUID 和元数据接入 FSVolume 身份、getAttributes 与枚举；保留独立 session tag，v1 不伪造字段，设置与 access/load/mount 仍关闭。准确 SDK/native/bundle 结果查看对应 PR。
+- PR #19（M0-L）已合并 `3098c4cb24a06d8a4695b82dc57ee444297e63a1`，准确 head `0ab866f517b417cb8b908e83ea5d2d0d79bfc012` / tree `4e6c1605c909c9f78acc847c2f5db70241707e4f` 17 检查通过。v2 UUID/元数据接入 FSVolume 身份、getAttributes 与枚举；实际 SDK v1/v2 合同通过。保留独立 session tag，v1 不伪造字段，设置与 access/load/mount 仍关闭。
+- M1-I 新增 `truncate_with_metadata` / `pw_file_truncate_with_metadata` 单事务更新大小/块引用与元数据；显式 mtime 优先，截断最终清除 file setid，一次 generation。core 13/10 项元数据套件和 C caller 验证；准确三平台 CI/合并状态查看对应 PR。FSKit 尚未接入，不能用两个独立提交代替此 primitive。
 
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 

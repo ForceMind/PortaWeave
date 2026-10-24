@@ -201,6 +201,56 @@ pub(crate) fn verify(db: &Connection, version: CatalogVersion) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn validate_update(update: MetadataUpdate) -> Result<()> {
+    if update.mode.is_some_and(|mode| mode > 0o7777) {
+        return Err(Error::InvalidRange);
+    }
+    for time in [update.created, update.accessed, update.modified]
+        .into_iter()
+        .flatten()
+    {
+        time.validate()?;
+    }
+    Ok(())
+}
+
+/// Caller owns the surrounding business transaction. Explicit mtime wins over
+/// the truncate clock; content/ownership changes always clear file setid bits,
+/// including when a combined request supplied them in its requested mode.
+pub(crate) fn apply_update(
+    db: &Connection,
+    version: CatalogVersion,
+    id: FileId,
+    kind: Kind,
+    update: MetadataUpdate,
+    time: Timestamp,
+    content_changed: bool,
+) -> Result<()> {
+    if version == CatalogVersion::BlocksV1 {
+        return Ok(());
+    }
+    let old = get(db, id)?;
+    let uid = update.uid.unwrap_or(old.uid);
+    let gid = update.gid.unwrap_or(old.gid);
+    let mut mode = update.mode.unwrap_or(old.mode);
+    if kind == Kind::File && (content_changed || uid != old.uid || gid != old.gid) {
+        mode &= 0o1777;
+    }
+    let b = update.created.unwrap_or(old.created);
+    let a = update.accessed.unwrap_or(old.accessed);
+    let m = update
+        .modified
+        .unwrap_or(if content_changed { time } else { old.modified });
+    let changed = db.execute("UPDATE object_metadata SET uid=?1,gid=?2,mode=?3,birth_sec=?4,birth_nsec=?5,access_sec=?6,access_nsec=?7,modify_sec=?8,modify_nsec=?9,change_sec=?10,change_nsec=?11 WHERE object=?12",
+        params![uid,gid,mode,b.seconds,b.nanoseconds,a.seconds,a.nanoseconds,m.seconds,m.nanoseconds,time.seconds,time.nanoseconds,id.raw()])?;
+    if changed != 1 {
+        return Err(Error::Corrupt(
+            "missing object metadata during setattr".into(),
+        ));
+    }
+    Ok(())
+}
+
 impl Volume {
     pub(crate) fn require_metadata(&self) -> Result<()> {
         if self.catalog_version != CatalogVersion::MetadataV2 {
@@ -221,32 +271,21 @@ impl Volume {
     /// No automatic access-time updates yet. Empty updates do not change ctime.
     pub fn set_metadata(&mut self, id: FileId, update: MetadataUpdate) -> Result<()> {
         self.require_metadata()?;
-        if update.mode.is_some_and(|mode| mode > 0o7777) {
-            return Err(Error::InvalidRange);
-        }
-        for t in [update.created, update.accessed, update.modified]
-            .into_iter()
-            .flatten()
-        {
-            t.validate()?;
-        }
+        validate_update(update)?;
         self.mutate(|this| {
             let stat = this.stat(id)?;
-            let old = get(&this.db, id)?;
-            if update == MetadataUpdate::default() { return Ok(()); }
-            let uid = update.uid.unwrap_or(old.uid);
-            let gid = update.gid.unwrap_or(old.gid);
-            let mut mode = update.mode.unwrap_or(old.mode);
-            if stat.kind == Kind::File && (uid != old.uid || gid != old.gid) { mode &= 0o1777; }
-            let b = update.created.unwrap_or(old.created);
-            let a = update.accessed.unwrap_or(old.accessed);
-            let m = update.modified.unwrap_or(old.modified);
+            if update == MetadataUpdate::default() {
+                return Ok(());
+            }
             let c = Timestamp::now()?;
+            let before = this.take_fault(1);
             let tx = this.db.transaction()?;
-            let changed = tx.execute("UPDATE object_metadata SET uid=?1,gid=?2,mode=?3,birth_sec=?4,birth_nsec=?5,access_sec=?6,access_nsec=?7,modify_sec=?8,modify_nsec=?9,change_sec=?10,change_nsec=?11 WHERE object=?12",
-                params![uid,gid,mode,b.seconds,b.nanoseconds,a.seconds,a.nanoseconds,m.seconds,m.nanoseconds,c.seconds,c.nanoseconds,id.raw()])?;
-            if changed != 1 { return Err(Error::Corrupt("missing object metadata during setattr".into())); }
-            tx.execute("UPDATE objects SET generation=generation+1 WHERE id=?1", [id.raw()])?;
+            apply_update(&tx, this.catalog_version, id, stat.kind, update, c, false)?;
+            tx.execute(
+                "UPDATE objects SET generation=generation+1 WHERE id=?1",
+                [id.raw()],
+            )?;
+            Self::interrupt(before)?;
             tx.commit()?;
             Ok(())
         })
