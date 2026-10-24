@@ -1,0 +1,4 @@
+module PortaWeaveNative {
+  header "portaweave_native.h"
+  export *
+}
