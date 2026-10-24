@@ -8,11 +8,16 @@ PortaWeave targets an exFAT-backed, dynamically growing directory container moun
 
 ## Status — 2026-10-24
 
-**M1-D experimental bounded-read increment + compatibility probes. Not a mountable filesystem or a production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-C adds host-space admission and data-segment I/O failure testing. Platform adapters, full metadata/security semantics, idle scheduling and the desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-E experimental native C ABI plus M1-D bounded-read core + compatibility probes. Not a mountable filesystem or a production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-C adds host-space admission and data-segment I/O failure testing. Platform adapters, full metadata/security semantics, idle scheduling and the desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
 FSKit and WinFsp remain candidates. Internal true hard links do not remove WinFsp's documented interface limitation. See the [backend ADR](docs/adr/0001-development-volume-backend-gate.md).
+
+
+### Native adapter ABI (experimental)
+
+The new `portaweave-native` library exports a versioned C header in [`include/portaweave_native.h`](include/portaweave_native.h), with actual Rust-core directory and file mutations, enumeration, file I/O, and lifecycle tokens. See [M0-E interface scope](docs/IMPLEMENTATION-M0E.zh-CN.md). **This is not an OS mount:** FSKit/WinFsp callbacks, security, notifications, safe unmount, and complete flush behavior are still missing. Do not treat a successful ABI test as Codex compatibility.
 
 ## Run the storage lab
 
