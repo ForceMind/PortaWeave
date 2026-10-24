@@ -243,6 +243,52 @@ final class PortaWeaveVolumeSession {
         return timespec(tv_sec: seconds, tv_nsec: Int(time.nanoseconds))
     }
 
+    func metadataUpdate(_ request: FSItem.SetAttributesRequest) throws -> PwMetadataUpdate {
+        var update = PwMetadataUpdate()
+        if request.isValid(.uid) { update.valid |= UInt64(PW_META_UID); update.uid = request.uid }
+        if request.isValid(.gid) { update.valid |= UInt64(PW_META_GID); update.gid = request.gid }
+        if request.isValid(.mode) {
+            guard request.mode <= 0o7777 else { throw POSIXError(.EINVAL) }
+            update.valid |= UInt64(PW_META_MODE); update.mode = request.mode
+        }
+        if request.isValid(.birthTime) { update.valid |= UInt64(PW_META_CREATED); update.created = try nativeTime(request.birthTime) }
+        if request.isValid(.accessTime) { update.valid |= UInt64(PW_META_ACCESSED); update.accessed = try nativeTime(request.accessTime) }
+        if request.isValid(.modifyTime) { update.valid |= UInt64(PW_META_MODIFIED); update.modified = try nativeTime(request.modifyTime) }
+        guard update.valid == 0 || persistentIdentity != nil else { throw POSIXError(.ENOTSUP) }
+        return update
+    }
+
+    private func nativeTime(_ time: timespec) throws -> PwTimestamp {
+        guard let seconds = Int64(exactly: time.tv_sec),
+              let nanos = UInt32(exactly: time.tv_nsec), nanos < 1_000_000_000 else { throw POSIXError(.EINVAL) }
+        return PwTimestamp(seconds: seconds, nanoseconds: nanos, reserved: 0)
+    }
+
+    // Explicit laboratory creation attributes; no OS caller credential inference.
+    func creationAttributes(_ request: FSItem.SetAttributesRequest, parent: PortaWeaveItem,
+                            directory: Bool) throws -> PwCreateAttributes? {
+        let supported: FSItem.Attribute = [.uid, .gid, .mode]
+        var hasAttributes = false
+        for bit in 0..<18 {
+            let attribute = FSItem.Attribute(rawValue: 1 << bit)
+            if request.isValid(attribute) {
+                guard supported.contains(attribute) else { throw POSIXError(.ENOTSUP) }
+                hasAttributes = true
+            }
+        }
+        guard persistentIdentity != nil else {
+            guard !hasAttributes else { throw POSIXError(.ENOTSUP) }
+            return nil
+        }
+        var inherited = PwMetadata()
+        try pwCheck(pw_metadata_get(volume, parent.object, &inherited))
+        let mode = request.isValid(.mode) ? request.mode : (directory ? 0o700 : 0o600)
+        guard mode <= 0o7777 else { throw POSIXError(.EINVAL) }
+        return PwCreateAttributes(uid: request.isValid(.uid) ? request.uid : inherited.uid,
+                                  gid: request.isValid(.gid) ? request.gid : inherited.gid,
+                                  mode: mode, reserved: 0)
+    }
+
     func invalidateEnumerations() {
         for value in cursors.values {
             let status = pw_dir_close(volume, value.cursor)

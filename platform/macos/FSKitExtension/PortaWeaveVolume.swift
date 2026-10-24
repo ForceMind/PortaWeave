@@ -31,8 +31,8 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
         value.supports64BitObjectIDs = true
         value.supportsPersistentObjectIDs = session.persistentIdentity != nil
         value.caseFormat = .insensitiveCasePreserving
-        value.doesNotSupportSettingFilePermissions = true
-        value.doesNotSupportRootTimes = true
+        value.doesNotSupportSettingFilePermissions = session.persistentIdentity == nil
+        value.doesNotSupportRootTimes = session.persistentIdentity == nil
         return value
     }
 
@@ -98,21 +98,31 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
         session.perform {
             do {
                 let item = try self.session.item(raw)
-                // Never consume or fake mode, uid/gid, time, xattr or flags.
+                // Reject every unsupported field before any data mutation.
                 let unsupported: [FSItem.Attribute] = [
-                    .type, .mode, .linkCount, .uid, .gid, .flags, .allocSize, .fileID,
-                    .parentID, .accessTime, .modifyTime, .changeTime, .birthTime,
+                    .type, .linkCount, .flags, .allocSize, .fileID,
+                    .parentID, .changeTime,
                     .backupTime, .addedTime, .supportsLimitedXAttrs, .inhibitKernelOffloadedIO
                 ]
                 guard !unsupported.contains(where: { attributes.isValid($0) }) else {
                     throw POSIXError(.ENOTSUP)
                 }
+                var update = try self.session.metadataUpdate(attributes)
                 if attributes.isValid(.size) {
                     let handle = try self.session.fileHandle(item, requiring: .write)
-                    try pwCheck(pw_file_truncate(self.session.volume, handle, attributes.size))
+                    if self.session.persistentIdentity != nil {
+                        try pwCheck(pw_file_truncate_with_metadata(self.session.volume, handle, attributes.size, &update))
+                    } else {
+                        try pwCheck(pw_file_truncate(self.session.volume, handle, attributes.size))
+                    }
                     attributes.consumedAttributes.insert(.size)
-                    self.session.noteHealth()
+                } else if update.valid != 0 {
+                    try pwCheck(pw_metadata_set(self.session.volume, item.object, &update))
                 }
+                for attribute in [FSItem.Attribute.uid, .gid, .mode, .birthTime, .accessTime, .modifyTime] {
+                    if attributes.isValid(attribute) { attributes.consumedAttributes.insert(attribute) }
+                }
+                self.session.noteHealth()
                 let request = FSItem.GetAttributesRequest()
                 request.wantedAttributes = [.type, .size, .fileID]
                 replyHandler(try self.session.attributes(request, of: item), nil)
@@ -144,24 +154,25 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
         session.perform {
             do {
                 let parent = try self.session.item(directory)
-                // v1 has no persistent creation attributes. Reject all valid
-                // requested fields before committing a namespace mutation.
-                for bit in 0..<18 {
-                    guard !attributes.isValid(FSItem.Attribute(rawValue: 1 << bit)) else {
-                        throw POSIXError(.ENOTSUP)
-                    }
-                }
                 guard type == .file || type == .directory else { throw POSIXError(.ENOTSUP) }
+                let creation = try self.session.creationAttributes(attributes, parent: parent, directory: type == .directory)
                 try self.session.admitItem()
                 let data = try self.session.data(name)
                 var object: Int64 = 0
                 let status = data.withUnsafeBytes { bytes in
                     let pointer = bytes.bindMemory(to: UInt8.self).baseAddress
+                    if var values = creation {
+                        return pw_node_create_with_metadata(self.session.volume, parent.object, pointer,
+                                                            data.count, type == .directory ? 1 : 0, &values, &object)
+                    }
                     return type == .file ?
                         pw_file_create(self.session.volume, parent.object, pointer, data.count, &object) :
                         pw_directory_create(self.session.volume, parent.object, pointer, data.count, &object)
                 }
                 try pwCheck(status)
+                for attribute in [FSItem.Attribute.uid, .gid, .mode] {
+                    if attributes.isValid(attribute) { attributes.consumedAttributes.insert(attribute) }
+                }
                 self.session.noteHealth()
                 self.session.invalidateEnumerations()
                 replyHandler(try self.session.intern(object, kind: type == .file ? 0 : 1), name, nil)
