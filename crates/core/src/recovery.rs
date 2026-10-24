@@ -196,6 +196,7 @@ impl Recovery {
 
         let working = workspace.join("catalog-work");
         fs::create_dir(&working)?;
+        let mut working_budget = limits.snapshot_bytes;
         for name in [
             "catalog.sqlite",
             "catalog.sqlite-wal",
@@ -203,7 +204,7 @@ impl Recovery {
         ] {
             let path = evidence.join(name);
             if path.try_exists()? {
-                copy_file(&path, &working.join(name), &mut u64::MAX)?;
+                copy_file(&path, &working.join(name), &mut working_budget)?;
             }
         }
         // Never copy the WAL index into the working view: SQLite rebuilds it from
