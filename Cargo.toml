@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+publish = false
+
+[workspace.dependencies]
+rusqlite = { version = "=0.40.1", features = ["bundled"] }
+sha2 = "=0.10.9"
+unicode-normalization = "=0.1.24"

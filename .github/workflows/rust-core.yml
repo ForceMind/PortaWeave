@@ -1,0 +1,42 @@
+name: Experimental Rust core (not mounted-volume certification)
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain on disposable CI runner
+        shell: bash
+        run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+      - name: Resolve dependencies and preserve lock evidence
+        shell: bash
+        run: |
+          cargo generate-lockfile
+          echo '---LOCKFILE-BEGIN---'
+          cat Cargo.lock
+          echo '---LOCKFILE-END---'
+          rustc --version
+          cargo --version
+      - name: Build and test persistent core, including injected failures
+        run: cargo test --workspace --all-features --locked -- --nocapture
+      - name: Run scratch-only persistence and automatic reclamation example
+        shell: bash
+        run: cargo run --locked -p portaweave-core --example scratch -- "$RUNNER_TEMP/portaweave-scratch-$GITHUB_RUN_ID"
+      - name: Static analysis
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Formatting report (not automatic source edits)
+        run: cargo fmt --all -- --check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-core-${{ runner.os }}
+          path: Cargo.lock
