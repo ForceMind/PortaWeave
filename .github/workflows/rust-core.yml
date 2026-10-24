@@ -7,6 +7,7 @@ permissions:
   contents: read
 jobs:
   core:
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -14,18 +15,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install pinned Rust toolchain on disposable CI runner
         shell: bash
         run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
-      - name: Resolve dependencies and preserve lock evidence
-        shell: bash
+      - name: Fetch committed lockfile without dependency upgrades
         run: |
-          cargo generate-lockfile
-          echo '---LOCKFILE-BEGIN---'
-          cat Cargo.lock
-          echo '---LOCKFILE-END---'
+          cargo fetch --locked
           rustc --version
           cargo --version
+          cargo tree --locked -p libsqlite3-sys
       - name: Build and test persistent core, including injected failures
         run: cargo test --workspace --all-features --locked -- --nocapture
       - name: Run scratch-only persistence and automatic reclamation example
