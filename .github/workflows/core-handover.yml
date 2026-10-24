@@ -1,0 +1,80 @@
+name: Same experimental container across OS runners (not exFAT or mounts)
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - run: cargo run --locked -p portaweave-core --example interop -- handover-lab seed
+      - uses: actions/upload-artifact@v4
+        with:
+          name: handover-seed
+          path: handover-lab/
+          if-no-files-found: error
+  macos:
+    needs: seed
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: handover-seed
+          path: handover-lab
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - run: cargo run --locked -p portaweave-core --example interop -- handover-lab macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: handover-after-macos
+          path: handover-lab/
+          if-no-files-found: error
+  windows:
+    needs: macos
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: handover-after-macos
+          path: handover-lab
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - run: cargo run --locked -p portaweave-core --example interop -- handover-lab windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: handover-after-windows
+          path: handover-lab/
+          if-no-files-found: error
+  verify-return:
+    needs: windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: handover-after-windows
+          path: handover-lab
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - run: cargo run --locked -p portaweave-core --example interop -- handover-lab verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: handover-return-verified
+          path: handover-lab/
+          if-no-files-found: error

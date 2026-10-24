@@ -1,0 +1,45 @@
+use std::{fmt, io};
+
+#[derive(Debug)]
+pub enum Error {
+    Io(io::Error),
+    Sql(rusqlite::Error),
+    NotFound,
+    Exists,
+    NotDirectory,
+    IsDirectory,
+    NotEmpty,
+    InvalidName,
+    InvalidHandle,
+    InvalidRange,
+    Quota,
+    Busy,
+    Cycle,
+    UnsupportedFormat,
+    Corrupt(String),
+    WriteProtected,
+    Injected,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "I/O: {e}"),
+            Self::Sql(e) => write!(f, "SQLite: {e}"),
+            Self::Corrupt(e) => write!(f, "corrupt data: {e}"),
+            other => write!(f, "{other:?}"),
+        }
+    }
+}
+impl std::error::Error for Error {}
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+impl From<rusqlite::Error> for Error {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Sql(e)
+    }
+}
+pub type Result<T> = std::result::Result<T, Error>;
