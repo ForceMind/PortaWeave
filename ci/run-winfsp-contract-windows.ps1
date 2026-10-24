@@ -18,8 +18,13 @@ if (-not (Test-Path (Join-Path $sdk 'winfsp\winfsp.h'))) {
 $include = Join-Path $root 'include'
 $source = Join-Path $root 'platform\windows\winfsp_contract.c'
 $libdir = Join-Path $root 'target\debug'
-$lib = Join-Path $libdir 'portaweave_native.lib'
-if (-not (Test-Path $lib)) { throw 'Rust native DLL import library missing' }
+# The crate exports both a static library and a DLL import library; the
+# plain .lib is the static archive. Match the existing, successful native C
+# smoke harness instead of linking the wrong archive.
+$library = Get-ChildItem -Path $libdir -Filter 'portaweave_native*.lib' -File |
+    Sort-Object Name | Select-Object -First 1
+if (-not $library) { throw 'Rust native DLL import library missing' }
+Write-Host "Selected Rust library: $($library.Name)"
 $exe = Join-Path $env:RUNNER_TEMP 'portaweave-winfsp-contract.exe'
 $newDir = Join-Path $env:RUNNER_TEMP "pw-winfsp-contract-$env:GITHUB_RUN_ID"
 $batch = Join-Path $env:RUNNER_TEMP 'run-winfsp-contract.bat'
@@ -27,7 +32,7 @@ $commands = @(
     '@echo off'
     "call `"$vcvars`""
     'if errorlevel 1 exit /b 1'
-    "cl /nologo /W3 /WX /utf-8 /I`"$include`" /I`"$sdk`" `"$source`" /link `"$lib`" /OUT:`"$exe`""
+    "cl /nologo /W3 /WX /utf-8 /I`"$include`" /I`"$sdk`" `"$source`" /link /LIBPATH:`"$libdir`" `"$($library.Name)`" /OUT:`"$exe`""
     'if errorlevel 1 exit /b 1'
     "set `"PATH=$libdir;%PATH%`""
     "`"$exe`" `"$newDir`""
