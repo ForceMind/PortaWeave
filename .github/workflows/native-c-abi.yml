@@ -1,4 +1,4 @@
-name: Actual C caller of experimental native ABI (not an OS mount)
+name: Actual C/Swift callers of experimental native ABI (not an OS mount)
 on:
   pull_request:
   push:
@@ -7,12 +7,12 @@ on:
 permissions:
   contents: read
 jobs:
-  c-smoke:
+  native-interop:
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -22,12 +22,25 @@ jobs:
         run: rustup toolchain install 1.99.1 --profile minimal
       - name: Build the C-compatible Rust shared library
         run: cargo build --locked -p portaweave-native
-      - name: Compile a real C executable against its public header
+      - name: Compile a real C executable against its public header (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: cc -std=c11 -Wall -Wextra -Werror -Iinclude tools/native_abi_smoke.c -Ltarget/debug -lportaweave_native -o target/debug/native_abi_smoke
-      - name: Run C caller in a disposable native-host directory
+      - name: Run native C caller (Unix disposable directory)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           export LD_LIBRARY_PATH="$PWD/target/debug"
           export DYLD_LIBRARY_PATH="$PWD/target/debug"
           target/debug/native_abi_smoke "$RUNNER_TEMP/portaweave-c-smoke-$GITHUB_RUN_ID"
+      - name: Compile and run real MSVC C caller (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./ci/run-native-abi-windows.ps1
+      - name: Build and run Swift caller with macOS FSKit SDK available
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun swiftc -I include -L target/debug -lportaweave_native -framework FSKit platform/macos/NativeBridgeSmoke.swift -o "$RUNNER_TEMP/portaweave-swift-abi"
+          DYLD_LIBRARY_PATH="$PWD/target/debug" "$RUNNER_TEMP/portaweave-swift-abi" "$RUNNER_TEMP/portaweave-swift-c-smoke-$GITHUB_RUN_ID"
