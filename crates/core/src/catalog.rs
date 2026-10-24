@@ -20,7 +20,13 @@ fn entries(db: &Connection) -> Result<Vec<SchemaEntry>> {
         db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name")?;
     Ok(statement
         .query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            let sql: Option<String> = row.get(3)?;
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                sql.map(|text| text.replace("\r\n", "\n")),
+            ))
         })?
         .collect::<std::result::Result<_, _>>()?)
 }
@@ -35,4 +41,19 @@ pub(crate) fn validate_schema(db: &Connection) -> Result<()> {
         return Err(Error::UnsupportedFormat);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_gate_accepts_both_source_checkout_line_endings() {
+        let unix = include_str!("schema.sql").replace("\r\n", "\n");
+        for sql in [unix.clone(), unix.replace('\n', "\r\n")] {
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch(&sql).unwrap();
+            validate_schema(&db).unwrap();
+        }
+    }
 }
