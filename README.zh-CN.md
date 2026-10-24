@@ -6,9 +6,9 @@
 
 目标是把 exFAT 上的动态目录容器挂载为 macOS/Windows 的**正常读写开发工作盘**。Codex 本地会话、Git、IDE、依赖安装、编译、测试和程序运行必须直接在卷内工作，不以只读预览、专用导入导出或隐藏的系统盘副本替代。
 
-## 当前状态（2026-10-24）
+## 当前状态（2026-10-25）
 
-**M0-J macOS App/Extension 无签名构建 + 实验性 WinFsp Dispatcher 与 M1-F 结构校验与 M1-E 范围租约存储核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。M1-C 新增宿主空间准入和数据段 I/O 故障测试。平台适配、完整元数据/权限、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
+**M0-K SDK FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-H 显式元数据格式核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
 
 实现范围见 [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md)、[M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md)、[M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md)，历史测试见[验证记录](docs/VALIDATION.zh-CN.md)。确切源码版本的测试结果记录在对应 PR；实现文档不是自动的通过声明。云端三系统核心测试不等于真实 exFAT、挂载盘或 Codex 已兼容。
 
@@ -46,6 +46,10 @@ FSKit/WinFsp 仍为待验收候选。核心硬链接不代表 WinFsp 接口限�
 ## 后端存储同步
 
 `pw_storage_synchronize` / `Volume::synchronize_storage` 在 Unix 实际刷新数据段、catalog/WAL 与容器目录，保留活动句柄和租约，忙碌/错误明确返回。Windows 返回未支持。原生缓存排空、更强设备刷新和安全弹出仍需分别实现及验收。详见 [M1-G](docs/IMPLEMENTATION-M1G.zh-CN.md) 与 [ADR 0004](docs/adr/0004-backend-storage-barrier.md)。
+
+## M1-H 显式元数据格式
+
+`Volume::create_with_metadata` / `pw_volume_create_with_metadata` 显式新建实验 v2 容器，持久化 UUID、uid/gid/mode 和纳秒时间。元数据与内容/名字空间变更共用事务，覆盖硬链接和替换后旧打开对象。默认创建仍为 v1，不自动升级已有容器。这些是受信任的存储接口，尚不实施有效 OS 权限或认证调用者。见[范围、测试及限制](docs/IMPLEMENTATION-M1H.zh-CN.md)与 [ADR 0005](docs/adr/0005-opt-in-metadata-format.md)。
 
 ## 运行存储实验
 

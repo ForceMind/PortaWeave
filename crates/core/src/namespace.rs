@@ -1,4 +1,7 @@
-use crate::{Entry, Error, FileId, Kind, ROOT, Result, Volume, names};
+use crate::{
+    CreateAttributes, Entry, Error, FileId, Kind, ROOT, Result, Timestamp, Volume,
+    catalog::CatalogVersion, metadata, names,
+};
 use rusqlite::{OptionalExtension, params};
 
 impl Volume {
@@ -87,13 +90,34 @@ impl Volume {
                 .collect::<std::result::Result<_, _>>()?)
         })())
     }
-    fn create_node(&mut self, parent: FileId, name: &str, kind: i64) -> Result<FileId> {
+    fn create_node(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        kind: i64,
+        attributes: Option<CreateAttributes>,
+    ) -> Result<FileId> {
+        if let Some(a) = attributes {
+            self.require_metadata()?;
+            a.validate()?;
+        }
         self.mutate(|this| {
             this.directory(parent)?;
             let key = names::key(name)?;
             if this.lookup_key(parent, &key)?.is_some() {
                 return Err(Error::Exists);
             }
+            let attributes = if this.catalog_version == CatalogVersion::MetadataV2 {
+                let parent_attrs = this.metadata(parent)?;
+                Some(attributes.unwrap_or(CreateAttributes {
+                    uid: parent_attrs.uid,
+                    gid: parent_attrs.gid,
+                    mode: if kind == 1 { 0o700 } else { 0o600 },
+                }))
+            } else {
+                None
+            };
+            let time = Timestamp::now()?;
             let tx = this.db.transaction()?;
             tx.execute("INSERT INTO objects(kind) VALUES (?1)", [kind])?;
             let id = tx.last_insert_rowid();
@@ -101,15 +125,36 @@ impl Volume {
                 "INSERT INTO entries VALUES (?1,?2,?3,?4)",
                 params![parent.0, key, name, id],
             )?;
+            if let Some(a) = attributes {
+                metadata::insert(&tx, FileId(id), a, time)?;
+            }
+            metadata::touch(&tx, this.catalog_version, parent, time, true, false)?;
             tx.commit()?;
             Ok(FileId(id))
         })
     }
     pub fn create_file(&mut self, parent: FileId, name: &str) -> Result<FileId> {
-        self.create_node(parent, name, 0)
+        self.create_node(parent, name, 0, None)
     }
     pub fn mkdir(&mut self, parent: FileId, name: &str) -> Result<FileId> {
-        self.create_node(parent, name, 1)
+        self.create_node(parent, name, 1, None)
+    }
+    /// Trusted adapter entry point. Caller supplies already-authorized attributes.
+    pub fn create_file_with_attributes(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        attributes: CreateAttributes,
+    ) -> Result<FileId> {
+        self.create_node(parent, name, 0, Some(attributes))
+    }
+    pub fn mkdir_with_attributes(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        attributes: CreateAttributes,
+    ) -> Result<FileId> {
+        self.create_node(parent, name, 1, Some(attributes))
     }
 
     /// A second directory entry for the SAME object, not copied content.
@@ -123,11 +168,14 @@ impl Volume {
             if this.lookup_key(parent, &key)?.is_some() {
                 return Err(Error::Exists);
             }
+            let time = Timestamp::now()?;
             let tx = this.db.transaction()?;
             tx.execute(
                 "INSERT INTO entries VALUES (?1,?2,?3,?4)",
                 params![parent.0, key, name, object.0],
             )?;
+            metadata::touch(&tx, this.catalog_version, parent, time, true, false)?;
+            metadata::touch(&tx, this.catalog_version, object, time, false, false)?;
             tx.commit()?;
             Ok(())
         })
@@ -138,10 +186,15 @@ impl Volume {
             if this.stat(id)?.kind != Kind::File {
                 return Err(Error::IsDirectory);
             }
-            this.db.execute(
+            let time = Timestamp::now()?;
+            let tx = this.db.transaction()?;
+            tx.execute(
                 "DELETE FROM entries WHERE parent=?1 AND name_key=?2",
                 params![parent.0, names::key(name)?],
             )?;
+            metadata::touch(&tx, this.catalog_version, parent, time, true, false)?;
+            metadata::touch(&tx, this.catalog_version, id, time, false, false)?;
+            tx.commit()?;
             Ok(())
         })
     }
@@ -152,12 +205,14 @@ impl Volume {
             if !this.list(id)?.is_empty() {
                 return Err(Error::NotEmpty);
             }
+            let time = Timestamp::now()?;
             let tx = this.db.transaction()?;
             tx.execute(
                 "DELETE FROM entries WHERE parent=?1 AND name_key=?2",
                 params![parent.0, names::key(name)?],
             )?;
             tx.execute("DELETE FROM objects WHERE id=?1", [id.0])?;
+            metadata::touch(&tx, this.catalog_version, parent, time, true, false)?;
             tx.commit()?;
             Ok(())
         })
@@ -182,7 +237,12 @@ impl Volume {
             let target = this.lookup_key(to_parent, &new_key)?;
             let same_entry = from_parent == to_parent && old_key == new_key;
             if same_entry {
-                this.db.execute("UPDATE entries SET display_name=?1 WHERE parent=?2 AND name_key=?3", params![to, from_parent.0, old_key])?;
+                let time = Timestamp::now()?;
+                let tx = this.db.transaction()?;
+                tx.execute("UPDATE entries SET display_name=?1 WHERE parent=?2 AND name_key=?3", params![to, from_parent.0, old_key])?;
+                metadata::touch(&tx, this.catalog_version, from_parent, time, true, false)?;
+                metadata::touch(&tx, this.catalog_version, source, time, false, false)?;
+                tx.commit()?;
                 return Ok(());
             }
             if target.is_some() && !replace { return Err(Error::Exists); }
@@ -206,14 +266,19 @@ impl Volume {
                 }
                 if kind == Kind::Directory && !this.list(id)?.is_empty() { return Err(Error::NotEmpty); }
             }
+            let time = Timestamp::now()?;
             let tx = this.db.transaction()?;
             if let Some(id) = target {
                 tx.execute("DELETE FROM entries WHERE parent=?1 AND name_key=?2", params![to_parent.0, new_key])?;
                 if source_kind == Kind::Directory { tx.execute("DELETE FROM objects WHERE id=?1", [id.0])?; }
+                else { metadata::touch(&tx, this.catalog_version, id, time, false, false)?; }
             }
             let changed = tx.execute("UPDATE entries SET parent=?1,name_key=?2,display_name=?3 WHERE parent=?4 AND name_key=?5",
                 params![to_parent.0, new_key, to, from_parent.0, old_key])?;
             if changed != 1 { return Err(Error::Corrupt("lost source during rename".into())); }
+            metadata::touch(&tx, this.catalog_version, from_parent, time, true, false)?;
+            if from_parent != to_parent { metadata::touch(&tx, this.catalog_version, to_parent, time, true, false)?; }
+            metadata::touch(&tx, this.catalog_version, source, time, false, false)?;
             tx.commit()?;
             Ok(())
         })

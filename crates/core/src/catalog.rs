@@ -3,6 +3,33 @@
 use crate::{Error, Result};
 use rusqlite::Connection;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CatalogVersion {
+    BlocksV1,
+    MetadataV2,
+}
+impl CatalogVersion {
+    pub(crate) fn marker(self) -> &'static str {
+        match self {
+            Self::BlocksV1 => crate::FORMAT,
+            Self::MetadataV2 => crate::METADATA_FORMAT,
+        }
+    }
+    pub(crate) fn from_marker(marker: &[u8]) -> Result<Self> {
+        match marker {
+            m if m == crate::FORMAT.as_bytes() => Ok(Self::BlocksV1),
+            m if m == crate::METADATA_FORMAT.as_bytes() => Ok(Self::MetadataV2),
+            _ => Err(Error::UnsupportedFormat),
+        }
+    }
+    pub(crate) fn schema(self) -> &'static str {
+        match self {
+            Self::BlocksV1 => include_str!("schema.sql"),
+            Self::MetadataV2 => include_str!("schema-v2.sql"),
+        }
+    }
+}
+
 type SchemaEntry = (String, String, String, Option<String>);
 
 fn entries(db: &Connection) -> Result<Vec<SchemaEntry>> {
@@ -31,16 +58,23 @@ fn entries(db: &Connection) -> Result<Vec<SchemaEntry>> {
         .collect::<std::result::Result<_, _>>()?)
 }
 
-pub(crate) fn validate_schema(db: &Connection) -> Result<()> {
+pub(crate) fn validate_schema(db: &Connection) -> Result<CatalogVersion> {
+    let app: i64 = db.query_row("PRAGMA application_id", [], |r| r.get(0))?;
+    let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let version = match (app, version) {
+        (1347898693, 1) => CatalogVersion::BlocksV1,
+        (1347898693, 2) => CatalogVersion::MetadataV2,
+        _ => return Err(Error::UnsupportedFormat),
+    };
     // Derive the accepted representation from the SAME committed schema and
     // bundled SQLite, rather than maintaining a second hand-written signature.
     // No SQL from the input catalog is executed in this temporary connection.
     let expected = Connection::open_in_memory()?;
-    expected.execute_batch(include_str!("schema.sql"))?;
+    expected.execute_batch(version.schema())?;
     if entries(db)? != entries(&expected)? {
         return Err(Error::UnsupportedFormat);
     }
-    Ok(())
+    Ok(version)
 }
 
 #[cfg(test)]
@@ -49,11 +83,13 @@ mod tests {
 
     #[test]
     fn schema_gate_accepts_both_source_checkout_line_endings() {
-        let unix = include_str!("schema.sql").replace("\r\n", "\n");
-        for sql in [unix.clone(), unix.replace('\n', "\r\n")] {
-            let db = Connection::open_in_memory().unwrap();
-            db.execute_batch(&sql).unwrap();
-            validate_schema(&db).unwrap();
+        for version in [CatalogVersion::BlocksV1, CatalogVersion::MetadataV2] {
+            let unix = version.schema().replace("\r\n", "\n");
+            for sql in [unix.clone(), unix.replace('\n', "\r\n")] {
+                let db = Connection::open_in_memory().unwrap();
+                db.execute_batch(&sql).unwrap();
+                assert_eq!(validate_schema(&db).unwrap(), version);
+            }
         }
     }
 }

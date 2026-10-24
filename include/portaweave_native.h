@@ -44,10 +44,46 @@ typedef struct PwStorageSync {
   uint64_t wal_frames;
   uint64_t checkpointed_frames;
 } PwStorageSync;
+typedef struct PwCreateAttributes {
+  uint32_t uid, gid, mode, reserved; /* mode <= 07777; reserved must be zero */
+} PwCreateAttributes;
+typedef struct PwTimestamp {
+  int64_t seconds;
+  uint32_t nanoseconds, reserved; /* fraction < 1000000000, reserved zero */
+} PwTimestamp;
+typedef struct PwMetadata {
+  uint32_t uid, gid, mode, reserved;
+  PwTimestamp created, accessed, modified, changed;
+} PwMetadata;
+enum {
+  PW_META_UID = 1, PW_META_GID = 2, PW_META_MODE = 4,
+  PW_META_CREATED = 8, PW_META_ACCESSED = 16, PW_META_MODIFIED = 32
+};
+typedef struct PwMetadataUpdate {
+  uint64_t valid; /* only bits above; change time is maintained by the core */
+  uint32_t uid, gid, mode, reserved;
+  PwTimestamp created, accessed, modified;
+} PwMetadataUpdate;
+typedef struct PwVolumeIdentity {
+  uint8_t uuid[16]; /* persistent UUID v4; not a credential or secret */
+  uint64_t capabilities; /* currently 1: POSIX metadata storage */
+} PwVolumeIdentity;
 
 uint32_t pw_abi_version(void);
 int64_t pw_root_id(void);
 int32_t pw_volume_create(const uint8_t *path, size_t path_len, uint64_t quota, uint64_t *out_volume);
+/* Explicit NEW experimental v2 container. Existing v1 is never upgraded.
+ * Metadata APIs are trusted storage operations, NOT permission enforcement or
+ * OS caller authentication. All reserved fields must be zero. Outputs remain
+ * unchanged on failure. v1 metadata operations return PW_UNSUPPORTED.
+ */
+int32_t pw_volume_create_with_metadata(const uint8_t *path, size_t path_len, uint64_t quota,
+                                      const PwCreateAttributes *attributes, uint64_t *out_volume);
+int32_t pw_volume_identity(uint64_t volume, PwVolumeIdentity *out_identity);
+int32_t pw_metadata_get(uint64_t volume, int64_t object, PwMetadata *out_metadata);
+int32_t pw_metadata_set(uint64_t volume, int64_t object, const PwMetadataUpdate *update);
+int32_t pw_node_create_with_metadata(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len,
+                                    uint8_t directory, const PwCreateAttributes *attributes, int64_t *out_object);
 int32_t pw_volume_open(const uint8_t *path, size_t path_len, uint64_t *out_volume);
 int32_t pw_volume_close(uint64_t volume);
 int32_t pw_stat(uint64_t volume, int64_t object, PwStat *out_stat);

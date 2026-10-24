@@ -1,0 +1,13 @@
+# ADR 0005 — Explicit experimental v2 for persistent identity and POSIX metadata
+
+Date: 2026-10-25. Status: implemented experimentally; native authorization pending.
+
+The committed v1 schema cannot represent volume identity, owners, permission bits or timestamps. Silently extending it would violate the exact-schema gate and make old clients either discard metadata or reject containers unpredictably. `Volume::create` and `pw_volume_create` therefore keep creating v1. The new explicit `create_with_metadata` API creates a NEW v2 directory only. There is no in-place upgrade, downgrade, migration or rewriting of v1 originals.
+
+v2 uses marker `experimental-m1h-metadata-v2`, SQLite user_version 2, its own exact committed schema, one persistent UUID and a metadata row per object. The UUID uses SQLite randomblob(16) with RFC UUID v4/version and variant bits; it is an identifier, not an authentication token or secret. Capability bit 0 means POSIX metadata storage only. Unknown formats, schema extensions, mismatched markers, missing rows, invalid identity and invalid timestamps are refused before destructive GC. Recovery accepts both known schemas on a separate working copy and counts the extra rows against its catalog budget.
+
+Root uid/gid/mode are explicit inputs. Native callers can supply explicit child attributes. Existing convenience create methods inherit the parent uid/gid and use file 0600/directory 0700; they do not infer current process identity, umask, setgid inheritance or effective caller authorization. Mode stores permission/special bits separately from kind. Hard links share one metadata row. POSIX integer IDs are not Windows SIDs or ACLs.
+
+Creation, content mutation and namespace changes store metadata in the same SQLite business transaction. Writes/truncates update mtime/ctime and clear regular-file setuid/setgid while preserving execute bits. Names change parent mtime/ctime and affected inode ctime; replacement preserves metadata of any still-open old inode. Explicit metadata changes update ctime/generation; regular-file ownership changes clear setuid/setgid. Times are signed Unix seconds plus a nonnegative nanosecond fraction. There is no monotonic-time promise and no automatic atime update yet.
+
+Metadata set/get are trusted core/storage APIs, not permission enforcement. FSKit access/load/activate/mount and WinFsp security/Flush gates remain closed. Caller credentials, parent traversal, sticky directories, ACLs, OS caches, xattrs/ADS and actual mounted tools are separate work. Content recovery export reports that modes/uid/gid/times are not applied or exported; the preserved evidence catalog retains source metadata. No metadata-complete recovery claim is made.

@@ -5,6 +5,114 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+#[test]
+fn metadata_abi_rejects_unknown_fields_preserves_outputs_and_keeps_v2_identity() {
+    let s = Scratch::new();
+    let mut volume = 77;
+    let mut a = PwCreateAttributes {
+        uid: u32::MAX,
+        gid: 20,
+        mode: 0o751,
+        reserved: 1,
+    };
+    assert_eq!(
+        unsafe {
+            pw_volume_create_with_metadata(
+                s.path().as_ptr(),
+                s.path().len(),
+                100000,
+                &a,
+                &mut volume,
+            )
+        },
+        -1
+    );
+    assert_eq!(volume, 77);
+    assert!(!s.0.exists());
+    a.reserved = 0;
+    assert_eq!(
+        unsafe {
+            pw_volume_create_with_metadata(
+                s.path().as_ptr(),
+                s.path().len(),
+                100000,
+                &a,
+                &mut volume,
+            )
+        },
+        0
+    );
+    let mut identity = PwVolumeIdentity::default();
+    assert_eq!(unsafe { pw_volume_identity(volume, &mut identity) }, 0);
+    let original = identity;
+    let mut node = 99;
+    assert_eq!(
+        unsafe { pw_node_create_with_metadata(volume, 1, b"tool".as_ptr(), 4, 2, &a, &mut node) },
+        -1
+    );
+    assert_eq!(node, 99);
+    assert_eq!(
+        unsafe { pw_node_create_with_metadata(volume, 1, b"tool".as_ptr(), 4, 0, &a, &mut node) },
+        0
+    );
+    let mut meta = PwMetadata::default();
+    assert_eq!(unsafe { pw_metadata_get(volume, node, &mut meta) }, 0);
+    assert_eq!(meta.uid, u32::MAX);
+    assert_eq!(meta.mode, 0o751);
+    let old = meta;
+    for update in [
+        PwMetadataUpdate {
+            valid: 64,
+            ..Default::default()
+        },
+        PwMetadataUpdate {
+            valid: 4,
+            mode: 0o10000,
+            ..Default::default()
+        },
+        PwMetadataUpdate {
+            valid: 16,
+            accessed: PwTimestamp {
+                nanoseconds: 1_000_000_000,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        PwMetadataUpdate {
+            reserved: 1,
+            ..Default::default()
+        },
+    ] {
+        assert_eq!(unsafe { pw_metadata_set(volume, node, &update) }, -1);
+        assert_eq!(unsafe { pw_metadata_get(volume, node, &mut meta) }, 0);
+        assert_eq!(meta, old);
+    }
+    assert_eq!(unsafe { pw_metadata_get(volume, -1, &mut meta) }, -1);
+    assert_eq!(meta, old);
+    let update = PwMetadataUpdate {
+        valid: 2 | 16,
+        gid: 80,
+        accessed: PwTimestamp {
+            seconds: -123,
+            nanoseconds: 999_999_999,
+            reserved: 0,
+        },
+        ..Default::default()
+    };
+    assert_eq!(unsafe { pw_metadata_set(volume, node, &update) }, 0);
+    assert_eq!(pw_volume_close(volume), 0);
+    assert_eq!(
+        unsafe { pw_volume_open(s.path().as_ptr(), s.path().len(), &mut volume) },
+        0
+    );
+    assert_eq!(unsafe { pw_volume_identity(volume, &mut identity) }, 0);
+    assert_eq!(identity, original);
+    assert_eq!(unsafe { pw_metadata_get(volume, node, &mut meta) }, 0);
+    assert_eq!(meta.gid, 80);
+    assert_eq!(meta.accessed, update.accessed);
+    assert_eq!(pw_volume_close(volume), 0);
+}
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
 #[test]

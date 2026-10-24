@@ -6,9 +6,9 @@
 
 PortaWeave targets an exFAT-backed, dynamically growing directory container mounted as a **real read/write development volume** on macOS and Windows. Ordinary applications, local Codex, Git, editors, package managers and build tools must work directly inside it, without a hidden working copy on the system disk.
 
-## Status — 2026-10-24
+## Status — 2026-10-25
 
-**M0-J unsigned macOS App/Extension build + experimental WinFsp dispatcher + M1-F schema-gated core with M1-E range leases. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-C adds host-space admission and data-segment I/O failure testing. Native adapters are incomplete; full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-K SDK FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-H opt-in metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -46,6 +46,10 @@ A real FSVolume subclass now bridges namespace, handles, write/truncate, links, 
 ## Backend storage synchronization
 
 `pw_storage_synchronize` / `Volume::synchronize_storage` performs an explicit Unix host-file, catalog/WAL and container-directory barrier. It preserves live handles and leases; busy/error results are visible. Windows returns unsupported. Native cache drain, stronger device flush and safe eject remain separate gates. See [M1-G](docs/IMPLEMENTATION-M1G.zh-CN.md) and [ADR 0004](docs/adr/0004-backend-storage-barrier.md).
+
+## M1-H explicit metadata format
+
+`Volume::create_with_metadata` / `pw_volume_create_with_metadata` explicitly creates a NEW experimental v2 container with persistent UUID, uid/gid/mode and nanosecond timestamps. Metadata changes share content/namespace transactions, including links and still-open replaced objects. Default creation remains v1; existing containers are never automatically upgraded. These are trusted storage APIs, not effective OS permissions or caller authentication. See [scope, tests and limits](docs/IMPLEMENTATION-M1H.zh-CN.md) and [ADR 0005](docs/adr/0005-opt-in-metadata-format.md).
 
 ## Run the storage lab
 

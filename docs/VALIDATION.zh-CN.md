@@ -84,7 +84,7 @@ cargo fmt --all -- --check
 cargo run --locked -p portaweave-core --bin portaweave-recover -- verify SOURCE NEW_WORKSPACE
 ```
 
-本轮 Rust 编译/测试在 GitHub 的一次性 OS runner 中实际执行；聊天容器未安装 Rust，不将源码检查说成本地 cargo 测试。没有操作用户电脑。
+初轮 Rust 编译/测试在 GitHub 的一次性 OS runner 中实际执行，当时 Work 容器未安装 Rust；2026-10-25 续研已在 Work 配置锁定云端工具链，新增本地实际 cargo 证据见后节。没有操作用户电脑。
 
 ## 未完成验证
 
@@ -118,3 +118,13 @@ macOS 构建产物位于 GitHub Actions 的实验包与日志 artifact。Xcode �
 Windows 增加只读环境清单，记录 OS、runtime DLL/版本及注册驱动；原始报告由 native ABI workflow 保存。缺失 driver/runtime 只记录 BLOCKED，不自动安装。不把存在 DLL 或注册驱动当成真正挂载成功。所有 Windows 文件打开仍拒绝，Flush 未支持，完整 ACL/共享/硬链接/缓存语义仍未完成。
 
 本轮 Work Linux 本地运行九项 Python 回归、C header/caller 语法、shell/Python 语法、plist/entitlement/scheme 与工程引用检查；Rust 与 Xcode 实际构建在 GitHub 隔离 runner。真实 FSKit/WinFsp 挂载、卷内 Codex/开发工具、受限沙盒负向权限、物理 exFAT/USB/断电全部继续 NOT_RUN/BLOCKED，Issue #1/#3 保持开放。
+
+## 2026-10-25 续研：M1-G / M0-K / M1-H
+
+M1-G / PR #16：准确源码 `2192816673603af0925218dd466f30e33c02ce97` 三平台全部 17 项通过，core 40111432540、native 40111432533、handover 40111432523、bundle 40111432580、host 40111432511；合并 `8cbcfc25e3d80f640863f1cecbdb9fb86a40b5c2`，tree `f7aebf50d51cd8ecb8a82f20cb20fd614f4c1188` 与候选/源码一致。Unix 实际后端屏障与非 Unix 明确拒绝，均不等于设备弹出。
+
+M0-K / PR #17：准确源码 `557a57e9e464c3f1ddf72889f88e56e6e1a88400` 全部 17 项通过；native 40113309165（SDK job 120929345802 输出 FSVOLUME_CALLBACK_CONTRACT_OK）、core 40113309102、bundle 40113309073、handover 40113309090、host 40113309063 / 40113305249。合并 `372c3f5a57c6078a68a0ba4d0edbb6290099d561`，tree `cf3b0111bd499600be4b386faa0973b7c94524c7` 一致。保留失败 native 40112544717 / bundle 40112544675（Swift Int32/导入 Int 常量）；评审的 cursor 资源耗尽修复后实际跑 256 次重复扫描、80 目录淘汰和 ESTALE 重启。直接 SDK/core 回调不等于 OS 分发/安装挂载。
+
+Work Linux 使用云端只读准备产物中的 Rust 1.99.1 和锁定 registry cache，核验 ZIP 与内部 SHA-256 后解包；首次 uid 保留解包失败，用 `--no-same-owner` 修正，未提升权限或关闭沙盒。本地完整 default/all-feature workspace、clippy/fmt、真实 C caller 和九项 Python 回归可实际运行。没有在用户机器安装工具链。
+
+M1-H 的新增元数据/ABI/恢复及交接范围见 [实现记录](IMPLEMENTATION-M1H.zh-CN.md)。本地四阶段运行不算跨 OS；准确三平台源码/流程状态由对应 PR 验收记录，不预先声明通过。未实测项保持上表状态。

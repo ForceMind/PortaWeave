@@ -16,10 +16,16 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install 1.99.1 --profile minimal
       - run: cargo run --locked -p portaweave-core --example interop -- handover-lab seed
+      - run: cargo run --locked -p portaweave-core --example metadata_handover -- metadata-lab seed
       - uses: actions/upload-artifact@v4
         with:
           name: handover-seed
           path: handover-lab/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metadata-seed
+          path: metadata-lab/
           if-no-files-found: error
   macos:
     needs: seed
@@ -33,12 +39,22 @@ jobs:
         with:
           name: handover-seed
           path: handover-lab
+      - uses: actions/download-artifact@v4
+        with:
+          name: metadata-seed
+          path: metadata-lab
       - run: rustup toolchain install 1.99.1 --profile minimal
       - run: cargo run --locked -p portaweave-core --example interop -- handover-lab macos
+      - run: cargo run --locked -p portaweave-core --example metadata_handover -- metadata-lab macos
       - uses: actions/upload-artifact@v4
         with:
           name: handover-after-macos
           path: handover-lab/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metadata-after-macos
+          path: metadata-lab/
           if-no-files-found: error
   windows:
     needs: macos
@@ -52,12 +68,22 @@ jobs:
         with:
           name: handover-after-macos
           path: handover-lab
+      - uses: actions/download-artifact@v4
+        with:
+          name: metadata-after-macos
+          path: metadata-lab
       - run: rustup toolchain install 1.99.1 --profile minimal
       - run: cargo run --locked -p portaweave-core --example interop -- handover-lab windows
+      - run: cargo run --locked -p portaweave-core --example metadata_handover -- metadata-lab windows
       - uses: actions/upload-artifact@v4
         with:
           name: handover-after-windows
           path: handover-lab/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metadata-after-windows
+          path: metadata-lab/
           if-no-files-found: error
   verify-return:
     needs: windows
@@ -71,8 +97,13 @@ jobs:
         with:
           name: handover-after-windows
           path: handover-lab
+      - uses: actions/download-artifact@v4
+        with:
+          name: metadata-after-windows
+          path: metadata-lab
       - run: rustup toolchain install 1.99.1 --profile minimal
       - run: cargo run --locked -p portaweave-core --example interop -- handover-lab verify
+      - run: cargo run --locked -p portaweave-core --example metadata_handover -- metadata-lab verify
       - name: Export returned container without changing its bytes
         shell: python
         run: |
@@ -94,6 +125,16 @@ jobs:
           assert Path('handover-export/COMPLETE').is_file()
           assert not Path('handover-export/INCOMPLETE').exists()
           print('Returned-container content export and original SHA-256 preservation verified')
+          source = Path('metadata-lab')
+          before = hashes()
+          subprocess.run(['cargo','run','--locked','-p','portaweave-core','--bin','portaweave-recover','--','export',str(source),'metadata-recovery','metadata-export'], check=True)
+          assert hashes() == before, 'v2 recovery changed the original container'
+          out = Path('metadata-export/files')
+          assert (out/'CODE').read_bytes() == b'stage-2'
+          assert os.path.samefile(out/'CODE', out/'alias')
+          assert Path('metadata-export/COMPLETE').is_file()
+          assert 'POSIX modes, uid/gid' in Path('metadata-export/report.txt').read_text()
+          print('Returned v2 recovery, content links and original SHA-256 preservation verified')
       - uses: actions/upload-artifact@v4
         with:
           name: handover-return-verified
@@ -101,4 +142,12 @@ jobs:
             handover-lab/
             handover-export/report.txt
             handover-recovery/snapshot-manifest.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metadata-return-verified
+          path: |
+            metadata-lab/
+            metadata-export/report.txt
+            metadata-recovery/snapshot-manifest.txt
           if-no-files-found: error
