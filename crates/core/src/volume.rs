@@ -130,6 +130,7 @@ pub enum FaultPoint {
 struct ViewState {
     size: u64,
     blocks: Vec<BlockRef>,
+    range: Option<std::ops::Range<u64>>,
 }
 static TOKENS: AtomicU64 = AtomicU64::new(1);
 fn token() -> Result<u64> {
@@ -520,17 +521,49 @@ impl Volume {
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
     pub fn acquire_view(&mut self, handle: Handle) -> Result<ReadView> {
+        self.acquire_indexed_view(handle, None)
+    }
+    /// Retain only the block mappings intersecting this byte interval. Reads
+    /// use absolute file offsets and must fit entirely inside the interval.
+    /// The original EOF is retained, including for sparse/beyond-EOF leases.
+    pub fn acquire_range_view(
+        &mut self,
+        handle: Handle,
+        offset: u64,
+        length: u64,
+    ) -> Result<ReadView> {
+        let end = offset
+            .checked_add(length)
+            .filter(|end| *end <= i64::MAX as u64)
+            .ok_or(Error::InvalidRange)?;
+        self.acquire_indexed_view(handle, Some(offset..end))
+    }
+    fn acquire_indexed_view(
+        &mut self,
+        handle: Handle,
+        range: Option<std::ops::Range<u64>>,
+    ) -> Result<ReadView> {
         let id = self.object(handle)?;
         if self.views.len() >= self.read_view_limits.max_active_views {
             return Err(Error::ResourceLimit);
         }
         // Probe the SQLite index size BEFORE allocating its Vec. An active
         // view retains its exact old block mapping across rename/overwrite/GC.
+        let (first, last) = match &range {
+            Some(r) if r.is_empty() => (1, 0),
+            Some(r) => (
+                (r.start / BLOCK_SIZE as u64) as i64,
+                ((r.end - 1) / BLOCK_SIZE as u64) as i64,
+            ),
+            None => (0, i64::MAX),
+        };
         let count: i64 = self.observe(
             self.db
-                .query_row("SELECT COUNT(*) FROM blocks WHERE object=?1", [id.0], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT COUNT(*) FROM blocks WHERE object=?1 AND block BETWEEN ?2 AND ?3",
+                    params![id.0, first, last],
+                    |r| r.get(0),
+                )
                 .map_err(Error::from),
         )?;
         let count = usize::try_from(count)
@@ -543,7 +576,7 @@ impl Volume {
             return Err(Error::ResourceLimit);
         }
         let size = self.stat(id)?.size;
-        let blocks = self.observe(self.refs(id))?;
+        let blocks = self.observe(self.refs_range(id, first, last))?;
         if blocks.len() != count {
             self.protected.set(true);
             return Err(Error::Corrupt(
@@ -551,7 +584,14 @@ impl Volume {
             ));
         }
         let view = ReadView(token()?);
-        self.views.insert(view, ViewState { size, blocks });
+        self.views.insert(
+            view,
+            ViewState {
+                size,
+                blocks,
+                range,
+            },
+        );
         self.indexed_view_block_refs = next;
         Ok(view)
     }
@@ -584,6 +624,12 @@ impl Volume {
     pub fn read_view(&self, view: ReadView, offset: u64, len: usize) -> Result<Vec<u8>> {
         self.observe((|| {
             let state = self.views.get(&view).ok_or(Error::InvalidHandle)?;
+            if let Some(range) = &state.range {
+                let end = offset.checked_add(len as u64).ok_or(Error::InvalidRange)?;
+                if offset < range.start || end > range.end {
+                    return Err(Error::InvalidRange);
+                }
+            }
             self.read_refs(state.size, &state.blocks, offset, len)
         })())
     }

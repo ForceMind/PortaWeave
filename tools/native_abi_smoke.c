@@ -11,7 +11,7 @@
 int main(int argc, char **argv) {
     if (argc != 2) return 2;
     const char *path = argv[1];
-    uint64_t volume = 0, handle = 0;
+    uint64_t volume = 0, handle = 0, view = 0;
     int64_t node = 0, found = 0;
     size_t count = 0;
     uint8_t buffer[64] = {0};
@@ -31,10 +31,20 @@ int main(int argc, char **argv) {
     if (checkpoint.checkpointed_frames != checkpoint.wal_frames) return 10;
     REQUIRE(pw_file_read(volume, handle, 0, buffer, sizeof(buffer), &count));
     if (count != 5 || memcmp(buffer, "hello", 5) != 0) return 5;
+    REQUIRE(pw_read_view_begin(volume, handle, 1, 3, &view));
+    count = 99;
+    if (pw_read_view_read(volume, view, 0, buffer, 1, &count) != PW_INVALID ||
+        count != 99) return 11;
+    REQUIRE(pw_file_write(volume, handle, 0, (const uint8_t *)"HELLO", 5, &count));
     if (pw_volume_close(volume) != PW_BUSY) return 6;
     REQUIRE(pw_file_close(volume, handle));
     REQUIRE(pw_rename(volume, 1, (const uint8_t *)"native.txt", 10,
                       1, (const uint8_t *)"renamed.txt", 11, 0));
+    REQUIRE(pw_read_view_read(volume, view, 1, buffer, 3, &count));
+    if (count != 3 || memcmp(buffer, "ell", 3) != 0) return 12;
+    if (pw_volume_close(volume) != PW_BUSY) return 13;
+    REQUIRE(pw_read_view_close(volume, view));
+    if (pw_read_view_close(volume, view) != PW_INVALID) return 14;
     REQUIRE(pw_volume_close(volume));
     REQUIRE(pw_volume_open((const uint8_t *)path, strlen(path), &volume));
     REQUIRE(pw_lookup(volume, 1, (const uint8_t *)"renamed.txt", 11, &found));
