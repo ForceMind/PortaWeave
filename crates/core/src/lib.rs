@@ -5,6 +5,7 @@
 //! watcher, OS adapter, hardware power-loss guarantee or stable format yet.
 #![forbid(unsafe_code)]
 
+mod catalog;
 mod error;
 mod names;
 mod namespace;

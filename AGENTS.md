@@ -34,3 +34,5 @@ The repository contains an **experimental persistent Rust core and offline safet
 26. M0-H Windows WinFsp lifecycle has opt-in scratch-only `--lab-mount` but it has not been exercised on a genuine installed driver. CI `--self-test` is NOT a mount test. Never certify Finder/Explorer, filesystem-wide fsync, hard links or Codex merely because dispatcher source compiles. Deny access and Flush until safe platform semantics are verified. Do not install privileged WinFsp drivers without specific authorization.
 
 27. M0-J builds an unsigned macOS host App plus embedded ExtensionKit bundle. Full xcodebuild/link/metadata checks are build evidence only; never install/enable it or report a mounted disk from this CI. Keep sandbox entitlements and the fail-closed resource gate until volume operations, permissions, sync and real platform tests exist.
+
+28. M1-F ordinary open validates the exact experimental catalog schema before config queries/WAL configuration/GC. Only CRLF-to-LF in schema SQL is normalized. Recovery uses the same gate on its working copy. Do not bypass it on Windows, silently drop unknown triggers/columns, or claim ordinary open preserves original bytes.

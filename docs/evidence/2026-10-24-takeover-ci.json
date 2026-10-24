@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "scope": "2026-10-24-takeover-increments",
+  "verified_sources": [
+    {
+      "pull_request": 13,
+      "source_commit": "27933a6fa3a0a1b1e3c59211da63c6ef8d78dc27",
+      "tree": "5d15d3ac4e5bef105629dbd1a9dca4023398a433",
+      "merged_main": "b10ccd5ca09c374b8cab6b77dbbe9c613ba6df92",
+      "checks": [
+        {
+          "name": "verify-return",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40106219073/job/120908757148"
+        },
+        {
+          "name": "windows",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40106219073/job/120908565545"
+        },
+        {
+          "name": "macos",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40106219073/job/120908445564"
+        },
+        {
+          "name": "native-interop (macos-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40106219134/job/120908338666"
+        },
+        {
+          "name": "native-interop (ubuntu-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40106219134/job/120908338546"
+        },
+        {
+          "name": "native-interop (windows-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40106219134/job/120908338413"
+        },
+        {
+          "name": "core (windows-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40106219079/job/120908338312"
+        },
+        {
+          "name": "seed",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40106219073/job/120908338292"
+        },
+        {
+          "name": "core (ubuntu-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40106219079/job/120908338247"
+        },
+        {
+          "name": "core (macos-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40106219079/job/120908338051"
+        }
+      ]
+    },
+    {
+      "pull_request": 14,
+      "source_commit": "7204052b55b46c6b943445233154533e10d20264",
+      "tree": "f48f7c968aafb32ba824a496b4a022be998ec4b8",
+      "merged_main": "c6691499055586b781c93ed789f82683ffdc8fb0",
+      "checks": [
+        {
+          "name": "verify-return",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062178/job/120911315992"
+        },
+        {
+          "name": "windows",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062178/job/120911152109"
+        },
+        {
+          "name": "macos",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062178/job/120910990859"
+        },
+        {
+          "name": "macos-bundle",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107067747/job/120910850486"
+        },
+        {
+          "name": "core (windows-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062261/job/120910835038"
+        },
+        {
+          "name": "core (ubuntu-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062261/job/120910835002"
+        },
+        {
+          "name": "harness (windows-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062244/job/120910834959"
+        },
+        {
+          "name": "harness (ubuntu-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062244/job/120910834891"
+        },
+        {
+          "name": "native-interop (windows-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062181/job/120910834875"
+        },
+        {
+          "name": "core (macos-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062261/job/120910834834"
+        },
+        {
+          "name": "native-interop (ubuntu-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062181/job/120910834816"
+        },
+        {
+          "name": "harness (macos-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062244/job/120910834763"
+        },
+        {
+          "name": "native-interop (macos-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062181/job/120910834714"
+        },
+        {
+          "name": "seed",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/ForceMind/PortaWeave/actions/runs/40107062178/job/120910834694"
+        }
+      ]
+    }
+  ],
+  "retained_failures": [
+    {
+      "run": 40106003956,
+      "reason": "M1-E assertion formatting"
+    },
+    {
+      "run": 40106385275,
+      "reason": "FSPathURLResource unavailable at macOS 15.4 deployment target"
+    },
+    {
+      "run": 40106650467,
+      "reason": "otool binary header mistaken for a dynamic dependency"
+    },
+    {
+      "run": 40106719661,
+      "reason": "M1-F query formatting"
+    },
+    {
+      "run": 40106903895,
+      "reason": "Windows rejected Mac catalog; LF/CRLF schema-source mismatch reproduced; return job skipped"
+    }
+  ],
+  "m1f_final_evidence": "https://github.com/ForceMind/PortaWeave/pull/15",
+  "mount_identity_verified": false,
+  "product_compatibility_certified": false,
+  "actual_exfat_media_tested": false,
+  "physical_power_loss_tested": false,
+  "codex_workspace_tested": false,
+  "notes": "Exact-source CI only. Xcode builds may register output bundles with LaunchServices on disposable runners; no user-computer installation, extension enable or system mount is certified. Linker ad-hoc seals are not developer signing."
+}

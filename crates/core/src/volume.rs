@@ -241,6 +241,8 @@ impl Volume {
         if app != 1347898693 || version != 1 {
             return Err(Error::UnsupportedFormat);
         }
+        db.execute_batch("PRAGMA trusted_schema=OFF;")?;
+        crate::catalog::validate_schema(&db)?;
         let format: String =
             db.query_row("SELECT format FROM config WHERE id=1", [], |r| r.get(0))?;
         if format != FORMAT {

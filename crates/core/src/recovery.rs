@@ -245,13 +245,7 @@ impl Recovery {
         if app != 1347898693 || version != 1 {
             return Err(Error::UnsupportedFormat);
         }
-        if self
-            .db
-            .prepare("SELECT 1 FROM sqlite_schema WHERE type IN ('trigger','view')")?
-            .exists([])?
-        {
-            return Err(Error::UnsupportedFormat);
-        }
+        crate::catalog::validate_schema(&self.db)?;
         let checks = self
             .db
             .prepare("PRAGMA quick_check")?

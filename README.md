@@ -8,7 +8,7 @@ PortaWeave targets an exFAT-backed, dynamically growing directory container moun
 
 ## Status — 2026-10-24
 
-**M0-J unsigned macOS App/Extension build + experimental WinFsp dispatcher + M1-E range-lease core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-C adds host-space admission and data-segment I/O failure testing. Native adapters are incomplete; full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-J unsigned macOS App/Extension build + experimental WinFsp dispatcher + M1-F schema-gated core with M1-E range leases. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-C adds host-space admission and data-segment I/O failure testing. Native adapters are incomplete; full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -34,6 +34,10 @@ The repository now contains a real Xcode host App and embedded FSKit Extension t
 ## M1-E bounded range leases
 
 `acquire_range_view` retains only block mappings inside a requested interval, with the original EOF and shared owner-wide budgets. Native C begin/read/close functions keep snapshots alive after source handles close; live leases block volume close. This is not OS mmap or mounted-volume compatibility. See [scope and tests](docs/IMPLEMENTATION-M1E.zh-CN.md).
+
+## M1-F catalog schema gate
+
+Normal open and original-preserving recovery now share an experimental schema check. Unexpected tables, columns, indexes, views and triggers are rejected before automatic reclamation; LF/CRLF source checkout differences are normalized. This is not a complete hostile SQLite parser or a read-only ordinary open. See [scope and regression evidence](docs/IMPLEMENTATION-M1F.zh-CN.md).
 
 ## Run the storage lab
 
