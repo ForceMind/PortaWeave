@@ -1,0 +1,92 @@
+name: Apply M1-B outcome patch and format (one-shot branch-only)
+on:
+  push:
+    branches: [codex/m1b-recovery-safety-20261024]
+    paths: [.github/workflows/m1b-prepare.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/codex/m1b-recovery-safety-20261024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+      - name: Apply reviewed outcome patch with exact old-fragment checks
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('crates/core/src/volume.rs')
+          s=p.read_text()
+          def replace(old,new,count=1):
+              global s
+              assert s.count(old)==count, (old,s.count(old))
+              s=s.replace(old,new)
+          replace('#[derive(Clone, Debug)]\npub struct Stats {', '''/// A completed business mutation stays successful even if subsequent GC fails.
+          /// Failures latch write protection; adapters must surface this status separately.
+          #[derive(Clone, Debug, Eq, PartialEq)]
+          pub enum MaintenanceStatus {
+              Healthy,
+              Failed { error: String },
+          }
+          #[derive(Clone, Debug)]
+          pub struct Stats {
+              pub maintenance: MaintenanceStatus,''')
+          replace('    protected: Cell<bool>,','    protected: Cell<bool>,\n    maintenance: MaintenanceStatus,')
+          replace('            protected: Cell::new(false),','            protected: Cell::new(false),\n            maintenance: MaintenanceStatus::Healthy,')
+          start=s.index('    // An I/O error may follow a committed mutation')
+          end=s.index('    #[cfg(feature = "fault-injection")]\n    pub fn inject_once',start)
+          s=s[:start]+'''    pub fn maintenance_status(&self) -> &MaintenanceStatus {
+                  &self.maintenance
+              }
+              // Only business errors are returned as operation errors. A failing commit
+              // itself can still be indeterminate; Err never promises universal rollback.
+              pub(crate) fn mutate<T>(&mut self, action: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+                  if self.protected.get() { return Err(Error::WriteProtected); }
+                  let result = action(self);
+                  let value = self.observe(result)?;
+                  if let Err(error) = self.hit(2).and_then(|_| self.maintain()) {
+                      self.protected.set(true);
+                      self.maintenance = MaintenanceStatus::Failed { error: error.to_string() };
+                  }
+                  Ok(value)
+              }
+          '''+s[end:]
+          replace('            this.hit(2)?;\n','',2)
+          replace('            Ok(Stats {','            Ok(Stats {\n                maintenance: self.maintenance.clone(),')
+          p.write_text(s)
+          p=Path('crates/core/tests/storage.rs');s=p.read_text()
+          old='''    // User write commits, maintenance fails. Err is not a rollback promise.
+              assert!(matches!(
+                  v.write(h, 0, &vec![2; BLOCK_SIZE * 3]),
+                  Err(Error::Injected)
+              ));'''
+          assert s.count(old)==1
+          s=s.replace(old,'''    // Committed data must not be reported as failed because GC failed.
+              assert_eq!(v.write(h, 0, &vec![2; BLOCK_SIZE * 3]).unwrap(), BLOCK_SIZE * 3);
+              assert!(matches!(v.maintenance_status(), portaweave_core::MaintenanceStatus::Failed { .. }));''')
+          p.write_text(s)
+      - name: Format and commit source; remove both temporary workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          git rm .github/workflows/m1b-prepare.yml .github/workflows/m1b-source-snapshot.yml
+          git add crates/core
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat(core): separate committed mutations from maintenance failures; format recovery tools'
+          test "$(git ls-remote origin refs/heads/codex/m1b-recovery-safety-20261024 | cut -f1)" = "$GITHUB_SHA"
+          git push origin HEAD:refs/heads/codex/m1b-recovery-safety-20261024
+      - name: Test actual source, not a mocked directory
+        run: cargo test --workspace --all-features --locked -- --nocapture
+      - name: Static analysis
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Save exact final source
+        if: always()
+        run: git archive --format=zip -o "$RUNNER_TEMP/m1b-source.zip" HEAD
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m1b-formatted-source
+          path: ${{ runner.temp }}/m1b-source.zip
+          retention-days: 1
