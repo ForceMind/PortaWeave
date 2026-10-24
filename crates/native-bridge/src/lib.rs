@@ -58,7 +58,7 @@ impl From<Error> for Fault {
             Error::Quota => QUOTA,
             Error::HostSpace { .. } => NO_SPACE,
             Error::WriteProtected => READ_ONLY,
-            Error::UnsupportedFormat => UNSUPPORTED,
+            Error::UnsupportedFormat | Error::UnsupportedOperation => UNSUPPORTED,
             Error::Corrupt(_) => CORRUPT,
             Error::ResourceLimit | Error::RecoveryLimit => RESOURCE,
             Error::Io(ref io) => match io.kind() {
@@ -184,6 +184,13 @@ pub struct PwSpace {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PwCheckpoint {
+    pub wal_frames: u64,
+    pub checkpointed_frames: u64,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwStorageSync {
+    pub segment_files: u64,
     pub wal_frames: u64,
     pub checkpointed_frames: u64,
 }
@@ -757,6 +764,29 @@ pub unsafe extern "C" fn pw_catalog_checkpoint(volume: u64, out_result: *mut PwC
                 out_result.write(PwCheckpoint {
                     wal_frames: result.wal_frames,
                     checkpointed_frames: result.checkpointed_frames,
+                });
+            }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// out_result points to writable PwStorageSync. Output is unchanged on failure.
+/// This is a backend host-file barrier, NOT OS cache drain or safe device eject.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_storage_synchronize(
+    volume: u64,
+    out_result: *mut PwStorageSync,
+) -> i32 {
+    run(|| {
+        required(out_result)?;
+        with_session(volume, |s| {
+            let result = s.volume.synchronize_storage().map_err(Fault::from)?;
+            unsafe {
+                out_result.write(PwStorageSync {
+                    segment_files: result.segment_files,
+                    wal_frames: result.checkpoint.wal_frames,
+                    checkpointed_frames: result.checkpoint.checkpointed_frames,
                 });
             }
             Ok(OK)

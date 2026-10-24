@@ -42,6 +42,15 @@ int main(int argc, char **argv) {
                       1, (const uint8_t *)"renamed.txt", 11, 0));
     REQUIRE(pw_read_view_read(volume, view, 1, buffer, 3, &count));
     if (count != 3 || memcmp(buffer, "ell", 3) != 0) return 12;
+    PwStorageSync sync = {99, 98, 97};
+#ifdef _WIN32
+    if (pw_storage_synchronize(volume, &sync) != PW_UNSUPPORTED ||
+        sync.segment_files != 99 || sync.wal_frames != 98 ||
+        sync.checkpointed_frames != 97) return 15;
+#else
+    REQUIRE(pw_storage_synchronize(volume, &sync));
+    if (!sync.segment_files || sync.wal_frames != sync.checkpointed_frames) return 15;
+#endif
     if (pw_volume_close(volume) != PW_BUSY) return 13;
     REQUIRE(pw_read_view_close(volume, view));
     if (pw_read_view_close(volume, view) != PW_INVALID) return 14;

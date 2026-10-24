@@ -23,6 +23,7 @@ pub enum Error {
     Busy,
     Cycle,
     UnsupportedFormat,
+    UnsupportedOperation,
     Corrupt(String),
     WriteProtected,
     Injected,

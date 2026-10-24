@@ -39,6 +39,11 @@ typedef struct PwCheckpoint {
   uint64_t wal_frames;
   uint64_t checkpointed_frames;
 } PwCheckpoint;
+typedef struct PwStorageSync {
+  uint64_t segment_files;
+  uint64_t wal_frames;
+  uint64_t checkpointed_frames;
+} PwStorageSync;
 
 uint32_t pw_abi_version(void);
 int64_t pw_root_id(void);
@@ -74,6 +79,12 @@ int32_t pw_health(uint64_t volume, uint32_t *out_maintenance, uint32_t *out_prot
 int32_t pw_volume_space(uint64_t volume, PwSpace *out_space);
 /* Catalog FULL WAL checkpoint only. Never treat as filesystem fsync. */
 int32_t pw_catalog_checkpoint(uint64_t volume, PwCheckpoint *out_result);
+/* Backend host-file + directory barrier (Unix). Native/OS pending writes must
+ * first be drained by the adapter. NOT safe eject or hardware certification.
+ * Windows returns PW_UNSUPPORTED; no successful no-op directory flush.
+ * Does not close handles/leases or run GC. Failed output remains unchanged.
+ */
+int32_t pw_storage_synchronize(uint64_t volume, PwStorageSync *out_result);
 /* health: 0=healthy, 1=compaction deferred (space), 2=failed.
  * Health MUST be checked separately after a successful write.
  *
