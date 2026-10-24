@@ -11,4 +11,5 @@ publish = false
 [workspace.dependencies]
 rusqlite = { version = "=0.40.1", features = ["bundled"] }
 sha2 = "=0.10.9"
+fs2 = "=0.4.3"
 unicode-normalization = "=0.1.24"

@@ -13,6 +13,11 @@ pub enum Error {
     InvalidHandle,
     InvalidRange,
     Quota,
+    /// Refused BEFORE staging data; does not imply failed I/O or corrupt state.
+    HostSpace {
+        available_bytes: u64,
+        required_bytes: u64,
+    },
     RecoveryLimit,
     Busy,
     Cycle,

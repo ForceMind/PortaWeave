@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 rusqlite.workspace = true
 sha2.workspace = true
+fs2.workspace = true
 unicode-normalization.workspace = true
 
 [features]

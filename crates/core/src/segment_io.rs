@@ -2,19 +2,31 @@
 //! and compile out of the default build. SQLite and OS faults are NOT simulated
 //! by these hooks; tests label those boundaries separately.
 use crate::Result;
-use std::{fs::File, io::{self, Write}, path::Path};
+use std::{
+    fs::File,
+    io::{self, Write},
+    path::Path,
+};
 
 #[cfg(feature = "fault-injection")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StorageFault {
     /// Each write makes at most this much progress; write_all must retry.
-    ShortWrites { max_bytes: usize },
+    ShortWrites {
+        max_bytes: usize,
+    },
     InterruptedOnce,
     /// Permit this prefix (including header), then return zero progress.
-    WriteZeroAfter { bytes: u64 },
+    WriteZeroAfter {
+        bytes: u64,
+    },
     /// Permit this prefix, then report a disk-full I/O error.
-    NoSpaceAfter { bytes: u64 },
-    IoErrorAfter { bytes: u64 },
+    NoSpaceAfter {
+        bytes: u64,
+    },
+    IoErrorAfter {
+        bytes: u64,
+    },
     DataSyncFailure,
     DirectorySyncFailure,
 }
@@ -67,18 +79,26 @@ impl SegmentFile {
             Some(StorageFault::ShortWrites { max_bytes }) => Ok(requested.min(max_bytes)),
             Some(StorageFault::InterruptedOnce) if !self.interrupted => {
                 self.interrupted = true;
-                Err(io::Error::new(io::ErrorKind::Interrupted, "injected interruption"))
+                Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "injected interruption",
+                ))
             }
-            Some(fault @ (StorageFault::WriteZeroAfter { bytes }
+            Some(
+                fault @ (StorageFault::WriteZeroAfter { bytes }
                 | StorageFault::NoSpaceAfter { bytes }
-                | StorageFault::IoErrorAfter { bytes })) => {
+                | StorageFault::IoErrorAfter { bytes }),
+            ) => {
                 let remaining = bytes.saturating_sub(self.written);
                 if remaining != 0 {
                     return Ok((requested as u64).min(remaining) as usize);
                 }
                 match fault {
                     StorageFault::WriteZeroAfter { .. } => Ok(0),
-                    StorageFault::NoSpaceAfter { .. } => Err(io::Error::new(io::ErrorKind::StorageFull, "injected segment disk full")),
+                    StorageFault::NoSpaceAfter { .. } => Err(io::Error::new(
+                        io::ErrorKind::StorageFull,
+                        "injected segment disk full",
+                    )),
                     _ => Err(io::Error::other("injected segment I/O failure")),
                 }
             }
@@ -95,8 +115,12 @@ impl Write for SegmentFile {
         };
         let count = self.file.write(bytes)?;
         #[cfg(feature = "fault-injection")]
-        { self.written += count as u64; }
+        {
+            self.written += count as u64;
+        }
         Ok(count)
     }
-    fn flush(&mut self) -> io::Result<()> { self.file.flush() }
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
 }

@@ -1,7 +1,9 @@
 use crate::{
-    BLOCK_SIZE, Error, FORMAT, MAX_IO, Result,
+    BLOCK_SIZE, Error, FORMAT, MAX_IO, Result, SpacePolicy, SpaceStatus,
     owner::OwnerLock,
     segment::{self, BlockRef},
+    segment_io::IoControl,
+    space::SpaceGate,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::{
@@ -43,11 +45,19 @@ pub struct Entry {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MaintenanceStatus {
     Healthy,
-    Failed { error: String },
+    /// No data I/O attempted for compaction; retry on a later operation.
+    DeferredSpace {
+        available_bytes: u64,
+        required_bytes: u64,
+    },
+    Failed {
+        error: String,
+    },
 }
 #[derive(Clone, Debug)]
 pub struct Stats {
     pub maintenance: MaintenanceStatus,
+    pub space: SpaceStatus,
     pub logical_bytes: u64,
     /// Data segment file lengths only; NOT total container allocation on exFAT.
     pub tracked_segment_bytes: u64,
@@ -93,6 +103,8 @@ pub struct Volume {
     views: BTreeMap<ReadView, ViewState>,
     protected: Cell<bool>,
     maintenance: MaintenanceStatus,
+    space: SpaceGate,
+    io_control: IoControl,
     #[cfg(feature = "fault-injection")]
     fault: Option<FaultPoint>,
     #[cfg(feature = "fault-injection")]
@@ -211,12 +223,42 @@ impl Volume {
             views: BTreeMap::new(),
             protected: Cell::new(false),
             maintenance: MaintenanceStatus::Healthy,
+            space: SpaceGate::default(),
+            io_control: IoControl::default(),
             #[cfg(feature = "fault-injection")]
             fault: None,
             #[cfg(feature = "fault-injection")]
             exit_on_fault: false,
             _owner: owner,
         }
+    }
+    /// A soft per-owner policy, not persistent allocation or an OS reservation.
+    pub fn set_space_policy(&mut self, policy: SpacePolicy) -> Result<()> {
+        policy.headroom()?;
+        if self.protected.get() {
+            return Err(Error::WriteProtected);
+        }
+        self.space.policy = policy;
+        Ok(())
+    }
+    pub fn space_status(&self) -> Result<SpaceStatus> {
+        self.observe(self.space.status(&self.root))
+    }
+    /// Test-only ceiling; never invents more capacity than the real host has.
+    #[cfg(feature = "fault-injection")]
+    pub fn set_test_available_space(&mut self, ceiling: Option<u64>) {
+        self.space.available_ceiling = ceiling;
+    }
+    #[cfg(feature = "fault-injection")]
+    pub fn inject_storage_fault_once(&mut self, fault: crate::StorageFault) -> Result<()> {
+        if self.protected.get() {
+            return Err(Error::WriteProtected);
+        }
+        if matches!(fault, crate::StorageFault::ShortWrites { max_bytes: 0 }) {
+            return Err(Error::InvalidRange);
+        }
+        self.io_control.next_fault = Some(fault);
+        Ok(())
     }
     pub fn is_write_protected(&self) -> bool {
         self.protected.get()
@@ -241,11 +283,23 @@ impl Volume {
         }
         let result = action(self);
         let value = self.observe(result)?;
-        if let Err(error) = self.hit(2).and_then(|_| self.maintain()) {
-            self.protected.set(true);
-            self.maintenance = MaintenanceStatus::Failed {
-                error: error.to_string(),
-            };
+        match self.hit(2).and_then(|_| self.maintain()) {
+            Ok(()) => self.maintenance = MaintenanceStatus::Healthy,
+            Err(Error::HostSpace {
+                available_bytes,
+                required_bytes,
+            }) => {
+                self.maintenance = MaintenanceStatus::DeferredSpace {
+                    available_bytes,
+                    required_bytes,
+                };
+            }
+            Err(error) => {
+                self.protected.set(true);
+                self.maintenance = MaintenanceStatus::Failed {
+                    error: error.to_string(),
+                };
+            }
         }
         Ok(value)
     }
@@ -410,12 +464,15 @@ impl Volume {
         Ok(())
     }
     fn stage(&mut self, blocks: &[(i64, Vec<u8>)]) -> Result<Vec<BlockRef>> {
+        let bytes = segment::encoded_len(blocks.len())?;
+        // Checked before even allocating a catalog identity. This is only a
+        // conservative admission snapshot; real I/O errors must still propagate.
+        self.space.admit(&self.root, bytes)?;
         // Reserve a never-reused identity before I/O. An interrupted stage stays
         // unreferenced; recovery can remove it without touching committed data.
         self.db.execute("INSERT INTO segments DEFAULT VALUES", [])?;
         let id = self.db.last_insert_rowid();
-        let refs = segment::write(&self.root, id, blocks)?;
-        let bytes = segment::HEADER + blocks.len() as u64 * BLOCK_SIZE as u64;
+        let refs = segment::write(&self.root, id, blocks, &mut self.io_control)?;
         self.db.execute(
             "UPDATE segments SET bytes=?1 WHERE id=?2",
             params![i64::try_from(bytes).map_err(|_| Error::InvalidRange)?, id],
@@ -600,6 +657,7 @@ impl Volume {
             }
             Ok(Stats {
                 maintenance: self.maintenance.clone(),
+                space: self.space_status()?,
                 logical_bytes,
                 tracked_segment_bytes: bytes,
                 segments: ids.len(),

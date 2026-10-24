@@ -12,12 +12,17 @@ pub struct SpacePolicy {
 }
 impl Default for SpacePolicy {
     fn default() -> Self {
-        Self { host_floor_bytes: 16 * 1024 * 1024, metadata_allowance_bytes: 1024 * 1024 }
+        Self {
+            host_floor_bytes: 16 * 1024 * 1024,
+            metadata_allowance_bytes: 1024 * 1024,
+        }
     }
 }
 impl SpacePolicy {
     pub(crate) fn headroom(self) -> Result<u64> {
-        self.host_floor_bytes.checked_add(self.metadata_allowance_bytes).ok_or(Error::InvalidRange)
+        self.host_floor_bytes
+            .checked_add(self.metadata_allowance_bytes)
+            .ok_or(Error::InvalidRange)
     }
 }
 
@@ -40,7 +45,9 @@ impl SpaceGate {
     pub fn status(&self, root: &Path) -> Result<SpaceStatus> {
         let available = fs2::available_space(root)?;
         #[cfg(feature = "fault-injection")]
-        let available = self.available_ceiling.map_or(available, |ceiling| available.min(ceiling));
+        let available = self
+            .available_ceiling
+            .map_or(available, |ceiling| available.min(ceiling));
         let headroom = self.policy.headroom()?;
         Ok(SpaceStatus {
             host_available_bytes: available,
@@ -50,9 +57,14 @@ impl SpaceGate {
     }
     pub fn admit(&self, root: &Path, segment_bytes: u64) -> Result<()> {
         let status = self.status(root)?;
-        let required = segment_bytes.checked_add(status.soft_headroom_bytes).ok_or(Error::InvalidRange)?;
+        let required = segment_bytes
+            .checked_add(status.soft_headroom_bytes)
+            .ok_or(Error::InvalidRange)?;
         if status.host_available_bytes < required {
-            return Err(Error::HostSpace { available_bytes: status.host_available_bytes, required_bytes: required });
+            return Err(Error::HostSpace {
+                available_bytes: status.host_available_bytes,
+                required_bytes: required,
+            });
         }
         Ok(())
     }

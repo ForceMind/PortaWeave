@@ -1,4 +1,7 @@
-use crate::{BLOCK_SIZE, Error, Result};
+use crate::{
+    BLOCK_SIZE, Error, Result,
+    segment_io::{IoControl, SegmentFile},
+};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
@@ -39,11 +42,27 @@ pub(crate) fn sync_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn write(root: &Path, id: i64, blocks: &[(i64, Vec<u8>)]) -> Result<Vec<BlockRef>> {
+pub(crate) fn encoded_len(block_count: usize) -> Result<u64> {
+    if block_count == 0 {
+        return Err(Error::InvalidRange);
+    }
+    (block_count as u64)
+        .checked_mul(BLOCK_SIZE as u64)
+        .and_then(|n| n.checked_add(HEADER))
+        .filter(|n| *n <= i64::MAX as u64)
+        .ok_or(Error::InvalidRange)
+}
+
+pub(crate) fn write(
+    root: &Path,
+    id: i64,
+    blocks: &[(i64, Vec<u8>)],
+    control: &mut IoControl,
+) -> Result<Vec<BlockRef>> {
     if id <= 0 || blocks.is_empty() || blocks.iter().any(|(_, b)| b.len() != BLOCK_SIZE) {
         return Err(Error::InvalidRange);
     }
-    let mut file = File::create_new(path(root, id))?;
+    let mut file = SegmentFile::new(File::create_new(path(root, id))?, control);
     file.write_all(MAGIC)?;
     file.write_all(&id.to_le_bytes())?;
     file.write_all(&(BLOCK_SIZE as u32).to_le_bytes())?;
@@ -60,7 +79,7 @@ pub(crate) fn write(root: &Path, id: i64, blocks: &[(i64, Vec<u8>)]) -> Result<V
         });
     }
     file.sync_all()?;
-    sync_directory(&root.join("segments"))?;
+    file.sync_directory(&root.join("segments"))?;
     Ok(refs)
 }
 
