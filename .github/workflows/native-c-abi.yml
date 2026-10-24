@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcrun swiftc -parse-as-library -typecheck -warnings-as-errors -framework FSKit \
+          xcrun swiftc -parse-as-library -typecheck -warnings-as-errors -I include -framework FSKit \
             platform/macos/FSKitExtension/PortaWeaveFSKitExtension.swift \
             platform/macos/FSKitExtension/PortaWeaveUnaryFileSystem.swift
           plutil -lint platform/macos/FSKitExtension/Info.plist
