@@ -36,3 +36,5 @@ The repository contains an **experimental persistent Rust core and offline safet
 27. M0-J builds an unsigned macOS host App plus embedded ExtensionKit bundle. Full xcodebuild/link/metadata checks are build evidence only; never install/enable it or report a mounted disk from this CI. Keep sandbox entitlements and the fail-closed resource gate until volume operations, permissions, sync and real platform tests exist.
 
 28. M1-F ordinary open validates the exact experimental catalog schema before config queries/WAL configuration/GC. Only CRLF-to-LF in schema SQL is normalized. Recovery uses the same gate on its working copy. Do not bypass it on Windows, silently drop unknown triggers/columns, or claim ordinary open preserves original bytes.
+
+29. M1-G synchronize_storage is a backend Unix host-file/catalog/directory barrier, not native/kernel pending-write drain, parent-namespace creation durability, stronger device-cache flush or safe eject. Non-Unix must return unsupported. Keep WinFsp Flush and FSKit load gates closed until their full platform contracts are verified.

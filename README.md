@@ -39,6 +39,10 @@ The repository now contains a real Xcode host App and embedded FSKit Extension t
 
 Normal open and original-preserving recovery now share an experimental schema check. Unexpected tables, columns, indexes, views and triggers are rejected before automatic reclamation; LF/CRLF source checkout differences are normalized. This is not a complete hostile SQLite parser or a read-only ordinary open. See [scope and regression evidence](docs/IMPLEMENTATION-M1F.zh-CN.md).
 
+## Backend storage synchronization
+
+`pw_storage_synchronize` / `Volume::synchronize_storage` performs an explicit Unix host-file, catalog/WAL and container-directory barrier. It preserves live handles and leases; busy/error results are visible. Windows returns unsupported. Native cache drain, stronger device flush and safe eject remain separate gates. See [M1-G](docs/IMPLEMENTATION-M1G.zh-CN.md) and [ADR 0004](docs/adr/0004-backend-storage-barrier.md).
+
 ## Run the storage lab
 
 Use `rust-toolchain.toml` and the committed dependency lock. The example accepts only a NEW disposable directory; it does not mount or format a drive.
