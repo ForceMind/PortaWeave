@@ -3,10 +3,24 @@
 $ErrorActionPreference = 'Stop'
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path $vswhere)) { throw 'Visual Studio vswhere is unavailable' }
-$install = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or -not $install) { throw 'MSVC native toolchain not found' }
-$vcvars = Join-Path $install 'VC\Auxiliary\Build\vcvars64.bat'
-if (-not (Test-Path $vcvars)) { throw 'MSVC vcvars64.bat not found' }
+# The installed MSVC toolchain is known to work for rustc, but its
+# vswhere workload component tags vary across runner images. Discover the
+# actual vcvars script rather than assuming a specific workload identifier.
+$install = (& $vswhere -latest -products '*' -property installationPath | Select-Object -First 1)
+$vcvars = if ($install) { Join-Path $install 'VC\Auxiliary\Build\vcvars64.bat' } else { '' }
+if (-not $vcvars -or -not (Test-Path $vcvars)) {
+    $candidates = @(
+        (Join-Path ${env:ProgramFiles} 'Microsoft Visual Studio'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio')
+    )
+    foreach ($candidate in $candidates) {
+        if (-not (Test-Path $candidate)) { continue }
+        $found = Get-ChildItem -Path $candidate -Filter 'vcvars64.bat' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $vcvars = $found.FullName; break }
+    }
+}
+if (-not $vcvars -or -not (Test-Path $vcvars)) { throw 'MSVC vcvars64.bat not found (no matching VS toolchain)' }
+Write-Host "Using vcvars: $vcvars"
 $root = (Resolve-Path '.').Path
 $include = Join-Path $root 'crates\ffi\include'
 $source = Join-Path $root 'crates\ffi\tests\abi_smoke.c'
