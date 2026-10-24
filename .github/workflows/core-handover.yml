@@ -73,8 +73,32 @@ jobs:
           path: handover-lab
       - run: rustup toolchain install 1.99.1 --profile minimal
       - run: cargo run --locked -p portaweave-core --example interop -- handover-lab verify
+      - name: Export returned container without changing its bytes
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, os, subprocess
+          source = Path('handover-lab')
+          def hashes():
+              return {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest() for p in source.rglob('*') if p.is_file()}
+          before = hashes()
+          subprocess.run(['cargo','run','--locked','-p','portaweave-core','--bin','portaweave-recover','--','export',str(source),'handover-recovery','handover-export'], check=True)
+          assert hashes() == before, 'offline export changed the original container'
+          out = Path('handover-export/files')
+          assert (out/'stage').read_bytes() == bytes([2])
+          data = bytearray([2]) * (65536 * 4 + 7)
+          label = '跨系统文件内容 / portable bytes'.encode()
+          data[:len(label)] = label
+          assert (out/'项目/SOURCE.BIN').read_bytes() == data
+          assert os.path.samefile(out/'项目/SOURCE.BIN',out/'项目/source-alias.bin')
+          assert Path('handover-export/COMPLETE').is_file()
+          assert not Path('handover-export/INCOMPLETE').exists()
+          print('Returned-container content export and original SHA-256 preservation verified')
       - uses: actions/upload-artifact@v4
         with:
           name: handover-return-verified
-          path: handover-lab/
+          path: |
+            handover-lab/
+            handover-export/report.txt
+            handover-recovery/snapshot-manifest.txt
           if-no-files-found: error

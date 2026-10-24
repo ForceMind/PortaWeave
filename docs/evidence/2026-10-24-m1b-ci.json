@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "scope": "experimental-core-and-original-preserving-recovery",
+  "source_commit": "c0759f3cb4be35d21d36a59fdb8296b6e397a3c8",
+  "pull_request": 4,
+  "verified_runs": [
+    {"run_id": 40078171236, "kind": "core", "conclusion": "success", "platforms": ["ubuntu-latest", "macos-latest", "windows-latest"], "modes": ["all-features", "default"], "linux_parallel_repetitions": 10, "clippy": "success", "fmt": "success"},
+    {"run_id": 40078171191, "kind": "same-container-artifact-handover-and-export", "conclusion": "success", "stages": ["seed", "macos", "windows", "verify-return"], "source_hashes_unchanged": true},
+    {"run_id": 40078171196, "kind": "host-directory-probe", "conclusion": "success"}
+  ],
+  "retained_failed_runs": [
+    {"run_id": 40077681605, "source_commit": "a0302e113b5bf32a3dcd7b1927a15e11f833fd02", "failure": "clippy const_item_mutation; functional Linux tests passed"},
+    {"run_id": 40077908185, "source_commit": "4f690ca52fec958fefa3183d5fcb7d5b615ab851", "failure": "Windows exclusive lock rejected second-handle reads; macOS/Linux passed"}
+  ],
+  "mount_identity_verified": false,
+  "product_compatibility_certified": false,
+  "actual_exfat_media_tested": false,
+  "physical_power_loss_tested": false,
+  "codex_workspace_tested": false,
+  "metadata_complete_export": false,
+  "notes": "The evidence is for the exact source above. Later documentation-only or merge commits require exact-tree comparison and their own CI reference; no automatic extension of certification. No tests on the user's computer."
+}

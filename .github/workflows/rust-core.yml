@@ -29,13 +29,15 @@ jobs:
           cargo tree --locked -p libsqlite3-sys
       - name: Build and test persistent core, including injected failures
         run: cargo test --workspace --all-features --locked -- --nocapture
-      - name: Repeated parallel lifetime regression on Linux
+      - name: Test default build without fault-injection feature
+        run: cargo test --workspace --locked
+      - name: Repeated parallel storage and recovery regression on Linux
         if: runner.os == 'Linux'
         shell: bash
         run: |
           for attempt in $(seq 1 10); do
             echo "Parallel regression repetition $attempt/10"
-            cargo test --locked -p portaweave-core --all-features --test storage -- --test-threads=8
+            cargo test --locked -p portaweave-core --all-features --test storage --test recovery -- --test-threads=8
           done
       - name: Run scratch-only persistence and automatic reclamation example
         shell: bash

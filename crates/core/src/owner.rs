@@ -14,6 +14,12 @@ impl OwnerLock {
             Err(TryLockError::Error(error)) => Err(error.into()),
         }
     }
+
+    /// Read through the exact locking handle. A separately opened Windows handle
+    /// cannot read the exclusive locked region, even within the same process.
+    pub(crate) fn file(&self) -> &File {
+        &self.0
+    }
 }
 
 impl Drop for OwnerLock {
@@ -54,6 +60,28 @@ mod tests {
         other.try_lock().unwrap();
         other.unlock().unwrap();
         drop(other);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn read_only_owner_reads_its_bytes_without_unlocking() {
+        use std::io::Read;
+        let (path, file) = fixture("read-only");
+        drop(file);
+        fs::write(&path, b"preserve lock-file evidence").unwrap();
+        let owner = OwnerLock::acquire(File::open(&path).unwrap()).unwrap();
+        let other = File::open(&path).unwrap();
+        assert!(matches!(other.try_lock(), Err(TryLockError::WouldBlock)));
+        let mut bytes = Vec::new();
+        owner.file().read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"preserve lock-file evidence");
+        #[cfg(windows)]
+        assert!(Read::read(&mut &other, &mut [0_u8; 1]).is_err());
+        drop(owner);
+        other.try_lock().unwrap();
+        other.unlock().unwrap();
+        drop(other);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
         fs::remove_file(path).unwrap();
     }
 

@@ -38,8 +38,16 @@ pub struct Entry {
     pub name: String,
     pub id: FileId,
 }
+/// A completed business mutation stays successful even if subsequent GC fails.
+/// Failures latch write protection; adapters must surface this status separately.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MaintenanceStatus {
+    Healthy,
+    Failed { error: String },
+}
 #[derive(Clone, Debug)]
 pub struct Stats {
+    pub maintenance: MaintenanceStatus,
     pub logical_bytes: u64,
     /// Data segment file lengths only; NOT total container allocation on exFAT.
     pub tracked_segment_bytes: u64,
@@ -84,6 +92,7 @@ pub struct Volume {
     handles: BTreeMap<Handle, FileId>,
     views: BTreeMap<ReadView, ViewState>,
     protected: Cell<bool>,
+    maintenance: MaintenanceStatus,
     #[cfg(feature = "fault-injection")]
     fault: Option<FaultPoint>,
     #[cfg(feature = "fault-injection")]
@@ -201,6 +210,7 @@ impl Volume {
             handles: BTreeMap::new(),
             views: BTreeMap::new(),
             protected: Cell::new(false),
+            maintenance: MaintenanceStatus::Healthy,
             #[cfg(feature = "fault-injection")]
             fault: None,
             #[cfg(feature = "fault-injection")]
@@ -220,17 +230,24 @@ impl Volume {
         }
         result
     }
-    // An I/O error may follow a committed mutation (e.g. failed maintenance).
-    // Callers must not assume Err means rollback, or blindly retry a mutation.
+    pub fn maintenance_status(&self) -> &MaintenanceStatus {
+        &self.maintenance
+    }
+    // Only business errors are returned as operation errors. A failing commit
+    // itself can still be indeterminate; Err never promises universal rollback.
     pub(crate) fn mutate<T>(&mut self, action: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
         if self.protected.get() {
             return Err(Error::WriteProtected);
         }
-        let result = action(self).and_then(|value| {
-            self.maintain()?;
-            Ok(value)
-        });
-        self.observe(result)
+        let result = action(self);
+        let value = self.observe(result)?;
+        if let Err(error) = self.hit(2).and_then(|_| self.maintain()) {
+            self.protected.set(true);
+            self.maintenance = MaintenanceStatus::Failed {
+                error: error.to_string(),
+            };
+        }
+        Ok(value)
     }
     #[cfg(feature = "fault-injection")]
     pub fn inject_once(&mut self, point: FaultPoint) {
@@ -453,7 +470,6 @@ impl Volume {
             )?;
             Self::interrupt(before)?;
             tx.commit()?;
-            this.hit(2)?;
             Ok(data.len())
         })
     }
@@ -485,7 +501,6 @@ impl Volume {
             )?;
             Self::interrupt(before)?;
             tx.commit()?;
-            this.hit(2)?;
             Ok(())
         })
     }
@@ -584,6 +599,7 @@ impl Volume {
                 }
             }
             Ok(Stats {
+                maintenance: self.maintenance.clone(),
                 logical_bytes,
                 tracked_segment_bytes: bytes,
                 segments: ids.len(),

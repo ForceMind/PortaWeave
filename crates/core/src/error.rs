@@ -13,6 +13,7 @@ pub enum Error {
     InvalidHandle,
     InvalidRange,
     Quota,
+    RecoveryLimit,
     Busy,
     Cycle,
     UnsupportedFormat,
