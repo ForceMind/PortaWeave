@@ -57,6 +57,10 @@ jobs:
       - name: Run scratch-only persistence and automatic reclamation example
         shell: bash
         run: cargo run --locked -p portaweave-core --example scratch -- "$RUNNER_TEMP/portaweave-scratch-$GITHUB_RUN_ID"
+      - name: Compile and execute real C caller on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./ci/run-ffi-windows.ps1
       - name: Static analysis
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Formatting report (not automatic source edits)
