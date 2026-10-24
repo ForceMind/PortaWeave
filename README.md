@@ -8,7 +8,7 @@ PortaWeave targets an exFAT-backed, dynamically growing directory container moun
 
 ## Status — 2026-10-25
 
-**M0-K SDK FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-H opt-in metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-M laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-I atomic metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -29,7 +29,7 @@ The existing native ABI now exposes logical quota and conservative host availabl
 
 ## M0-J macOS App and ExtensionKit build
 
-The repository now contains a real Xcode host App and embedded FSKit Extension target, statically linked to the shared Rust core. `bash ci/build-macos-lab.sh` builds and inspects an unsigned lab bundle on macOS. It does not install, enable or mount anything; FSVolume operations, effective permissions, synchronization and signing remain open. See [build scope](docs/IMPLEMENTATION-M0J.zh-CN.md).
+The repository contains a real Xcode host App and embedded FSKit Extension target, statically linked to the shared Rust core. `bash ci/build-macos-lab.sh` builds and inspects an unsigned lab bundle on macOS. It does not install, enable or mount anything; effective permissions, complete native cache/flush semantics, signing and actual mounting remain open. Later FSVolume callback work is described below. See [build scope](docs/IMPLEMENTATION-M0J.zh-CN.md).
 
 ## M1-E bounded range leases
 
@@ -43,7 +43,7 @@ Normal open and original-preserving recovery now share an experimental schema ch
 
 A real FSVolume subclass now bridges namespace, handles, write/truncate, links, synchronization and resumable enumeration to the shared core on a per-volume serial queue. Direct SDK contract tests are distinct from an OS mount. Missing metadata/permissions are explicitly rejected; unary load, activation and mount remain closed. See [M0-K scope](docs/IMPLEMENTATION-M0K.zh-CN.md).
 
-M0-L bridges v2 persistent UUID and stored owner/mode/timestamps into FSVolume identity, attribute reads and directory enumeration. v1 still rejects missing metadata; setters and effective permission gates remain closed. See [M0-L](docs/IMPLEMENTATION-M0L.zh-CN.md) for exact scope and SDK tests.
+M0-L bridges v2 persistent UUID and stored owner/mode/timestamps into FSVolume identity, attribute reads and directory enumeration. M0-M adds single-transaction v2 size/metadata setters and explicit owner/mode creation in the laboratory contract. v1 rejects missing metadata; effective permission/access/load/mount gates remain closed. See [M0-L](docs/IMPLEMENTATION-M0L.zh-CN.md) and [M0-M](docs/IMPLEMENTATION-M0M.zh-CN.md) for exact scope and SDK tests.
 
 ## Backend storage synchronization
 
@@ -53,7 +53,7 @@ M0-L bridges v2 persistent UUID and stored owner/mode/timestamps into FSVolume i
 
 `Volume::create_with_metadata` / `pw_volume_create_with_metadata` explicitly creates a NEW experimental v2 container with persistent UUID, uid/gid/mode and nanosecond timestamps. Metadata changes share content/namespace transactions, including links and still-open replaced objects. Default creation remains v1; existing containers are never automatically upgraded. These are trusted storage APIs, not effective OS permissions or caller authentication. See [scope, tests and limits](docs/IMPLEMENTATION-M1H.zh-CN.md) and [ADR 0005](docs/adr/0005-opt-in-metadata-format.md).
 
-M1-I adds a single-transaction size/metadata mutation for native adapters, with explicit timestamp precedence and tested commit/maintenance failures. Existing views retain old content. See [M1-I](docs/IMPLEMENTATION-M1I.zh-CN.md); native permission enforcement and setter integration remain separate work.
+M1-I adds a single-transaction size/metadata mutation for native adapters, with explicit timestamp precedence and tested commit/maintenance failures. Existing views retain old content. See [M1-I](docs/IMPLEMENTATION-M1I.zh-CN.md); native permission enforcement remains separate work.
 
 ## Run the storage lab
 

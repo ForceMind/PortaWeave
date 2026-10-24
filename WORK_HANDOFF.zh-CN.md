@@ -14,7 +14,8 @@
 - PR #17（M0-K）已合并 `372c3f5a57c6078a68a0ba4d0edbb6290099d561`，准确 head `557a57e9e464c3f1ddf72889f88e56e6e1a88400` 的 17 项检查全部通过，源码/候选/合并 tree `cf3b0111bd499600be4b386faa0973b7c94524c7` 一致。实际 SDK 对象回调、C readback/枚举算法与 App/Extension 构建均有证据，但未安装/挂载。评审发现重复 listing 耗尽 cursor，修复复用和 32-entry LRU 后跑 256/80 压力测试。保留首轮 Swift Int32/Int 失败。
 - PR #18（M1-H）已合并 `e8700c9d8e63bec331f396be6a2faa950f51e8c8`，准确 head `986c8c097f11fe05fbf68791537f38df90f00613` / tree `d96c3d018ba8760b61160a83a7ad2afb535700e5` 17 检查通过，v1/v2 实际 macOS/Windows/返回交接与恢复保全通过。v2 只能显式新建，默认 v1 不变、无自动升级。uid/gid/mode/时间/UUID 是存储基础，不是有效权限。
 - PR #19（M0-L）已合并 `3098c4cb24a06d8a4695b82dc57ee444297e63a1`，准确 head `0ab866f517b417cb8b908e83ea5d2d0d79bfc012` / tree `4e6c1605c909c9f78acc847c2f5db70241707e4f` 17 检查通过。v2 UUID/元数据接入 FSVolume 身份、getAttributes 与枚举；实际 SDK v1/v2 合同通过。保留独立 session tag，v1 不伪造字段，设置与 access/load/mount 仍关闭。
-- M1-I 新增 `truncate_with_metadata` / `pw_file_truncate_with_metadata` 单事务更新大小/块引用与元数据；显式 mtime 优先，截断最终清除 file setid，一次 generation。core 13/10 项元数据套件和 C caller 验证；准确三平台 CI/合并状态查看对应 PR。FSKit 尚未接入，不能用两个独立提交代替此 primitive。
+- PR #20（M1-I）已合并 `1e0fc95fb28d099a1a640b3ecca3d1408e88c6a8`，准确 head `a32096f24ddd9db176f1684859e1d7a5e0c8103f` / tree `801c040038657946e8d4d342e26ba2f467ad0e8f` 17 检查通过。`truncate_with_metadata` / `pw_file_truncate_with_metadata` 单事务更新大小/块引用与元数据；显式 mtime 优先，截断最终清除 file setid，一次 generation。core 13/10 项套件、C caller、真实三平台 atomic artifact 交接和恢复通过。
+- M0-M 将上述 primitive 接入 FSKit v2 混合 setattr，并支持原子 uid/gid/mode 创建，非法/不支持字段先拒绝、仅提交后消费。不能用两个独立提交代替混合操作。直接 SDK 合同测试不等于授权 OS callback；有效权限及 access/load/mount 继续关闭。准确 CI/合并状态查看对应 PR。
 
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 
@@ -26,7 +27,7 @@ Recovery 保全原始文件并在独立副本恢复 SQLite/WAL；普通 Volume::
 
 ## 下一阶段
 
-1. 继续 FSKit 原子混合 setattr/create attributes、caller/目录遍历权限、security-scoped resource 持有/释放、符号链接/xattr 和真实缓存/同步。Operations 基本回调、v2 属性读取已有；load/activate/mount/access 仍关闭。签名及系统授权需合适的已授权环境，不把直接 SDK 调用或打包当真挂载。
+1. 继续 FSKit caller/目录遍历/粘滞位权限、security-scoped resource 持有/释放、符号链接/xattr 和真实缓存/同步。Operations 基本回调、v2 读取/原子混合设置及 uid/gid/mode 创建已有；创建 size/time、umask/setgid 继承等仍未支持，load/activate/mount/access 仍关闭。签名及系统授权需合适的已授权环境，不把直接 SDK 调用或打包当真挂载。
 2. 推进 WinFsp ACL/共享/删除/缓存/同步及缺失回调；硬链接接口缺口仍 BLOCKED，需要上游或替代后端方案，不能用核心硬链接关闭。
 3. 继续核心空间预约、应急预留、SQLite VFS 故障矩阵、有界空闲维护、名称版本、明确迁移工具与完整解析器资源预算；不得静默把 v1 升成 v2。
 4. 真挂载后完成 Git/npm/pnpm/Python/Cargo/IDE/SQLite 与实际 Codex 正常沙盒的正向和越界拒绝测试，原始 backing 目录也纳入权限边界。

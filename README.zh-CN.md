@@ -8,7 +8,7 @@
 
 ## 当前状态（2026-10-25）
 
-**M0-K SDK FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-H 显式元数据格式核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
+**M0-M 实验性 FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-I 原子元数据核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
 
 实现范围见 [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md)、[M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md)、[M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md)，历史测试见[验证记录](docs/VALIDATION.zh-CN.md)。确切源码版本的测试结果记录在对应 PR；实现文档不是自动的通过声明。云端三系统核心测试不等于真实 exFAT、挂载盘或 Codex 已兼容。
 
@@ -43,7 +43,7 @@ FSKit/WinFsp 仍为待验收候选。核心硬链接不代表 WinFsp 接口限�
 
 新增真正 FSVolume 子类，通过每卷串行队列接入共享核心的目录、句柄、写入/截断、硬链接、同步及分页枚举。直接 SDK 合同验证不等于 OS 挂载；缺失元数据和权限明确拒绝，unary load、activate、mount 继续关闭。详见 [M0-K 范围](docs/IMPLEMENTATION-M0K.zh-CN.md)。
 
-M0-L 将 v2 持久 UUID、所有者/权限位/时间接入 FSVolume 身份、属性读取和目录枚举。v1 缺失属性仍拒绝；设置权限与有效授权门槛继续关闭。准确范围和 SDK 测试见 [M0-L](docs/IMPLEMENTATION-M0L.zh-CN.md)。
+M0-L 将 v2 持久 UUID、所有者/权限位/时间接入 FSVolume 身份、属性读取和目录枚举。M0-M 在实验合同中添加 v2 单事务大小/元数据设置和明确所有者/mode 创建。v1 缺失属性仍拒绝；有效授权及 access/load/mount 门槛继续关闭。准确范围和 SDK 测试见 [M0-L](docs/IMPLEMENTATION-M0L.zh-CN.md)、[M0-M](docs/IMPLEMENTATION-M0M.zh-CN.md)。
 
 ## 后端存储同步
 
@@ -53,7 +53,7 @@ M0-L 将 v2 持久 UUID、所有者/权限位/时间接入 FSVolume 身份、属
 
 `Volume::create_with_metadata` / `pw_volume_create_with_metadata` 显式新建实验 v2 容器，持久化 UUID、uid/gid/mode 和纳秒时间。元数据与内容/名字空间变更共用事务，覆盖硬链接和替换后旧打开对象。默认创建仍为 v1，不自动升级已有容器。这些是受信任的存储接口，尚不实施有效 OS 权限或认证调用者。见[范围、测试及限制](docs/IMPLEMENTATION-M1H.zh-CN.md)与 [ADR 0005](docs/adr/0005-opt-in-metadata-format.md)。
 
-M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提交前故障与提交后维护失败，旧内容租约继续有效。见 [M1-I](docs/IMPLEMENTATION-M1I.zh-CN.md)；原生有效权限及 setter 接入仍需完成。
+M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提交前故障与提交后维护失败，旧内容租约继续有效。见 [M1-I](docs/IMPLEMENTATION-M1I.zh-CN.md)；原生有效权限仍需完成。
 
 ## 运行存储实验
 
