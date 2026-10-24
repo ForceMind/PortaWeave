@@ -1,4 +1,4 @@
-use portaweave_core::{BLOCK_SIZE, Error, ReadViewLimits, ROOT, Volume};
+use portaweave_core::{BLOCK_SIZE, Error, ROOT, ReadViewLimits, Volume};
 use std::{
     fs,
     path::PathBuf,
@@ -10,7 +10,10 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         Self(std::env::temp_dir().join(format!(
             "pw-read-view-{}-{stamp}-{}",
             std::process::id(),
@@ -36,7 +39,8 @@ fn snapshot_index_admission_is_global_and_does_not_poison_data_writes() {
     v.set_read_view_limits(ReadViewLimits {
         max_active_views: 2,
         max_indexed_block_refs: 2,
-    }).unwrap();
+    })
+    .unwrap();
     assert!(matches!(v.acquire_view(h), Err(Error::ResourceLimit)));
     assert!(!v.is_write_protected());
     assert_eq!(v.read(h, 0, 4).unwrap(), vec![7; 4]);
@@ -66,7 +70,8 @@ fn snapshot_index_admission_is_global_and_does_not_poison_data_writes() {
     v.set_read_view_limits(ReadViewLimits {
         max_active_views: 0,
         max_indexed_block_refs: 0,
-    }).unwrap();
+    })
+    .unwrap();
     assert!(!v.is_write_protected());
 }
 
@@ -79,7 +84,8 @@ fn active_view_count_cap_is_independent_of_index_budget() {
     v.set_read_view_limits(ReadViewLimits {
         max_active_views: 1,
         max_indexed_block_refs: 100,
-    }).unwrap();
+    })
+    .unwrap();
     let first = v.acquire_view(h).unwrap();
     assert!(matches!(v.acquire_view(h), Err(Error::ResourceLimit)));
     v.release_view(first).unwrap();
@@ -102,7 +108,8 @@ fn sparse_large_logical_file_reads_only_requested_range() {
     v.set_read_view_limits(ReadViewLimits {
         max_active_views: 0,
         max_indexed_block_refs: 0,
-    }).unwrap();
+    })
+    .unwrap();
     assert!(matches!(v.acquire_view(h), Err(Error::ResourceLimit)));
     v.write(h, offset + 3, b"XYZ").unwrap();
     assert_eq!(v.read(h, offset, 7).unwrap(), b"payXYZd");

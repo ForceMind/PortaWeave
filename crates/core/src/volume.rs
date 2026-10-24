@@ -442,14 +442,17 @@ impl Volume {
         }
         // Probe the SQLite index size BEFORE allocating its Vec. An active
         // view retains its exact old block mapping across rename/overwrite/GC.
-        let count: i64 = self.observe(self.db.query_row(
-            "SELECT COUNT(*) FROM blocks WHERE object=?1",
-            [id.0],
-            |r| r.get(0),
-        ).map_err(Error::from))?;
+        let count: i64 = self.observe(
+            self.db
+                .query_row("SELECT COUNT(*) FROM blocks WHERE object=?1", [id.0], |r| {
+                    r.get(0)
+                })
+                .map_err(Error::from),
+        )?;
         let count = usize::try_from(count)
             .map_err(|_| Error::Corrupt("negative or oversized block-ref count".into()))?;
-        let next = self.indexed_view_block_refs
+        let next = self
+            .indexed_view_block_refs
             .checked_add(count)
             .ok_or(Error::ResourceLimit)?;
         if next > self.read_view_limits.max_indexed_block_refs {
@@ -459,7 +462,9 @@ impl Volume {
         let blocks = self.observe(self.refs(id))?;
         if blocks.len() != count {
             self.protected.set(true);
-            return Err(Error::Corrupt("read-view index changed during acquisition".into()));
+            return Err(Error::Corrupt(
+                "read-view index changed during acquisition".into(),
+            ));
         }
         let view = ReadView(token()?);
         self.views.insert(view, ViewState { size, blocks });
