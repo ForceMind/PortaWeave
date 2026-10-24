@@ -12,7 +12,7 @@ Core ROOT=1 映射 FSKit rootDirectory=2，其他对象 ID 加一，避免与 FS
 
 既有 ABI 新增 pw_lookup_entry，返回 Core 自己比较后的原始拼写，避免 Swift 重写 Unicode/大小写规则或根据硬链接对象 ID 误选别名；小缓冲只修改 required length。pw_parent_directory 将根的父目录限定在卷内；不会访问 backing 宿主父路径。pw_dir_seek 只在同一受限目录快照内定位，越界不移动位置。
 
-枚举 verifier 使用唯一原生 cursor token，cookie 是快照位置。packer 满时不丢掉未打包项，下一次从 cookie 重新定位；名字空间变动使现有 verifier 明确过期。目录 reclaim/会话关闭释放 cursor。当前仍继承 64 个活动 cursor、每快照 100,000 项及 4096 个缓存 FSItem 的实验上限；这不是完成大规模工作盘兼容。
+枚举 verifier 使用唯一原生 cursor token，cookie 是快照位置。packer 满时不丢掉未打包项，下一次从 cookie 重新定位；名字空间变动使现有 verifier 明确过期。同一未变目录的新 listing 复用不可变快照；每个请求按自己的 cookie 定位。全卷最多保留 32 个快照，LRU 淘汰前先关闭原生 cursor，被淘汰 verifier 明确 ESTALE，可从零重新开始，避免重复/放弃 listing 永久耗尽原生 64 个 cursor 上限。目录 reclaim/会话关闭释放 cursor。当前每快照 100,000 项及 4096 个缓存 FSItem 仍是实验上限；这不是完成大规模工作盘兼容。
 
 ## 不开放的能力
 
@@ -25,3 +25,5 @@ Core ROOT=1 映射 FSKit rootDirectory=2，其他对象 ID 加一，避免与 FS
 Rust/C 回归覆盖保留别名拼写、根父边界和同一 cursor 重试/越界。macOS 编译实际 FSVolume 协议，并用真实 SDK 对象直接调用创建、写入、属性、链接、rename、删除、打开项保护、同步和生命周期；枚举分页用同一 session 打包算法测试。SDK 的 FSMutableFileDataBuffer/FSDirectoryEntryPacker 没有公共构造器，测试不伪造它们：读回走同一 session 的真实 C ABI，packer 的实际系统分发仍 NOT_RUN。准确 PASS 以对应 PR/CI 源 SHA 为准。
 
 没有签名安装、启用扩展、Finder mount、Codex 或物理 exFAT 验收。Windows WinFsp 的权限/共享/缓存/硬链接阻断不因这些 macOS 回调解决。
+
+保留首轮 native/bundle run 40112544717 / 40112544675 的 Swift Int32/导入常量 Int 模式匹配失败，修正后再验证。代码审查另指出重复 listing 可能耗尽 cursor，已加入快照复用/LRU，并以 256 次不变目录枚举、80 个不同目录扫描、淘汰后 ESTALE 及从零重新开始回归验证；准确通过状态以修正源码的 CI 为准。

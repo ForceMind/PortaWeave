@@ -224,6 +224,45 @@ struct FSVolumeContract {
         } catch let error as POSIXError { try require(error.code == .ESTALE, "wrong stale verifier error") }
         try success { volume.reclaimItem(c, replyHandler: $0) }
         try success { volume.reclaimItem(d, replyHandler: $0) }
+        var retainedVerifier: UInt64 = 0
+        for _ in 0..<256 {
+            var seen: [String] = []
+            let current = try volume.session.synchronized {
+                try volume.session.enumerate(root, cookie: 0, verifier: 0, attributes: nil) {
+                    name, _, _, _, _ in seen.append(name.string!); return true
+                }
+            }
+            try require(seen == ["b", "c", "d"], "repeated listing lost entries")
+            if retainedVerifier == 0 { retainedVerifier = current }
+            try require(current == retainedVerifier, "unchanged listing did not reuse its snapshot")
+        }
+        var firstDirectory: PortaWeaveItem?
+        var firstVerifier: UInt64 = 0
+        var directories: [PortaWeaveItem] = []
+        for index in 0..<80 {
+            directories.append(try create(volume, "scan\(index)", root, type: .directory))
+        }
+        for (index, directory) in directories.enumerated() {
+            let token = try volume.session.synchronized {
+                try volume.session.enumerate(directory, cookie: 0, verifier: 0, attributes: nil) {
+                    _, _, _, _, _ in throw ContractFailure(message: "empty directory was not empty")
+                }
+            }
+            if index == 0 { firstDirectory = directory; firstVerifier = token }
+        }
+        do {
+            _ = try volume.session.synchronized {
+                try volume.session.enumerate(firstDirectory!, cookie: 0, verifier: firstVerifier, attributes: nil) {
+                    _, _, _, _, _ in true
+                }
+            }
+            throw ContractFailure(message: "evicted snapshot verifier accepted")
+        } catch let error as POSIXError { try require(error.code == .ESTALE, "wrong evicted verifier error") }
+        _ = try volume.session.synchronized {
+            try volume.session.enumerate(firstDirectory!, cookie: 0, verifier: 0, attributes: nil) {
+                _, _, _, _, _ in throw ContractFailure(message: "new empty-directory listing changed")
+            }
+        }
         try success { volume.synchronize(flags: .wait, replyHandler: $0) }
         try expect(.ENOTSUP) { volume.synchronize(flags: .noWait, replyHandler: $0) }
         try success { volume.deactivate(options: [], replyHandler: $0) }

@@ -65,6 +65,8 @@ final class PortaWeaveVolumeSession {
     private(set) var volume: UInt64 = 0
     private var items: [Int64: PortaWeaveItem] = [:]
     private var cursors: [UInt64: (directory: Int64, cursor: UInt64)] = [:]
+    private var cursorOrder: [UInt64] = []
+    private let maximumCachedDirectorySnapshots = 32
     private(set) var capacity = PwSpace()
     private(set) var lastError: Error?
 
@@ -211,6 +213,7 @@ final class PortaWeaveVolumeSession {
             if status != PW_OK { record(POSIXError(.EIO)) }
         }
         cursors.removeAll()
+        cursorOrder.removeAll()
     }
 
     func reclaim(_ raw: FSItem) throws {
@@ -219,6 +222,7 @@ final class PortaWeaveVolumeSession {
         for (key, value) in Array(cursors) where value.directory == item.object {
             try pwCheck(pw_dir_close(volume, value.cursor))
             cursors.removeValue(forKey: key)
+            cursorOrder.removeAll { $0 == key }
         }
         if let handle = item.handle {
             try pwCheck(pw_file_close(volume, handle))
@@ -266,16 +270,31 @@ final class PortaWeaveVolumeSession {
         let token: UInt64
         if verifier == 0 {
             guard cookie == 0 else { throw POSIXError(.ESTALE) }
-            var cursor: UInt64 = 0
-            try pwCheck(pw_dir_begin(volume, directory.object, &cursor))
-            token = cursor
-            cursors[token] = (directory.object, cursor)
+            if let existing = cursors.first(where: { $0.value.directory == directory.object }) {
+                // Each request seeks to its caller's own cookie. Independent
+                // listings can safely reuse this immutable namespace snapshot.
+                token = existing.key
+            } else {
+                if cursors.count >= maximumCachedDirectorySnapshots,
+                   let oldest = cursorOrder.first, let old = cursors[oldest] {
+                    try pwCheck(pw_dir_close(volume, old.cursor))
+                    cursors.removeValue(forKey: oldest)
+                    cursorOrder.removeFirst()
+                    // An evicted verifier explicitly returns ESTALE on resume.
+                }
+                var cursor: UInt64 = 0
+                try pwCheck(pw_dir_begin(volume, directory.object, &cursor))
+                token = cursor
+                cursors[token] = (directory.object, cursor)
+            }
         } else {
             token = verifier
         }
         guard let snapshot = cursors[token], snapshot.directory == directory.object else {
             throw POSIXError(.ESTALE)
         }
+        cursorOrder.removeAll { $0 == token }
+        cursorOrder.append(token)
         try pwCheck(pw_dir_seek(volume, snapshot.cursor, cookie))
         var position = cookie
         while true {
