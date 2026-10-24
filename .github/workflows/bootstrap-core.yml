@@ -1,0 +1,40 @@
+name: One-shot reviewed core bootstrap
+on:
+  push:
+    branches: ['codex/m1-storage-core-20261024']
+    paths: ['.github/workflows/bootstrap-core.yml']
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/codex/m1-storage-core-20261024'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/m1-storage-core-20261024
+      - name: Apply narrowly scoped, checked source corrections
+        run: python3 tools/bootstrap_core.py
+      - name: Resolve the lock and format exact source
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt
+          cargo generate-lockfile
+          cargo fmt --all
+      - name: Commit only core sources and lock to this development branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.lock crates/core
+          git diff --cached --stat
+          git commit -m 'fix(core): use checked SQLite integers, exercise abrupt exits and format locked sources'
+          git push origin HEAD:refs/heads/codex/m1-storage-core-20261024
+      - name: Bundle source and evidence for local inspection
+        run: |
+          git rev-parse HEAD > bootstrap-commit.txt
+          tar -czf core-source.tar.gz Cargo.toml Cargo.lock rust-toolchain.toml crates/core bootstrap-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-bootstrap-source
+          path: core-source.tar.gz
