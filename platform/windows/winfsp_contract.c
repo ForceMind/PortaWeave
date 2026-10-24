@@ -138,6 +138,7 @@ static VOID PwInterfaceInit(FSP_FILE_SYSTEM_INTERFACE *callbacks)
     callbacks->Flush = PwFlush;
     /* Create, Write, Rename, Directory, ACL, mmap etc. remain unset. */
 }
+#ifndef PW_WINFSP_NO_TEST
 #define REQUIRE(condition) do { if (!(condition)) { \
     fprintf(stderr, "check failed: %s at line %d\n", #condition, __LINE__); \
     return 1; \
@@ -186,3 +187,5 @@ int main(int argc, char **argv)
     puts("WINFSP_CALLBACK_CONTRACT_OK (no mount, no driver)");
     return 0;
 }
+
+#endif /* PW_WINFSP_NO_TEST */

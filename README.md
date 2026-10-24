@@ -8,7 +8,7 @@ PortaWeave targets an exFAT-backed, dynamically growing directory container moun
 
 ## Status — 2026-10-24
 
-**M0-E experimental native C ABI plus M1-D bounded-read core + compatibility probes. Not a mountable filesystem or a production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-C adds host-space admission and data-segment I/O failure testing. Platform adapters, full metadata/security semantics, idle scheduling and the desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-H experimental WinFsp dispatcher source + native C ABI + M1-D bounded-read core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-C adds host-space admission and data-segment I/O failure testing. Platform adapters, full metadata/security semantics, idle scheduling and the desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -22,6 +22,10 @@ The new `portaweave-native` library exports a versioned C header in [`include/po
 ## M0-G WinFsp capacity / durability contract (experimental)
 
 The existing native ABI now exposes logical quota and conservative host available-space snapshots plus an explicit SQLite WAL FULL checkpoint. **A catalog checkpoint is not an OS file flush.** The Windows WinFsp 2.1 callback contract compiles against pinned upstream headers and is exercised with a mock WinFsp object on GitHub Actions, without installing a driver or mounting a disk. The unimplemented access control and Flush callbacks fail closed. See [M0-G](docs/IMPLEMENTATION-M0G.zh-CN.md) and [native adapter readiness](docs/COMPATIBILITY.zh-CN.md).
+
+## M0-H experimental WinFsp dispatcher lifecycle
+
+`platform/windows/winfsp_service.c` implements calls to the real WinFsp filesystem create / mount point / dispatcher start / stop / delete APIs. CI **only** compiles it and runs `--self-test`; no driver or drive letter is installed or mounted. An explicit `--lab-mount R:` entrypoint for Windows uses **only a new disposable %TEMP% container** and requires WinFsp to be already installed; this remains **NOT_RUN**. It denies file opens and returns NOT_SUPPORTED on Flush, intentionally preventing use as a development disk. Read [M0-H experimental scope](docs/IMPLEMENTATION-M0H.zh-CN.md). Do not store user files in it.
 
 ## Run the storage lab
 

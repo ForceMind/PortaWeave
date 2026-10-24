@@ -48,6 +48,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./ci/run-winfsp-contract-windows.ps1
+      - name: Compile WinFsp dispatcher lifecycle and validate safe refusal (no mount)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./ci/run-winfsp-service-build-windows.ps1
       - name: Build and run Swift caller with macOS FSKit SDK available
         if: runner.os == 'macOS'
         shell: bash
