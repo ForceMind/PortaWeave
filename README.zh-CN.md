@@ -14,6 +14,10 @@
 
 FSKit/WinFsp 仍为待验收候选。核心硬链接不代表 WinFsp 接口限制已解决，不能为保留选型降低工作盘要求。
 
+## 原生适配接口（M0-A 实验性）
+
+新增 `crates/ffi`，提供给 macOS FSKit / Windows 文件系统回调使用的最小 C ABI。通过进程内编号会话表持有 Rust 卷，串行执行操作；卷关闭后的旧编号会明确拒绝。**这不是系统挂载**，尚不具备 ACL/Unix 权限强制、文件通知、目录枚举或真实 fsync 回调，不能宣称支持 Codex 开发盘。详见 [M0-A 适配契约](docs/IMPLEMENTATION-M0A.zh-CN.md) 和 [C 头文件](crates/ffi/include/portaweave.h)。
+
 ## 运行存储实验
 
 使用 `rust-toolchain.toml` 锁定的工具链和 Cargo.lock。示例只接受全新可丢弃目录，不挂载或格式化磁盘。

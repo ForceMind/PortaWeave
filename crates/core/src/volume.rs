@@ -17,6 +17,21 @@ use std::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct FileId(pub(crate) i64);
+impl FileId {
+    /// A stable namespace identity, not a native OS inode or access grant.
+    pub fn raw(self) -> u64 {
+        self.0 as u64
+    }
+    /// Validate a foreign raw identity. Existence and authorization are
+    /// always checked independently by the target volume operation.
+    pub fn from_raw(raw: u64) -> Result<Self> {
+        let value = i64::try_from(raw).map_err(|_| Error::InvalidRange)?;
+        if value < 1 {
+            return Err(Error::InvalidRange);
+        }
+        Ok(Self(value))
+    }
+}
 pub const ROOT: FileId = FileId(1);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {

@@ -14,6 +14,10 @@ Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh
 
 FSKit and WinFsp remain candidates. Internal true hard links do not remove WinFsp's documented interface limitation. See the [backend ADR](docs/adr/0001-development-volume-backend-gate.md).
 
+## Native adapter boundary (M0-A experimental)
+
+`crates/ffi` provides a minimal C ABI for native macOS FSKit and Windows filesystem callbacks. It uses a process-local, generation-safe numeric session registry rather than exposing Rust/SQLite pointers, serializes requests per session, and rejects requests after a volume is closed. The ABI is **not** a mount, does not enforce NTFS ACLs or macOS permissions, and intentionally offers no fake fsync operation. See [M0-A adapter contract](docs/IMPLEMENTATION-M0A.zh-CN.md) and [C header](crates/ffi/include/portaweave.h). It cannot be used to claim Codex, executable mapping, notifications, directory enumeration, hard links at the OS layer or real disk durability.
+
 ## Run the storage lab
 
 Use `rust-toolchain.toml` and the committed dependency lock. The example accepts only a NEW disposable directory; it does not mount or format a drive.
