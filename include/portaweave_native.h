@@ -51,6 +51,15 @@ int32_t pw_file_create(uint64_t volume, int64_t parent, const uint8_t *name, siz
 int32_t pw_directory_create(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, int64_t *out_object);
 int32_t pw_file_open(uint64_t volume, int64_t object, uint64_t *out_file);
 int32_t pw_file_close(uint64_t volume, uint64_t file);
+/* Process-local immutable range leases, NOT OS mmap. The requested interval
+ * must fit in signed 64-bit file offsets. Reads use absolute file offsets and
+ * must fit within the lease. Original EOF is retained. Closing the source file
+ * does not invalidate a lease; volume_close returns BUSY until all leases close.
+ * Owner-wide view/index budgets apply. On failure output values are unchanged.
+ */
+int32_t pw_read_view_begin(uint64_t volume, uint64_t file, uint64_t offset, uint64_t length, uint64_t *out_view);
+int32_t pw_read_view_read(uint64_t volume, uint64_t view, uint64_t offset, uint8_t *buffer, size_t capacity, size_t *out_read);
+int32_t pw_read_view_close(uint64_t volume, uint64_t view);
 int32_t pw_file_read(uint64_t volume, uint64_t file, uint64_t offset, uint8_t *buffer, size_t capacity, size_t *out_read);
 int32_t pw_file_write(uint64_t volume, uint64_t file, uint64_t offset, const uint8_t *data, size_t length, size_t *out_written);
 int32_t pw_file_truncate(uint64_t volume, uint64_t file, uint64_t size);

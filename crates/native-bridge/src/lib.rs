@@ -5,7 +5,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use portaweave_core::{
-    Entry, Error, FileId, Handle, Kind, MAX_IO, MaintenanceStatus, ROOT, Volume,
+    Entry, Error, FileId, Handle, Kind, MAX_IO, MaintenanceStatus, ROOT, ReadView, Volume,
 };
 use std::{
     collections::BTreeMap,
@@ -97,6 +97,7 @@ struct Session {
     volume: Volume,
     files: BTreeMap<u64, Handle>,
     dirs: BTreeMap<u64, Cursor>,
+    views: BTreeMap<u64, ReadView>,
 }
 static TABLE: OnceLock<Mutex<BTreeMap<u64, Session>>> = OnceLock::new();
 static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -219,6 +220,7 @@ pub unsafe extern "C" fn pw_volume_create(
                     volume,
                     files: BTreeMap::new(),
                     dirs: BTreeMap::new(),
+                    views: BTreeMap::new(),
                 },
             );
             unsafe {
@@ -251,6 +253,7 @@ pub unsafe extern "C" fn pw_volume_open(
                     volume,
                     files: BTreeMap::new(),
                     dirs: BTreeMap::new(),
+                    views: BTreeMap::new(),
                 },
             );
             unsafe {
@@ -266,7 +269,7 @@ pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
     run(|| {
         with_table(|all| {
             let session = all.get(&volume).ok_or_else(Fault::invalid)?;
-            if !session.files.is_empty() || !session.dirs.is_empty() {
+            if !session.files.is_empty() || !session.dirs.is_empty() || !session.views.is_empty() {
                 return Err(Fault::busy());
             }
             all.remove(&volume);
@@ -408,6 +411,80 @@ pub extern "C" fn pw_file_close(volume: u64, file: u64) -> i32 {
             let h = *s.files.get(&file).ok_or_else(Fault::invalid)?;
             s.volume.close_file(h).map_err(Fault::from)?;
             s.files.remove(&file);
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// out_view must point to writable u64 storage. Offsets are absolute.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_read_view_begin(
+    volume: u64,
+    file: u64,
+    offset: u64,
+    length: u64,
+    out_view: *mut u64,
+) -> i32 {
+    run(|| {
+        required(out_view)?;
+        with_session(volume, |s| {
+            let handle = *s.files.get(&file).ok_or_else(Fault::invalid)?;
+            let token = next_token()?;
+            let view = s
+                .volume
+                .acquire_range_view(handle, offset, length)
+                .map_err(Fault::from)?;
+            s.views.insert(token, view);
+            unsafe {
+                out_view.write(token);
+            }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// buffer is writable for capacity bytes and out_read points to writable usize.
+/// On error neither output is changed. A zero capacity permits a null buffer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_read_view_read(
+    volume: u64,
+    view: u64,
+    offset: u64,
+    buffer: *mut u8,
+    capacity: usize,
+    out_read: *mut usize,
+) -> i32 {
+    run(|| {
+        required(out_read)?;
+        readable(buffer, capacity)?;
+        if capacity > MAX_IO {
+            return Err(Fault::invalid());
+        }
+        with_session(volume, |s| {
+            let view = *s.views.get(&view).ok_or_else(Fault::invalid)?;
+            let bytes = s
+                .volume
+                .read_view(view, offset, capacity)
+                .map_err(Fault::from)?;
+            if !bytes.is_empty() {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, bytes.len());
+                }
+            }
+            unsafe {
+                out_read.write(bytes.len());
+            }
+            Ok(OK)
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_read_view_close(volume: u64, view: u64) -> i32 {
+    run(|| {
+        with_session(volume, |s| {
+            let lease = *s.views.get(&view).ok_or_else(Fault::invalid)?;
+            s.volume.release_view(lease).map_err(Fault::from)?;
+            s.views.remove(&view);
             Ok(OK)
         })
     })
