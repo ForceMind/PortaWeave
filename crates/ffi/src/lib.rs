@@ -7,7 +7,7 @@
 //! Do not use this API to claim sync, directory enumeration or ACL support.
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use portaweave_core::{Error, FileId, Handle, Kind, MaintenanceStatus, MAX_IO, Volume};
+use portaweave_core::{Error, FileId, Handle, Kind, MAX_IO, MaintenanceStatus, Volume};
 use std::{
     collections::BTreeMap,
     ffi::{CStr, c_char},
@@ -99,7 +99,10 @@ fn code(err: Error) -> i32 {
         Error::Sql(_) | Error::Injected => PW_IO_ERROR,
     }
 }
-fn enter<T>(id: u64, action: impl FnOnce(&mut Session) -> portaweave_core::Result<T>) -> Result<T, i32> {
+fn enter<T>(
+    id: u64,
+    action: impl FnOnce(&mut Session) -> portaweave_core::Result<T>,
+) -> Result<T, i32> {
     let session = {
         let g = registry().lock().map_err(|_| PW_INTERNAL)?;
         g.active.get(&id).cloned().ok_or(PW_BAD_HANDLE)?
@@ -117,7 +120,11 @@ fn register(volume: Volume) -> Result<u64, i32> {
     g.active.insert(
         id,
         Arc::new(Owner {
-            session: Mutex::new(Session { volume, handles: BTreeMap::new(), next_handle: 0 }),
+            session: Mutex::new(Session {
+                volume,
+                handles: BTreeMap::new(),
+                next_handle: 0,
+            }),
             closing: AtomicBool::new(false),
         }),
     );
@@ -137,17 +144,23 @@ fn object(raw: u64) -> portaweave_core::Result<FileId> {
 /// # Safety
 /// `ptr` must point to a valid, NUL-terminated UTF-8 C string.
 unsafe fn path(ptr: *const c_char) -> Result<PathBuf, i32> {
-    if ptr.is_null() { return Err(PW_INVALID_ARGUMENT); }
+    if ptr.is_null() {
+        return Err(PW_INVALID_ARGUMENT);
+    }
     // SAFETY: caller supplies valid NUL-terminated C string.
     let bytes = unsafe { CStr::from_ptr(ptr) };
     let text = bytes.to_str().map_err(|_| PW_INVALID_ARGUMENT)?;
-    if text.is_empty() { return Err(PW_INVALID_ARGUMENT); }
+    if text.is_empty() {
+        return Err(PW_INVALID_ARGUMENT);
+    }
     Ok(PathBuf::from(text))
 }
 /// # Safety
 /// For nonzero `len`, `ptr` must be readable for that many bytes.
 unsafe fn name<'a>(ptr: *const u8, len: usize) -> Result<&'a str, i32> {
-    if len == 0 || len > 255 || ptr.is_null() { return Err(PW_INVALID_ARGUMENT); }
+    if len == 0 || len > 255 || ptr.is_null() {
+        return Err(PW_INVALID_ARGUMENT);
+    }
     // SAFETY: documented valid readable buffer; no ownership transfer.
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
     std::str::from_utf8(bytes).map_err(|_| PW_INVALID_ARGUMENT)
@@ -155,7 +168,9 @@ unsafe fn name<'a>(ptr: *const u8, len: usize) -> Result<&'a str, i32> {
 /// # Safety
 /// `out` must point to one writable instance of `T`.
 unsafe fn output<T>(out: *mut T, value: T) -> Result<(), i32> {
-    if out.is_null() { return Err(PW_INVALID_ARGUMENT); }
+    if out.is_null() {
+        return Err(PW_INVALID_ARGUMENT);
+    }
     // SAFETY: caller owns one writable instance of T, not aliased to input buffers.
     unsafe { out.write(value) };
     Ok(())
@@ -167,10 +182,14 @@ unsafe fn output<T>(out: *mut T, value: T) -> Result<(), i32> {
 /// directory on any failure; callers must never use a valuable existing path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_volume_create(
-    path_utf8: *const c_char, quota: u64, out_session: *mut u64,
+    path_utf8: *const c_char,
+    quota: u64,
+    out_session: *mut u64,
 ) -> i32 {
     respond(|| {
-        if out_session.is_null() { return Err(PW_INVALID_ARGUMENT); }
+        if out_session.is_null() {
+            return Err(PW_INVALID_ARGUMENT);
+        }
         // SAFETY: validated by the documented C caller contract.
         let p = unsafe { path(path_utf8)? };
         let id = register(Volume::create(p, quota).map_err(code)?)?;
@@ -181,11 +200,11 @@ pub unsafe extern "C" fn pw_volume_create(
 /// `path_utf8` is a valid NUL-terminated UTF-8 path; `out_session` is writable.
 /// Opening an experimental container may perform recovery and maintenance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_volume_open(
-    path_utf8: *const c_char, out_session: *mut u64,
-) -> i32 {
+pub unsafe extern "C" fn pw_volume_open(path_utf8: *const c_char, out_session: *mut u64) -> i32 {
     respond(|| {
-        if out_session.is_null() { return Err(PW_INVALID_ARGUMENT); }
+        if out_session.is_null() {
+            return Err(PW_INVALID_ARGUMENT);
+        }
         let p = unsafe { path(path_utf8)? };
         let id = register(Volume::open(p).map_err(code)?)?;
         unsafe { output(out_session, id) }
@@ -215,14 +234,19 @@ pub unsafe extern "C" fn pw_volume_close(session: u64) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_health(session: u64, out_health: *mut PwHealth) -> i32 {
     respond(|| {
-        if out_health.is_null() { return Err(PW_INVALID_ARGUMENT); }
+        if out_health.is_null() {
+            return Err(PW_INVALID_ARGUMENT);
+        }
         let health = enter(session, |s| {
             let maintenance = match s.volume.maintenance_status() {
                 MaintenanceStatus::Healthy => 0,
                 MaintenanceStatus::DeferredSpace { .. } => 1,
                 MaintenanceStatus::Failed { .. } => 2,
             };
-            Ok(PwHealth { write_protected: u8::from(s.volume.is_write_protected()), maintenance })
+            Ok(PwHealth {
+                write_protected: u8::from(s.volume.is_write_protected()),
+                maintenance,
+            })
         })?;
         unsafe { output(out_health, health) }
     })
@@ -232,7 +256,9 @@ pub unsafe extern "C" fn pw_health(session: u64, out_health: *mut PwHealth) -> i
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_stat(session: u64, object_id: u64, out_stat: *mut PwFileStat) -> i32 {
     respond(|| {
-        if out_stat.is_null() { return Err(PW_INVALID_ARGUMENT); }
+        if out_stat.is_null() {
+            return Err(PW_INVALID_ARGUMENT);
+        }
         let result = enter(session, |s| {
             let stat = s.volume.stat(object(object_id)?)?;
             Ok(PwFileStat {
@@ -250,10 +276,16 @@ pub unsafe extern "C" fn pw_stat(session: u64, object_id: u64, out_stat: *mut Pw
 /// `name_utf8` has exactly `name_len` readable bytes; `out_id` is writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_lookup(
-    session: u64, parent: u64, name_utf8: *const u8, name_len: usize, out_id: *mut u64,
+    session: u64,
+    parent: u64,
+    name_utf8: *const u8,
+    name_len: usize,
+    out_id: *mut u64,
 ) -> i32 {
     respond(|| {
-        if out_id.is_null() { return Err(PW_INVALID_ARGUMENT); }
+        if out_id.is_null() {
+            return Err(PW_INVALID_ARGUMENT);
+        }
         let name = unsafe { name(name_utf8, name_len)? };
         let id = enter(session, |s| s.volume.lookup(object(parent)?, name))?;
         unsafe { output(out_id, id.raw()) }
@@ -263,10 +295,16 @@ pub unsafe extern "C" fn pw_lookup(
 /// `name_utf8` has exactly `name_len` readable bytes; `out_id` is writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_create_file(
-    session: u64, parent: u64, name_utf8: *const u8, name_len: usize, out_id: *mut u64,
+    session: u64,
+    parent: u64,
+    name_utf8: *const u8,
+    name_len: usize,
+    out_id: *mut u64,
 ) -> i32 {
     respond(|| {
-        if out_id.is_null() { return Err(PW_INVALID_ARGUMENT); }
+        if out_id.is_null() {
+            return Err(PW_INVALID_ARGUMENT);
+        }
         let name = unsafe { name(name_utf8, name_len)? };
         let id = enter(session, |s| s.volume.create_file(object(parent)?, name))?;
         unsafe { output(out_id, id.raw()) }
@@ -276,10 +314,16 @@ pub unsafe extern "C" fn pw_create_file(
 /// `name_utf8` has exactly `name_len` readable bytes; `out_id` is writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_mkdir(
-    session: u64, parent: u64, name_utf8: *const u8, name_len: usize, out_id: *mut u64,
+    session: u64,
+    parent: u64,
+    name_utf8: *const u8,
+    name_len: usize,
+    out_id: *mut u64,
 ) -> i32 {
     respond(|| {
-        if out_id.is_null() { return Err(PW_INVALID_ARGUMENT); }
+        if out_id.is_null() {
+            return Err(PW_INVALID_ARGUMENT);
+        }
         let name = unsafe { name(name_utf8, name_len)? };
         let id = enter(session, |s| s.volume.mkdir(object(parent)?, name))?;
         unsafe { output(out_id, id.raw()) }
@@ -288,11 +332,11 @@ pub unsafe extern "C" fn pw_mkdir(
 /// # Safety
 /// `out_handle` points to one writable u64.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_open_file(
-    session: u64, object_id: u64, out_handle: *mut u64,
-) -> i32 {
+pub unsafe extern "C" fn pw_open_file(session: u64, object_id: u64, out_handle: *mut u64) -> i32 {
     respond(|| {
-        if out_handle.is_null() { return Err(PW_INVALID_ARGUMENT); }
+        if out_handle.is_null() {
+            return Err(PW_INVALID_ARGUMENT);
+        }
         let id = enter(session, |s| {
             let next = s.next_handle.checked_add(1).ok_or(Error::ResourceLimit)?;
             let raw = s.volume.open_file(object(object_id)?)?;
@@ -320,8 +364,12 @@ pub unsafe extern "C" fn pw_close_file(session: u64, handle: u64) -> i32 {
 /// to `capacity` writable bytes. Buffers must not alias another active pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_read(
-    session: u64, handle: u64, offset: u64,
-    buffer: *mut u8, capacity: usize, out_bytes: *mut usize,
+    session: u64,
+    handle: u64,
+    offset: u64,
+    buffer: *mut u8,
+    capacity: usize,
+    out_bytes: *mut usize,
 ) -> i32 {
     respond(|| {
         if out_bytes.is_null() || (capacity > 0 && buffer.is_null()) || capacity > MAX_IO {
@@ -343,14 +391,20 @@ pub unsafe extern "C" fn pw_read(
 /// `len` readable bytes, valid throughout the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_write(
-    session: u64, handle: u64, offset: u64,
-    buffer: *const u8, len: usize, out_bytes: *mut usize,
+    session: u64,
+    handle: u64,
+    offset: u64,
+    buffer: *const u8,
+    len: usize,
+    out_bytes: *mut usize,
 ) -> i32 {
     respond(|| {
         if out_bytes.is_null() || (len > 0 && buffer.is_null()) || len > MAX_IO {
             return Err(PW_INVALID_ARGUMENT);
         }
-        let input: &[u8] = if len == 0 { &[] } else {
+        let input: &[u8] = if len == 0 {
+            &[]
+        } else {
             // SAFETY: caller provides the region and we do not retain it.
             unsafe { std::slice::from_raw_parts(buffer, len) }
         };
@@ -376,7 +430,10 @@ pub unsafe extern "C" fn pw_truncate(session: u64, handle: u64, size: u64) -> i3
 /// `name_utf8` is readable for `name_len` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_unlink(
-    session: u64, parent: u64, name_utf8: *const u8, name_len: usize,
+    session: u64,
+    parent: u64,
+    name_utf8: *const u8,
+    name_len: usize,
 ) -> i32 {
     respond(|| {
         let name = unsafe { name(name_utf8, name_len)? };
@@ -387,7 +444,10 @@ pub unsafe extern "C" fn pw_unlink(
 /// `name_utf8` is readable for `name_len` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_rmdir(
-    session: u64, parent: u64, name_utf8: *const u8, name_len: usize,
+    session: u64,
+    parent: u64,
+    name_utf8: *const u8,
+    name_len: usize,
 ) -> i32 {
     respond(|| {
         let name = unsafe { name(name_utf8, name_len)? };
@@ -398,15 +458,29 @@ pub unsafe extern "C" fn pw_rmdir(
 /// Both name buffers must be readable for their specified byte lengths.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_rename(
-    session: u64, from_parent: u64, from_utf8: *const u8, from_len: usize,
-    to_parent: u64, to_utf8: *const u8, to_len: usize, replace_existing: u8,
+    session: u64,
+    from_parent: u64,
+    from_utf8: *const u8,
+    from_len: usize,
+    to_parent: u64,
+    to_utf8: *const u8,
+    to_len: usize,
+    replace_existing: u8,
 ) -> i32 {
     respond(|| {
-        if replace_existing > 1 { return Err(PW_INVALID_ARGUMENT); }
+        if replace_existing > 1 {
+            return Err(PW_INVALID_ARGUMENT);
+        }
         let from = unsafe { name(from_utf8, from_len)? };
         let to = unsafe { name(to_utf8, to_len)? };
         enter(session, |s| {
-            s.volume.rename(object(from_parent)?, from, object(to_parent)?, to, replace_existing == 1)
+            s.volume.rename(
+                object(from_parent)?,
+                from,
+                object(to_parent)?,
+                to,
+                replace_existing == 1,
+            )
         })
     })
 }
@@ -414,12 +488,17 @@ pub unsafe extern "C" fn pw_rename(
 /// `name_utf8` is readable for `name_len` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_hard_link(
-    session: u64, target_object: u64, parent: u64, name_utf8: *const u8, name_len: usize,
+    session: u64,
+    target_object: u64,
+    parent: u64,
+    name_utf8: *const u8,
+    name_len: usize,
 ) -> i32 {
     respond(|| {
         let name = unsafe { name(name_utf8, name_len)? };
         enter(session, |s| {
-            s.volume.hard_link(object(target_object)?, object(parent)?, name)
+            s.volume
+                .hard_link(object(target_object)?, object(parent)?, name)
         })
     })
 }
