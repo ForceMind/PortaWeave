@@ -142,10 +142,7 @@ fn small_range_of_large_file_survives_truncate_unlink_close_and_compaction() {
         v.read_view(a, start - 1, 1),
         Err(Error::InvalidRange)
     ));
-    assert!(matches!(
-        v.read_view(a, start, 7),
-        Err(Error::InvalidRange)
-    ));
+    assert!(matches!(v.read_view(a, start, 7), Err(Error::InvalidRange)));
     v.write(h, start, b"newest").unwrap();
     v.truncate(h, 0).unwrap();
     v.unlink(ROOT, "ranges").unwrap();
