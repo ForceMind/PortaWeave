@@ -8,15 +8,15 @@ PortaWeave targets an exFAT-backed, dynamically growing directory container moun
 
 ## Status — 2026-10-24
 
-**M1-B experimental core safety increment + compatibility probes. Not a mountable filesystem or a production release.** The core stores real immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and automatically triggered reclamation. It now also has an independent evidence-copy diagnosis/content-export path and explicit maintenance status. Platform adapters, full metadata/security semantics, idle maintenance scheduling and the desktop client remain unimplemented. Never store the only copy of data in this experimental format.
+**M1-C experimental core safety increment + compatibility probes. Not a mountable filesystem or a production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-C adds host-space admission and data-segment I/O failure testing. Platform adapters, full metadata/security semantics, idle scheduling and the desktop client remain unimplemented. Never store the only copy in this experimental format.
 
-Read the [M1-A core scope](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B safety increment](docs/IMPLEMENTATION-M1B.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). A core library running on a hosted macOS/Windows runner does not establish exFAT, mounted-volume or Codex compatibility.
+Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
-FSKit and WinFsp remain **candidates**, not validated solutions. The core's true hard links do not remove WinFsp's documented hard-link limitation. See the [backend ADR](docs/adr/0001-development-volume-backend-gate.md).
+FSKit and WinFsp remain candidates. Internal true hard links do not remove WinFsp's documented interface limitation. See the [backend ADR](docs/adr/0001-development-volume-backend-gate.md).
 
 ## Run the storage lab
 
-Use the toolchain pinned in `rust-toolchain.toml` and committed dependency lock. The example accepts only a NEW disposable directory; it does not mount or format a drive.
+Use `rust-toolchain.toml` and the committed dependency lock. The example accepts only a NEW disposable directory; it does not mount or format a drive.
 
 ```sh
 cargo test --workspace --all-features --locked
@@ -26,40 +26,42 @@ cargo fmt --all -- --check
 cargo run --locked -p portaweave-core --example scratch -- /path/to/new-disposable-lab
 ```
 
-Automatic reclamation currently runs in serialized operations, not an idle worker. Open handles and read leases delay deletion. Segment-byte statistics exclude the database, WAL and host allocation overhead. Physical power-loss durability and Windows directory flush remain unvalidated.
+Automatic reclamation currently runs in serialized operations, not an idle worker. Handles/read leases delay deletion. Segment-byte statistics exclude the database, WAL and host allocation overhead. Physical power loss and Windows directory flush remain unvalidated.
 
-## Offline original-preserving diagnosis and export
+### Host-space and maintenance states
+
+`space_status()` and `Stats.space` expose a host free-space snapshot and soft admission budget. Default headroom is 16 MiB plus a 1 MiB metadata allowance. This is **not physically allocated emergency storage or a reservation**. Other applications, host allocation granularity and SQLite growth can still exhaust the disk after a check succeeds.
+
+A pre-stage `Error::HostSpace` preserves current references without poisoning the owner. Low-space compaction reports `DeferredSpace`, retains the old segment and retries on a later maintenance-triggering operation. Actual I/O/SQLite failures still latch protection. Failure after a successful business commit is reported separately as `Failed`; an actual commit error may remain indeterminate. Do not assume every error means rollback. Fault-injection hooks compile out of default builds and must not be enabled in a user-facing client.
+
+## Original-preserving diagnosis and export
 
 ```sh
 cargo run --locked -p portaweave-core --bin portaweave-recover -- verify SOURCE NEW_WORKSPACE
 cargo run --locked -p portaweave-core --bin portaweave-recover -- export SOURCE NEW_WORKSPACE NEW_OUTPUT
 ```
 
-The recovery path snapshots evidence without opening the source in SQLite, recovers a separate working catalog, then strictly verifies/exports contents. It is not metadata-complete or a salvage algorithm for a broken catalog. Reading may change host access timestamps; this is not a hardware write blocker. See [scope and budgets](docs/IMPLEMENTATION-M1B.zh-CN.md).
+Recovery copies evidence without opening the source in SQLite, recovers a separate working catalog, then strictly verifies/exports contents. It is not metadata-complete or a broken-catalog salvage algorithm. Reading may change access timestamps; this is not hardware write protection. See [scope and budgets](docs/IMPLEMENTATION-M1B.zh-CN.md).
 
-All output directories must be new. Partial work is preserved; never retry into an existing destination. Hard links are preserved by default; `--copy-hardlinks` explicitly produces separate copies with a report. An export is complete only when `COMPLETE` exists and `INCOMPLETE` does not.
-
-Successful mutations report subsequent GC failures through `maintenance_status()`/Stats and latch write protection, rather than misreporting an already committed write as failed. An error from the actual transaction commit can still be indeterminate; never assume all errors imply rollback.
+All destinations must be new; partial work is preserved. Hard links are preserved by default; `--copy-hardlinks` explicitly produces separate copies and reports the difference. Completion requires `COMPLETE` and no `INCOMPLETE`. Export is a recovery tool, not a substitute for the required real working-volume interface.
 
 ## Engineering documents
 
-- [Product and storage specification](docs/SPEC.zh-CN.md), the design target rather than current feature claims
-- [Development-volume compatibility contract](docs/COMPATIBILITY.zh-CN.md)
-- [Milestones and release gates](docs/ROADMAP.zh-CN.md)
-- [M1-A implementation](docs/IMPLEMENTATION-M1A.zh-CN.md) and [M1-B safety tools](docs/IMPLEMENTATION-M1B.zh-CN.md)
-- [Validation and evidence](docs/VALIDATION.zh-CN.md)
-- [Primary technical sources](docs/SOURCES.md)
-- [Contributor/agent rules](AGENTS.md) and [work handoff](WORK_HANDOFF.zh-CN.md)
+- [Product/storage specification](docs/SPEC.zh-CN.md), the target rather than current feature claims
+- [Development-volume contract](docs/COMPATIBILITY.zh-CN.md)
+- [Roadmap](docs/ROADMAP.zh-CN.md) and [validation](docs/VALIDATION.zh-CN.md)
+- [M1-A core](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B recovery](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C capacity/I/O](docs/IMPLEMENTATION-M1C.zh-CN.md)
+- [Primary sources](docs/SOURCES.md), [agent rules](AGENTS.md), [handoff](WORK_HANDOFF.zh-CN.md)
 
 ## Host-directory probes
 
-Python 3.10+; Git and Node are needed for their corresponding tests. Use a disposable directory, never the raw backing container:
+Python 3.10+ and the corresponding installed Git/Node tools. Use a disposable directory, never the raw container:
 
 ```sh
 python tools/workspace_probe.py --root /path/to/scratch --label host-baseline --report /path/to/new-report.json
 python -m unittest discover -s tests -v
 ```
 
-These probes install no drivers, use no network, do not invoke Codex or change its permissions, and are not certification of the actual container. The product still requires one owner per container, safe handover between computers, normal sandbox permissions and real platform-level evidence.
+Probes install no drivers, use no network, do not invoke Codex or alter permissions, and are not mounted-volume certification. One owner, safe computer handover and normal sandbox permissions remain mandatory.
 
 Top-level licensing has not yet been selected by the owner. Third-party licenses remain independent. The name does not imply trademark clearance.
