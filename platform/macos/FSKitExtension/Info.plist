@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>EXAppExtensionAttributes</key>
+  <dict>
+    <key>EXExtensionPointIdentifier</key>
+    <string>com.apple.fskit.fsmodule</string>
+    <key>FSShortName</key>
+    <string>portaweave</string>
+    <key>FSRequiresSecurityScopedPathURLResources</key>
+    <true/>
+    <key>FSSupportsPathURLs</key>
+    <true/>
+    <key>FSSupportsBlockResources</key>
+    <false/>
+    <key>FSSupportsGenericURLResources</key>
+    <false/>
+    <key>FSSupportsServerURLs</key>
+    <false/>
+    <key>FSMediaTypes</key>
+    <dict/>
+    <key>FSPersonalities</key>
+    <dict>
+      <key>PortaWeavePersonality</key>
+      <dict>
+        <key>FSName</key>
+        <string>PortaWeave</string>
+        <key>FSfileObjectsAreCaseSensitive</key>
+        <false/>
+      </dict>
+    </dict>
+  </dict>
+</dict>
+</plist>
