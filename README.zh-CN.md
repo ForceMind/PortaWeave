@@ -19,6 +19,10 @@ FSKit/WinFsp 仍为待验收候选。核心硬链接不代表 WinFsp 接口限�
 
 新增 `portaweave-native` C ABI 与 [`include/portaweave_native.h`](include/portaweave_native.h)，提供实际核心目录与文件操作、句柄和健康状态，详见 [M0-E 说明](docs/IMPLEMENTATION-M0E.zh-CN.md)。**这不是 FSKit/WinFsp 真正挂载：** 系统回调、安全授权、文件监听、安全卸载与完整同步语义仍然没有实现，不得把 ABI 通过冒充 Codex 工作盘验收。
 
+## M0-G WinFsp 容量与持久化契约（实验）
+
+既有原生 ABI 新增逻辑配额、保守宿主可用空间快照及 SQLite WAL FULL 检查点；**这不等同于整个卷的 fsync 或 Windows 文件 Flush 成功**。Windows CI 使用固定的 WinFsp 2.1 官方头文件编译并在模拟 WinFsp 对象上测试真实回调签名；没有安装驱动，也没有真正挂载盘符。权限与 Flush 尚未实现，相关回调明确拒绝而不是虚假成功。详见 [M0-G](docs/IMPLEMENTATION-M0G.zh-CN.md)。
+
 ## 运行存储实验
 
 使用 `rust-toolchain.toml` 锁定的工具链和 Cargo.lock。示例只接受全新可丢弃目录，不挂载或格式化磁盘。

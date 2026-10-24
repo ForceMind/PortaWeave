@@ -86,6 +86,23 @@ pub enum MaintenanceStatus {
         error: String,
     },
 }
+/// No pending garbage is counted as free, and the host can still race us.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapacitySnapshot {
+    pub logical_quota_bytes: u64,
+    pub logical_used_bytes: u64,
+    pub host_available_bytes: u64,
+    pub host_data_admission_bytes: u64,
+    pub apparent_free_bytes: u64,
+}
+
+/// SQLite WAL checkpoint result; not a mounted filesystem fsync.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CheckpointStatus {
+    pub wal_frames: u64,
+    pub checkpointed_frames: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct Stats {
     pub maintenance: MaintenanceStatus,
@@ -309,6 +326,57 @@ impl Volume {
         self.read_view_limits = limits;
         Ok(())
     }
+    /// A conservative capacity snapshot, not allocated/reserved disk space.
+    pub fn capacity(&self) -> Result<CapacitySnapshot> {
+        self.observe((|| {
+            let quota: i64 = self
+                .db
+                .query_row("SELECT quota FROM config WHERE id=1", [], |r| r.get(0))?;
+            let used: i64 =
+                self.db
+                    .query_row("SELECT COALESCE(SUM(size),0) FROM objects", [], |r| {
+                        r.get(0)
+                    })?;
+            if quota < 0 || used < 0 || used > quota {
+                return Err(Error::Corrupt("invalid quota or used bytes".into()));
+            }
+            let space = self.space.status(&self.root)?;
+            Ok(CapacitySnapshot {
+                logical_quota_bytes: quota as u64,
+                logical_used_bytes: used as u64,
+                host_available_bytes: space.host_available_bytes,
+                host_data_admission_bytes: space.data_admission_bytes,
+                apparent_free_bytes: ((quota - used) as u64).min(space.data_admission_bytes),
+            })
+        })())
+    }
+
+    /// FULL checkpoint of catalog.sqlite WAL only. Does NOT implement FSKit /
+    /// WinFsp Flush: directory creation and OS/USB caches require separate
+    /// platform persistence guarantees. Never translate this to fsync success.
+    pub fn checkpoint_catalog(&mut self) -> Result<CheckpointStatus> {
+        if self.protected.get() {
+            return Err(Error::WriteProtected);
+        }
+        let result = (|| {
+            let (busy, log, finished): (i64, i64, i64) =
+                self.db.query_row("PRAGMA wal_checkpoint(FULL)", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?;
+            if busy != 0 {
+                return Err(Error::Busy);
+            }
+            if log < 0 || finished < 0 || finished != log {
+                return Err(Error::Corrupt("incomplete SQLite FULL checkpoint".into()));
+            }
+            Ok(CheckpointStatus {
+                wal_frames: log as u64,
+                checkpointed_frames: finished as u64,
+            })
+        })();
+        self.observe(result)
+    }
+
     pub fn is_write_protected(&self) -> bool {
         self.protected.get()
     }

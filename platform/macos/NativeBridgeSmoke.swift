@@ -38,6 +38,19 @@ check(data.withUnsafeBufferPointer {
     pw_file_write(volume, handle, 0, $0.baseAddress, $0.count, &written)
 }, "file_write")
 guard written == data.count else { fatalError("short ABI write") }
+var capacity = PwSpace()
+check(pw_volume_space(volume, &capacity), "volume_space")
+guard capacity.logical_quota_bytes == 64 * 1024 * 1024,
+      capacity.logical_used_bytes == data.count,
+      capacity.apparent_free_bytes <= capacity.logical_quota_bytes - capacity.logical_used_bytes,
+      capacity.apparent_free_bytes <= capacity.host_data_admission_bytes else {
+    fatalError("invalid native capacity accounting")
+}
+var checkpoint = PwCheckpoint()
+check(pw_catalog_checkpoint(volume, &checkpoint), "catalog_checkpoint")
+guard checkpoint.wal_frames == checkpoint.checkpointed_frames else {
+    fatalError("incomplete SQLite FULL checkpoint")
+}
 var result = [UInt8](repeating: 0, count: 128)
 var readCount = 0
 check(result.withUnsafeMutableBufferPointer {

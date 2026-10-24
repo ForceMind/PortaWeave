@@ -171,6 +171,21 @@ pub struct PwStat {
     pub links: u64,
     pub generation: u64,
 }
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwSpace {
+    pub logical_quota_bytes: u64,
+    pub logical_used_bytes: u64,
+    pub host_available_bytes: u64,
+    pub host_data_admission_bytes: u64,
+    pub apparent_free_bytes: u64,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwCheckpoint {
+    pub wal_frames: u64,
+    pub checkpointed_frames: u64,
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn pw_abi_version() -> u32 {
     1
@@ -628,6 +643,45 @@ pub extern "C" fn pw_dir_close(volume: u64, cursor: u64) -> i32 {
     run(|| {
         with_session(volume, |s| {
             s.dirs.remove(&cursor).ok_or_else(Fault::invalid)?;
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// out_space points to a valid, writable, aligned PwSpace.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_volume_space(volume: u64, out_space: *mut PwSpace) -> i32 {
+    run(|| {
+        required(out_space)?;
+        with_session(volume, |s| {
+            let info = s.volume.capacity().map_err(Fault::from)?;
+            unsafe {
+                out_space.write(PwSpace {
+                    logical_quota_bytes: info.logical_quota_bytes,
+                    logical_used_bytes: info.logical_used_bytes,
+                    host_available_bytes: info.host_available_bytes,
+                    host_data_admission_bytes: info.host_data_admission_bytes,
+                    apparent_free_bytes: info.apparent_free_bytes,
+                });
+            }
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// out_result points to valid, writable PwCheckpoint. Catalog only, not fsync.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_catalog_checkpoint(volume: u64, out_result: *mut PwCheckpoint) -> i32 {
+    run(|| {
+        required(out_result)?;
+        with_session(volume, |s| {
+            let result = s.volume.checkpoint_catalog().map_err(Fault::from)?;
+            unsafe {
+                out_result.write(PwCheckpoint {
+                    wal_frames: result.wal_frames,
+                    checkpointed_frames: result.checkpointed_frames,
+                });
+            }
             Ok(OK)
         })
     })

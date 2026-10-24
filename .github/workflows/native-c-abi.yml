@@ -37,6 +37,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./ci/run-native-abi-windows.ps1
+      - uses: actions/checkout@v4
+        if: runner.os == 'Windows'
+        with:
+          repository: winfsp/winfsp
+          ref: ddca7bd5481857a65ba552f643b8776fd070836f
+          path: build-deps/winfsp
+          persist-credentials: false
+      - name: Type-check WinFsp 2.1 real callback signatures and exercise fail-closed contract
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./ci/run-winfsp-contract-windows.ps1
       - name: Build and run Swift caller with macOS FSKit SDK available
         if: runner.os == 'macOS'
         shell: bash

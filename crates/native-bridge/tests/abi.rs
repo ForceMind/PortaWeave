@@ -99,6 +99,17 @@ fn native_abi_writes_and_reopens_real_core_container() {
         0
     );
     assert_eq!(&output[..read], b"work");
+    let mut space = PwSpace::default();
+    assert_eq!(unsafe { pw_volume_space(volume, &mut space) }, 0);
+    assert_eq!(space.logical_quota_bytes, 100_000_000);
+    assert_eq!(space.logical_used_bytes, 4);
+    assert_eq!(
+        space.apparent_free_bytes,
+        (100_000_000_u64 - 4).min(space.host_data_admission_bytes)
+    );
+    let mut checkpoint = PwCheckpoint::default();
+    assert_eq!(unsafe { pw_catalog_checkpoint(volume, &mut checkpoint) }, 0);
+    assert_eq!(checkpoint.wal_frames, checkpoint.checkpointed_frames);
     let mut status = PwStat::default();
     assert_eq!(unsafe { pw_stat(volume, object, &mut status) }, 0);
     assert_eq!(status.kind, 0);
