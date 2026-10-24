@@ -17,6 +17,22 @@ use std::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct FileId(pub(crate) i64);
+
+impl FileId {
+    /// Stable catalog object ID. Only valid in its owning volume.
+    pub const fn raw(self) -> i64 {
+        self.0
+    }
+
+    /// Validate the wire representation, not object existence or permissions.
+    pub fn from_raw(raw: i64) -> Result<Self> {
+        if raw <= 0 {
+            return Err(Error::InvalidRange);
+        }
+        Ok(Self(raw))
+    }
+}
+
 pub const ROOT: FileId = FileId(1);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
