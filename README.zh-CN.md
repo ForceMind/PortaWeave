@@ -8,7 +8,7 @@
 
 ## 当前状态（2026-10-24）
 
-**M0-H 实验性 WinFsp Dispatcher 服务源码 + 原生 C ABI 与 M1-E 范围租约存储核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。M1-C 新增宿主空间准入和数据段 I/O 故障测试。平台挂载、完整元数据/权限、空闲调度和桌面客户端尚未完成，严禁存放唯一副本。
+**M0-J macOS App/Extension 无签名构建 + 实验性 WinFsp Dispatcher 与 M1-F 结构校验与 M1-E 范围租约存储核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。M1-C 新增宿主空间准入和数据段 I/O 故障测试。平台适配、完整元数据/权限、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
 
 实现范围见 [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md)、[M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md)、[M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md)，历史测试见[验证记录](docs/VALIDATION.zh-CN.md)。确切源码版本的测试结果记录在对应 PR；实现文档不是自动的通过声明。云端三系统核心测试不等于真实 exFAT、挂载盘或 Codex 已兼容。
 
@@ -27,9 +27,17 @@ FSKit/WinFsp 仍为待验收候选。核心硬链接不代表 WinFsp 接口限�
 
 `platform/windows/winfsp_service.c` 已编写真正 WinFsp 文件系统创建、设置盘符、启动与停止分发器的代码；CI **只编译并执行 `--self-test`**，不安装驱动、不挂载盘符。必须明确手动运行的 `--lab-mount R:` 只能创建临时目录里的全新测试卷，且依赖系统已经安装 WinFsp；**该路径尚未真实运行验证**。出于安全原因，所有用户文件 Open 均拒绝，Flush 返回未支持，绝不能用于真实工作或保存数据。详见 [M0-H 边界](docs/IMPLEMENTATION-M0H.zh-CN.md)。
 
+## M0-J macOS 宿主 App 与 ExtensionKit 构建
+
+仓库新增真正的 Xcode App 和嵌入 FSKit Extension target，均静态链接共享 Rust 核心。在 macOS 运行 `bash ci/build-macos-lab.sh` 构建并检查无签名实验包；脚本不安装、启用或挂载。FSVolume 回调、有效权限、同步与签名仍未完成。详见 [M0-J 构建范围](docs/IMPLEMENTATION-M0J.zh-CN.md)。
+
 ## M1-E 范围读取租约
 
 `acquire_range_view` 仅保留指定区间的块索引，保存原 EOF 并共用 owner 级预算。原生 C begin/read/close 接口支持源句柄关闭后的旧版本读取；活动租约阻止关闭卷。这不是 OS mmap 或挂载验收。详见 [M1-E 范围与测试](docs/IMPLEMENTATION-M1E.zh-CN.md)。
+
+## M1-F catalog 结构门禁
+
+普通打开和保全恢复共用实验 schema 检查，在自动回收前拒绝未知表、列、索引、view 和 trigger，兼容源码 checkout 的 LF/CRLF 差异。这不是完整恶意 SQLite 解析器防护，普通 open 也不是只读诊断。详见 [M1-F 实现与回归记录](docs/IMPLEMENTATION-M1F.zh-CN.md)。
 
 ## 运行存储实验
 

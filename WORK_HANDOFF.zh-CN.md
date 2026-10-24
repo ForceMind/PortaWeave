@@ -1,25 +1,30 @@
 # PortaWeave（随卷）持续研发接管
 
-仓库 `ForceMind/PortaWeave`，公开，默认分支 main。先读取实时分支、PR、CI 和未完成 Issue，不假定本文件永远最新；保留已有代码，不改变可见性。
+仓库 `ForceMind/PortaWeave`，公开，默认分支 main。先重新读取分支、PR、CI 和 Issue；不要假定本文里的 SHA 永远最新。用户禁止未经单独授权操作其本机、安装本机驱动、格式化介质或部署网站。
 
-## 当前起点
+## 当前工程
 
-已有 M1-A 实验性持久化 Rust 核心与 M1-B 第一安全增量，不再只有方案。工程位于 crates/core；读取 AGENTS、兼容性契约、IMPLEMENTATION-M1A/M1B、VALIDATION 和三份 ADR。Issue #1 是真实挂载/Codex 门禁，Issue #3 是剩余核心完善，PR #4 承载本次安全增量。
+已有 M1-A～M1-F Rust 持久化核心增量、统一原生 C ABI、Windows WinFsp Dispatcher 实验源码，以及 macOS Xcode 宿主 App/ExtensionKit 工程。不是可用的系统文件卷。
 
-新增 Recovery/portaweave-recover 在持有源锁时复制证据，仅在第二份工作 catalog 上恢复 SQLite/WAL，原件与证据不执行 SQLite 恢复或 GC。提供严格内容导出，不是完整元数据迁移或损坏 catalog 重建。业务成功后的 GC 错误单独记入 MaintenanceStatus 并写保护，不误报业务失败。
+- PR #13（M1-E）已合并，主线合并 SHA `b10ccd5ca09c374b8cab6b77dbbe9c613ba6df92`：范围租约只索引区间、保存原 EOF/旧版本、预算共用、C ABI token/关闭 BUSY。
+- PR #14（M0-J 第一增量）已合并，主线合并 SHA `c6691499055586b781c93ed789f82683ffdc8fb0`：真正 App+Extension 构建和静态链接，准确源码 CI 为 `7204052b55b46c6b943445233154533e10d20264`，Xcode 26.6 / SDK 26.5。没有开发者签名、公证或启用挂载。probe/load/unload 仍 ENOTSUP，FSVolume.Operations 尚未实现。
+- PR #15（M1-F）拒绝未知 catalog schema；普通打开在 config/WAL配置/GC 前验证，恢复只检查工作副本。只规范 SQL CRLF→LF，不能绕过 Windows 校验。最终准确 head/测试/合并 SHA 以 PR #15 和实时 main 为准。
+- Windows CI 新增只读运行时/驱动清单；以原始 JSON 记录是否具备已安装 WinFsp，不安装、不启动/配置服务、不创建盘符。
+
+阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 
 ## 不可降低的目标
 
-exFAT 上一个动态目录容器，两端真正挂载为正常读写开发盘，日常无需手动 compact。Codex 正常沙盒、Git/worktree、IDE、包管理器、构建与执行、监听、锁、mmap、权限和元数据都必须实测。不能关闭安全策略、全局管理员运行或把项目搬到系统盘掩盖缺陷。单一 owner、安全卸载后顺序交接；核心硬链接不是 WinFsp 缺口已解决。
+exFAT 上同一动态容器，两端真正挂载成开发工作盘。Codex 正常沙盒、Git/worktree、IDE、包安装、编译执行、监听、锁、mmap、链接和有效权限必须在真实卷里验证。不得复制工作树到系统盘，不得关闭沙盒、放宽全局权限、伪造硬链接/flush。单 owner，安全卸载后顺序交接。
 
-## 继续执行顺序
+Recovery 保全原始文件并在独立副本恢复 SQLite/WAL；普通 Volume::open 仍是可写恢复入口。内容导出不等于完整元数据备份，未知 schema 拒绝不等于修复。成功业务和后续维护失败分离，实际 commit 错误仍可能结果不明。
 
-1. 复跑锁定依赖下全部特性及默认构建、clippy/fmt、三平台与跨系统接力；保留旧失败和重复并行测试。确认临时写权限工作流没有进入 main。
-2. 补宿主空间预算/预约/应急预留、真实短写/EIO/ENOSPC/同步失败注入；不把逻辑配额当物理空间保证，不提前删唯一旧副本。
-3. 补文件时间、权限强制/执行位、符号链接、xattr/ADS；完善范围化读租约、元数据/解析器内存限制和有界低优先级空闲回收。核心格式升级要明确兼容与备份。
-4. 推进实际 FSKit/Windows 接入，解决链接、执行加载、mmap、文件通知和沙盒账户盘符可见性。后端不满足开发要求时修正选型，不削弱要求。
-5. 真正挂载卷上的 Codex 和完整开发工具闭环通过后，再做桌面管理器、安装签名和发布。云端远程代理不是本地卷认证，Windows 原生和 WSL 分别测试。
+## 下一阶段
 
-当前格式不稳定，块布局与串行维护尚未优化。诊断严格失败不是自动修复，导出保留失败现场；读取 atime 不保证不变。CI 文件产物传递和进程退出不证明实际 exFAT、USB、断电持久化。没有硬件/签名/授权则记录 NOT_RUN/BLOCKED，继续可验证工作，不伪造通过。
+1. 实现 FSKit FSVolume 生命周期、目录/文件操作和 security-scoped resource 的持有/释放；先补必要的时间/权限/执行位/链接/xattr 与真实同步。签名及系统授权需合适的已授权环境，不把类型检查或打包当真挂载。
+2. 推进 WinFsp ACL/共享/删除/缓存/同步及缺失回调；硬链接接口缺口仍 BLOCKED，需要上游或替代后端方案，不能用核心硬链接关闭。
+3. 继续核心空间预约、应急预留、SQLite VFS 故障矩阵、有界空闲维护、UUID/能力位、名称版本、迁移与完整解析器资源预算。
+4. 真挂载后完成 Git/npm/pnpm/Python/Cargo/IDE/SQLite 与实际 Codex 正常沙盒的正向和越界拒绝测试，原始 backing 目录也纳入权限边界。
+5. 再做真实 exFAT 介质往返、授权故障盘实验、安装签名/公证和稳定性发布。
 
-每阶段实际测试、提交并核验远端 SHA。不操作用户 Mac、不格式化实盘、不擅自部署网站，不承诺会话结束后的后台研发。
+CI 容器传递不是同一硬盘插拔，进程退出不是物理断电。没有环境/驱动/签名/授权的项目保留 BLOCKED/NOT_RUN。每次实际测试、提交、合并并核验远端 SHA；不承诺会话结束后的无人值守研发。

@@ -8,7 +8,7 @@ PortaWeave targets an exFAT-backed, dynamically growing directory container moun
 
 ## Status — 2026-10-24
 
-**M0-H experimental WinFsp dispatcher source + native C ABI + M1-E range-lease core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-C adds host-space admission and data-segment I/O failure testing. Platform adapters, full metadata/security semantics, idle scheduling and the desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-J unsigned macOS App/Extension build + experimental WinFsp dispatcher + M1-F schema-gated core with M1-E range leases. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-C adds host-space admission and data-segment I/O failure testing. Native adapters are incomplete; full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -27,9 +27,17 @@ The existing native ABI now exposes logical quota and conservative host availabl
 
 `platform/windows/winfsp_service.c` implements calls to the real WinFsp filesystem create / mount point / dispatcher start / stop / delete APIs. CI **only** compiles it and runs `--self-test`; no driver or drive letter is installed or mounted. An explicit `--lab-mount R:` entrypoint for Windows uses **only a new disposable %TEMP% container** and requires WinFsp to be already installed; this remains **NOT_RUN**. It denies file opens and returns NOT_SUPPORTED on Flush, intentionally preventing use as a development disk. Read [M0-H experimental scope](docs/IMPLEMENTATION-M0H.zh-CN.md). Do not store user files in it.
 
+## M0-J macOS App and ExtensionKit build
+
+The repository now contains a real Xcode host App and embedded FSKit Extension target, statically linked to the shared Rust core. `bash ci/build-macos-lab.sh` builds and inspects an unsigned lab bundle on macOS. It does not install, enable or mount anything; FSVolume operations, effective permissions, synchronization and signing remain open. See [build scope](docs/IMPLEMENTATION-M0J.zh-CN.md).
+
 ## M1-E bounded range leases
 
 `acquire_range_view` retains only block mappings inside a requested interval, with the original EOF and shared owner-wide budgets. Native C begin/read/close functions keep snapshots alive after source handles close; live leases block volume close. This is not OS mmap or mounted-volume compatibility. See [scope and tests](docs/IMPLEMENTATION-M1E.zh-CN.md).
+
+## M1-F catalog schema gate
+
+Normal open and original-preserving recovery now share an experimental schema check. Unexpected tables, columns, indexes, views and triggers are rejected before automatic reclamation; LF/CRLF source checkout differences are normalized. This is not a complete hostile SQLite parser or a read-only ordinary open. See [scope and regression evidence](docs/IMPLEMENTATION-M1F.zh-CN.md).
 
 ## Run the storage lab
 

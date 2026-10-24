@@ -52,12 +52,23 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./ci/run-winfsp-service-build-windows.ps1
+      - name: Record installed WinFsp runtime and driver prerequisites without changing them
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./ci/probe-windows-mount-environment.ps1
+      - name: Preserve Windows mount environment inventory
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-mount-environment
+          path: target/windows-mount-environment.json
+          if-no-files-found: error
       - name: Validate FSKit unary extension Swift types and metadata (no signing/mount)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
-          xcrun swiftc -parse-as-library -typecheck -warnings-as-errors -framework FSKit \
+          xcrun swiftc -parse-as-library -typecheck -warnings-as-errors -I include -framework FSKit \
             platform/macos/FSKitExtension/PortaWeaveFSKitExtension.swift \
             platform/macos/FSKitExtension/PortaWeaveUnaryFileSystem.swift
           plutil -lint platform/macos/FSKitExtension/Info.plist

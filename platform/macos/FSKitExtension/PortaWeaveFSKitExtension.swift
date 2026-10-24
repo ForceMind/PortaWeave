@@ -4,7 +4,9 @@ import FSKit
 
 @main
 struct PortaWeaveFSKitExtension: UnaryFileSystemExtension {
+    private let instance = PortaWeaveUnaryFileSystem()
+
     var fileSystem: FSUnaryFileSystem & FSUnaryFileSystemOperations {
-        PortaWeaveUnaryFileSystem()
+        instance
     }
 }

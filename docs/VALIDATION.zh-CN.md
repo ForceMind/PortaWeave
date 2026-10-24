@@ -101,3 +101,20 @@ cargo run --locked -p portaweave-core --bin portaweave-recover -- verify SOURCE 
 | 有界低优先级空闲维护、范围索引和全局内存预算 | 未完成 |
 
 进程退出不是物理断电，CI 产物传递不是移动硬盘插拔。段占用归零不代表 catalog/WAL/整个容器占用归零。每份真实平台报告需记录提交、OS/build、后端/工具版本、权限策略、介质/文件系统、命令与原始结果、失败及未运行原因；不上传秘密或真实用户文件。静默损坏、误回收、权限绕过均阻止发布。
+
+
+## 2026-10-24 本轮接管：M1-E / M0-J / M1-F
+
+| 增量 | 准确已验证源码与证据 | 范围 |
+|---|---|---|
+| M1-E / PR #13 | `27933a6fa3a0a1b1e3c59211da63c6ef8d78dc27`；core 40106219071、native 40106219134、handover 40106219073、host 40106219079 均 success | 三平台默认/全部特性、故障/clippy/fmt、范围租约实际 C 调用与四阶段容器交接；合并 `b10ccd5` 的 tree `5d15d3a` 与源码/合并候选一致 |
+| M0-J / PR #14 | `7204052b55b46c6b943445233154533e10d20264`；bundle 40107067747、core 40107062261、native 40107062181、handover 40107062178、host 40107062244 均 success | Xcode 26.6 / SDK 26.5，实际 App/ExtensionKit/Mach-O/静态库链接、身份/架构/依赖及 ad-hoc/无开发者签名检查；合并 `c669149` 的 tree `f48f7c9` 一致 |
+| M1-F / PR #15 | 最终准确 SHA、全流程状态和合并验收记录在 [PR #15](https://github.com/ForceMind/PortaWeave/pull/15) | schema gate、未知结构保全、合法 VACUUM、LF/CRLF 来源及整合后容器交接；文档存在不等于预先通过 |
+
+保留失败：40106003956（M1-E 一处格式）、40106385275（FSPathURLResource 要求 macOS 26，原 target 15.4）、40106650467（构建成功，otool 第一行被错误当成依赖）、40106719661（M1-F 一处格式）、40106903895（schema 来源 LF/CRLF 导致 Windows 拒绝 Mac 容器，return 阶段被跳过）。修复后的准确版本必须通过完整门禁，不能把 skipped 算通过。
+
+macOS 构建产物位于 GitHub Actions 的实验包与日志 artifact。Xcode 在一次性 runner 对构建输出运行 LaunchServices 注册；没有在用户电脑安装、启用或挂载。ARM 链接器 ad-hoc 签章不等于开发者签名、公证或系统授权。CI JSON 明确 actual_mount=NOT_RUN、development_volume_certified=false。
+
+Windows 增加只读环境清单，记录 OS、runtime DLL/版本及注册驱动；原始报告由 native ABI workflow 保存。缺失 driver/runtime 只记录 BLOCKED，不自动安装。不把存在 DLL 或注册驱动当成真正挂载成功。所有 Windows 文件打开仍拒绝，Flush 未支持，完整 ACL/共享/硬链接/缓存语义仍未完成。
+
+本轮 Work Linux 本地运行九项 Python 回归、C header/caller 语法、shell/Python 语法、plist/entitlement/scheme 与工程引用检查；Rust 与 Xcode 实际构建在 GitHub 隔离 runner。真实 FSKit/WinFsp 挂载、卷内 Codex/开发工具、受限沙盒负向权限、物理 exFAT/USB/断电全部继续 NOT_RUN/BLOCKED，Issue #1/#3 保持开放。

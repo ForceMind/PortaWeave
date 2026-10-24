@@ -1,0 +1,42 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+  4C96F116F0D3131310F9FE57 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 1600; }; buildConfigurationList = E1A16920B52404B49448CE38; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en, Base); mainGroup = EEB2BFA69EF74C17646DF682; productRefGroup = 5DB25555E01F75D30DBAB63B; projectDirPath = ""; projectRoot = ""; targets = (4E9273C4785E5A953E1128B6, 258E133CD8427F805CC8A881); };
+  EEB2BFA69EF74C17646DF682 = {isa = PBXGroup; children = (53590E5EDFB0CC86BA4FCC29, BCA42F999ACDAB9B1A49BFF2, 345AB0A019F710A08067E4CF, 5DB25555E01F75D30DBAB63B); sourceTree = "<group>"; };
+  5DB25555E01F75D30DBAB63B = {isa = PBXGroup; children = (DE34FA9D9CB2FFD5A83F78E2, BBC32309FA8188A18DF26BEA); name = Products; sourceTree = "<group>"; };
+  53590E5EDFB0CC86BA4FCC29 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostApp/PortaWeaveApp.swift; sourceTree = "<group>"; };
+  BCA42F999ACDAB9B1A49BFF2 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FSKitExtension/PortaWeaveFSKitExtension.swift; sourceTree = "<group>"; };
+  345AB0A019F710A08067E4CF = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FSKitExtension/PortaWeaveUnaryFileSystem.swift; sourceTree = "<group>"; };
+  DE34FA9D9CB2FFD5A83F78E2 = {isa = PBXFileReference; explicitFileType = wrapper.application; path = PortaWeave.app; sourceTree = BUILT_PRODUCTS_DIR; };
+  BBC32309FA8188A18DF26BEA = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; path = PortaWeaveFSKit.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+  D4EE38B2D3DC559750F06D18 = {isa = PBXBuildFile; fileRef = 53590E5EDFB0CC86BA4FCC29; };
+  A9F3B3729EDF0F057C739981 = {isa = PBXBuildFile; fileRef = BCA42F999ACDAB9B1A49BFF2; };
+  25297313E428EB0BEFAB61C8 = {isa = PBXBuildFile; fileRef = 345AB0A019F710A08067E4CF; };
+  FDFCFFD5F4F92C9B9B5B8398 = {isa = PBXBuildFile; fileRef = BBC32309FA8188A18DF26BEA; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy); }; };
+  8936A81B184C243E4BC02A94 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D4EE38B2D3DC559750F06D18); runOnlyForDeploymentPostprocessing = 0; };
+  FA649056E2D80B6B7173D561 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A9F3B3729EDF0F057C739981, 25297313E428EB0BEFAB61C8); runOnlyForDeploymentPostprocessing = 0; };
+  9EB88F3B5EC35139D528FE8B = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  8D7F159DA3141AF2F816272E = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  D42F764A8C01D4EB1C631336 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "$(EXTENSIONS_FOLDER_PATH)"; dstSubfolderSpec = 16; files = (FDFCFFD5F4F92C9B9B5B8398); name = "Embed ExtensionKit Extensions"; runOnlyForDeploymentPostprocessing = 0; };
+  1E6C138F8CB0D49BC2B13995 = {isa = PBXContainerItemProxy; containerPortal = 4C96F116F0D3131310F9FE57; proxyType = 1; remoteGlobalIDString = 258E133CD8427F805CC8A881; remoteInfo = PortaWeaveFSKit; };
+  644058458F08F3A82218E5FD = {isa = PBXTargetDependency; target = 258E133CD8427F805CC8A881; targetProxy = 1E6C138F8CB0D49BC2B13995; };
+  4E9273C4785E5A953E1128B6 = {isa = PBXNativeTarget; buildConfigurationList = 549E8257205FAF8020A79A4F; buildPhases = (8936A81B184C243E4BC02A94, 9EB88F3B5EC35139D528FE8B, D42F764A8C01D4EB1C631336); buildRules = (); dependencies = (644058458F08F3A82218E5FD); name = PortaWeave; productName = PortaWeave; productReference = DE34FA9D9CB2FFD5A83F78E2; productType = "com.apple.product-type.application"; };
+  258E133CD8427F805CC8A881 = {isa = PBXNativeTarget; buildConfigurationList = 0E89C6ADD85C300881AF5D0B; buildPhases = (FA649056E2D80B6B7173D561, 8D7F159DA3141AF2F816272E); buildRules = (); dependencies = (); name = PortaWeaveFSKit; productName = PortaWeaveFSKit; productReference = BBC32309FA8188A18DF26BEA; productType = "com.apple.product-type.extensionkit-extension"; };
+  E1A16920B52404B49448CE38 = {isa = XCConfigurationList; buildConfigurations = (4E051D810B7C1A9B7A6B657F, 9B9DE7699469606B9162695F); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  549E8257205FAF8020A79A4F = {isa = XCConfigurationList; buildConfigurations = (5FC3985B2F955CACF083EBC2, B391A10F7B32F3F74970A907); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  0E89C6ADD85C300881AF5D0B = {isa = XCConfigurationList; buildConfigurations = (C76142E3D4F0B85907C4E942, 7EF6C57B77AE54F4FDD27144); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  4E051D810B7C1A9B7A6B657F = {isa = XCBuildConfiguration; baseConfigurationReference = 172A5991305A16C87550DD5E; buildSettings = {SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+  9B9DE7699469606B9162695F = {isa = XCBuildConfiguration; baseConfigurationReference = 172A5991305A16C87550DD5E; buildSettings = {}; name = Release; };
+  5FC3985B2F955CACF083EBC2 = {isa = XCBuildConfiguration; baseConfigurationReference = 27CF6E9BD8265A90965AF3C6; buildSettings = {}; name = Debug; };
+  B391A10F7B32F3F74970A907 = {isa = XCBuildConfiguration; baseConfigurationReference = 27CF6E9BD8265A90965AF3C6; buildSettings = {}; name = Release; };
+  C76142E3D4F0B85907C4E942 = {isa = XCBuildConfiguration; baseConfigurationReference = 234EC60C817656A44CF3E106; buildSettings = {}; name = Debug; };
+  7EF6C57B77AE54F4FDD27144 = {isa = XCBuildConfiguration; baseConfigurationReference = 234EC60C817656A44CF3E106; buildSettings = {}; name = Release; };
+  172A5991305A16C87550DD5E = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Shared.xcconfig; sourceTree = "<group>"; };
+  27CF6E9BD8265A90965AF3C6 = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Host.xcconfig; sourceTree = "<group>"; };
+  234EC60C817656A44CF3E106 = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Extension.xcconfig; sourceTree = "<group>"; };
+ };
+ rootObject = 4C96F116F0D3131310F9FE57;
+}
