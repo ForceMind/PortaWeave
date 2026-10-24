@@ -28,6 +28,18 @@ typedef struct PwStat {
   uint64_t generation;
 } PwStat;
 
+typedef struct PwSpace {
+  uint64_t logical_quota_bytes;       /* max virtual logical size */
+  uint64_t logical_used_bytes;        /* includes still-open unlinked objects */
+  uint64_t host_available_bytes;      /* snapshot, not reserved */
+  uint64_t host_data_admission_bytes; /* excludes soft headroom */
+  uint64_t apparent_free_bytes;       /* min(logical, host allowance) */
+} PwSpace;
+typedef struct PwCheckpoint {
+  uint64_t wal_frames;
+  uint64_t checkpointed_frames;
+} PwCheckpoint;
+
 uint32_t pw_abi_version(void);
 int64_t pw_root_id(void);
 int32_t pw_volume_create(const uint8_t *path, size_t path_len, uint64_t quota, uint64_t *out_volume);
@@ -50,6 +62,9 @@ int32_t pw_dir_begin(uint64_t volume, int64_t parent, uint64_t *out_cursor);
 int32_t pw_dir_next(uint64_t volume, uint64_t cursor, uint8_t *name_buf, size_t capacity, size_t *out_name_len, int64_t *out_object);
 int32_t pw_dir_close(uint64_t volume, uint64_t cursor);
 int32_t pw_health(uint64_t volume, uint32_t *out_maintenance, uint32_t *out_protected);
+int32_t pw_volume_space(uint64_t volume, PwSpace *out_space);
+/* Catalog FULL WAL checkpoint only. Never treat as filesystem fsync. */
+int32_t pw_catalog_checkpoint(uint64_t volume, PwCheckpoint *out_result);
 /* health: 0=healthy, 1=compaction deferred (space), 2=failed.
  * Health MUST be checked separately after a successful write.
  *
