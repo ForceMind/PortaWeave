@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "timestamp_utc": "2026-10-24T06:30:54.022662+00:00",
+  "scope": "filesystem-api-smoke-probe",
+  "label_unverified": "linux-container-host-baseline",
+  "root": "/mnt/data",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "python": "3.13.5",
+  "sqlite": "3.46.1",
+  "mount_identity_verified": false,
+  "product_compatibility_certified": false,
+  "selected_cases": [
+    "io",
+    "mmap",
+    "replace",
+    "hardlink",
+    "symlink",
+    "names",
+    "exclusive",
+    "sqlite",
+    "git",
+    "node",
+    "venv",
+    "exec"
+  ],
+  "not_selected": [],
+  "counts": {
+    "PASS": 12
+  },
+  "results": [
+    {
+      "case": "io",
+      "status": "PASS",
+      "detail": "Random overwrite, fsync API, shrink and extension zero-fill; not power-loss proof",
+      "duration_seconds": 0.002
+    },
+    {
+      "case": "mmap",
+      "status": "PASS",
+      "detail": "Writable mmap, flush API and reopen visibility; executable mapping is a separate gate",
+      "duration_seconds": 0.001
+    },
+    {
+      "case": "replace",
+      "status": "PASS",
+      "detail": "Same-directory replacement; POSIX open-object lifetime when applicable",
+      "duration_seconds": 0.001
+    },
+    {
+      "case": "hardlink",
+      "status": "PASS",
+      "detail": "Shared identity, content, link count and unlink lifetime",
+      "duration_seconds": 0.0
+    },
+    {
+      "case": "symlink",
+      "status": "PASS",
+      "detail": "Relative target resolution and dangling-link preservation",
+      "duration_seconds": 0.0
+    },
+    {
+      "case": "names",
+      "status": "PASS",
+      "detail": "Unicode roundtrip and case-only rename; normalization collisions need extra tests",
+      "duration_seconds": 0.0
+    },
+    {
+      "case": "exclusive",
+      "status": "PASS",
+      "detail": "Second process cannot exclusively create an existing file",
+      "duration_seconds": 0.603
+    },
+    {
+      "case": "sqlite",
+      "status": "PASS",
+      "detail": "Application WAL and cross-process writer locking; Python SQLite 3.46.1",
+      "duration_seconds": 1.31
+    },
+    {
+      "case": "git",
+      "status": "PASS",
+      "detail": "Local Git commit/worktree/gc/fsck without network, user config or hooks",
+      "duration_seconds": 0.106
+    },
+    {
+      "case": "node",
+      "status": "PASS",
+      "detail": "Node module execution and directory event after replacement; not npm/pnpm certification",
+      "duration_seconds": 1.586
+    },
+    {
+      "case": "venv",
+      "status": "PASS",
+      "detail": "Copied venv interpreter executed inside test tree; no package download",
+      "duration_seconds": 0.799
+    },
+    {
+      "case": "exec",
+      "status": "PASS",
+      "detail": "Direct executable-bit/shebang execution, not native compiler/dynamic-loader coverage",
+      "duration_seconds": 0.001
+    }
+  ],
+  "applicable_selected_cases_passed": true,
+  "not_covered": [
+    "real PortaWeave mount identification",
+    "Codex integration/sandbox enforcement",
+    "Windows ACL/share modes",
+    "native compilation/dynamic loading",
+    "package installation",
+    "GC",
+    "power loss",
+    "real exFAT",
+    "macOS/Windows cross-system handover"
+  ]
+}
