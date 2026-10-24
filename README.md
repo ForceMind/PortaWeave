@@ -19,6 +19,10 @@ FSKit and WinFsp remain candidates. Internal true hard links do not remove WinFs
 
 The new `portaweave-native` library exports a versioned C header in [`include/portaweave_native.h`](include/portaweave_native.h), with actual Rust-core directory and file mutations, enumeration, file I/O, and lifecycle tokens. See [M0-E interface scope](docs/IMPLEMENTATION-M0E.zh-CN.md). **This is not an OS mount:** FSKit/WinFsp callbacks, security, notifications, safe unmount, and complete flush behavior are still missing. Do not treat a successful ABI test as Codex compatibility.
 
+## M0-G WinFsp capacity / durability contract (experimental)
+
+The existing native ABI now exposes logical quota and conservative host available-space snapshots plus an explicit SQLite WAL FULL checkpoint. **A catalog checkpoint is not an OS file flush.** The Windows WinFsp 2.1 callback contract compiles against pinned upstream headers and is exercised with a mock WinFsp object on GitHub Actions, without installing a driver or mounting a disk. The unimplemented access control and Flush callbacks fail closed. See [M0-G](docs/IMPLEMENTATION-M0G.zh-CN.md) and [native adapter readiness](docs/COMPATIBILITY.zh-CN.md).
+
 ## Run the storage lab
 
 Use `rust-toolchain.toml` and the committed dependency lock. The example accepts only a NEW disposable directory; it does not mount or format a drive.

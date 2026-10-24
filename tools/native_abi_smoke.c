@@ -21,6 +21,14 @@ int main(int argc, char **argv) {
     REQUIRE(pw_file_open(volume, node, &handle));
     REQUIRE(pw_file_write(volume, handle, 0, (const uint8_t *)"hello", 5, &count));
     if (count != 5) return 4;
+    PwSpace space = {0};
+    REQUIRE(pw_volume_space(volume, &space));
+    if (space.logical_quota_bytes != 65536 || space.logical_used_bytes != 5 ||
+        space.apparent_free_bytes > 65531 || space.apparent_free_bytes >
+        space.host_data_admission_bytes) return 9;
+    PwCheckpoint checkpoint = {0};
+    REQUIRE(pw_catalog_checkpoint(volume, &checkpoint));
+    if (checkpoint.checkpointed_frames != checkpoint.wal_frames) return 10;
     REQUIRE(pw_file_read(volume, handle, 0, buffer, sizeof(buffer), &count));
     if (count != 5 || memcmp(buffer, "hello", 5) != 0) return 5;
     if (pw_volume_close(volume) != PW_BUSY) return 6;
