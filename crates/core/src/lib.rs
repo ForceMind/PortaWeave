@@ -11,10 +11,17 @@ mod namespace;
 mod owner;
 mod recovery;
 mod segment;
+mod segment_io;
+mod space;
+#[cfg(test)]
+mod space_catalog_tests;
 mod volume;
 
 pub use error::{Error, Result};
 pub use recovery::{ExportLinks, ExportReport, Recovery, RecoveryLimits, RecoveryReport};
+#[cfg(feature = "fault-injection")]
+pub use segment_io::StorageFault;
+pub use space::{SpacePolicy, SpaceStatus};
 #[cfg(feature = "fault-injection")]
 pub use volume::FaultPoint;
 pub use volume::{
