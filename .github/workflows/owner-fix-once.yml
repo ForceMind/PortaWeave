@@ -1,0 +1,67 @@
+name: One-shot reviewed owner-lifetime correction
+on:
+  push:
+    branches: ['codex/m1-storage-core-20261024']
+    paths: ['.github/workflows/owner-fix-once.yml']
+permissions:
+  contents: read
+jobs:
+  correct:
+    if: github.ref == 'refs/heads/codex/m1-storage-core-20261024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/m1-storage-core-20261024
+      - name: Apply exact checked ownership changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          p = Path('crates/core/src/volume.rs')
+          raw = p.read_bytes()
+          assert hashlib.sha256(raw).hexdigest() == '7f1074b46ef06ab0d9ca782a9d5aa50348cf29a8d4a5ed03bd7ffeb1b1156b1e'
+          text = raw.decode()
+          def replace(old, new, count=1):
+              global text
+              assert text.count(old) == count, old
+              text = text.replace(old, new)
+          replace('    BLOCK_SIZE, Error, FORMAT, MAX_IO, Result,\n', '    BLOCK_SIZE, Error, FORMAT, MAX_IO, Result,\n    owner::OwnerLock,\n')
+          replace('    fs::{self, File, TryLockError},', '    fs::{self, File},')
+          replace('    _owner: File,', '    _owner: OwnerLock,')
+          replace('        Self::lock(&owner)?;', '        let owner = OwnerLock::acquire(owner)?;', 2)
+          start = text.index('    fn lock(file: &File) -> Result<()> {')
+          end = text.index('    fn configure(', start)
+          text = text[:start] + text[end:]
+          replace('fn assemble(root: PathBuf, db: Connection, owner: File) -> Self {', 'fn assemble(root: PathBuf, db: Connection, owner: OwnerLock) -> Self {')
+          p.write_text(text)
+          p = Path('crates/core/src/lib.rs')
+          text = p.read_text()
+          assert text.count('mod namespace;\n') == 1
+          p.write_text(text.replace('mod namespace;\n', 'mod namespace;\nmod owner;\n'))
+          PY
+      - name: Format and validate before committing
+        shell: bash
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+          cargo fmt --all
+          cargo test --workspace --all-features --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          for attempt in $(seq 1 10); do
+            echo "Parallel lifetime regression repetition $attempt/10"
+            cargo test --locked -p portaweave-core --all-features --test storage -- --test-threads=8
+          done
+          git diff --exit-code -- Cargo.lock
+      - name: Commit narrowly scoped correction without force
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add crates/core
+          git diff --cached --stat
+          git commit -m 'fix(core): explicitly release owner lock after SQLite teardown'
+          git push origin HEAD:refs/heads/codex/m1-storage-core-20261024
