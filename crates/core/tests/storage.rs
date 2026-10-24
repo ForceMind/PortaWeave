@@ -576,10 +576,14 @@ fn failed_compaction_keeps_committed_data_and_retries_after_reopen() {
     let h = v.open_file(id).unwrap();
     v.write(h, 0, &vec![1; BLOCK_SIZE * 4]).unwrap();
     v.inject_once(FaultPoint::BeforeCompactionCommit);
-    // User write commits, maintenance fails. Err is not a rollback promise.
+    // Committed data must not be reported as failed because GC failed.
+    assert_eq!(
+        v.write(h, 0, &vec![2; BLOCK_SIZE * 3]).unwrap(),
+        BLOCK_SIZE * 3
+    );
     assert!(matches!(
-        v.write(h, 0, &vec![2; BLOCK_SIZE * 3]),
-        Err(Error::Injected)
+        v.maintenance_status(),
+        portaweave_core::MaintenanceStatus::Failed { .. }
     ));
     assert!(v.is_write_protected());
     let expected = [vec![2; BLOCK_SIZE * 3], vec![1; BLOCK_SIZE]].concat();

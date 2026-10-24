@@ -10,21 +10,39 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if !verify && !export {
         return Err("usage: portaweave-recover verify SOURCE NEW_WORKSPACE\n       portaweave-recover export SOURCE NEW_WORKSPACE NEW_OUTPUT [--copy-hardlinks]\nExperimental: copies evidence first; no repair of originals, no overwrite. Default limits: 64 GiB snapshot/export, 1M catalog rows, depth 256. Failed workspaces are retained.".into());
     }
-    let recovery = Recovery::prepare(PathBuf::from(&args[1]), PathBuf::from(&args[2]), RecoveryLimits::default())?;
-    println!("Evidence and isolated working catalog: {:?}", recovery.workspace());
+    let recovery = Recovery::prepare(
+        PathBuf::from(&args[1]),
+        PathBuf::from(&args[2]),
+        RecoveryLimits::default(),
+    )?;
+    println!(
+        "Evidence and isolated working catalog: {:?}",
+        recovery.workspace()
+    );
     println!("Verification: {:#?}", recovery.verify()?);
     if export {
-        let mode = if args.len() == 5 { ExportLinks::CopyAliases } else { ExportLinks::Preserve };
-        println!("Export: {:#?}", recovery.export_new(PathBuf::from(&args[3]), mode)?);
+        let mode = if args.len() == 5 {
+            ExportLinks::CopyAliases
+        } else {
+            ExportLinks::Preserve
+        };
+        println!(
+            "Export: {:#?}",
+            recovery.export_new(PathBuf::from(&args[3]), mode)?
+        );
     }
-    println!("Original container was not opened for SQLite recovery or garbage collection.\nContent export is not metadata-complete or a guarantee of physical durability.");
+    println!(
+        "Original container was not opened for SQLite recovery or garbage collection.\nContent export is not metadata-complete or a guarantee of physical durability."
+    );
     Ok(())
 }
 fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("Recovery stopped: {error}\nDo not retry into an existing workspace/output. Preserve incomplete evidence for diagnosis.");
+            eprintln!(
+                "Recovery stopped: {error}\nDo not retry into an existing workspace/output. Preserve incomplete evidence for diagnosis."
+            );
             std::process::ExitCode::FAILURE
         }
     }
