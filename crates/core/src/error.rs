@@ -19,6 +19,7 @@ pub enum Error {
         required_bytes: u64,
     },
     RecoveryLimit,
+    ResourceLimit,
     Busy,
     Cycle,
     UnsupportedFormat,
