@@ -29,7 +29,6 @@ xcodebuild -project platform/macos/PortaWeave.xcodeproj -scheme PortaWeave \
     -derivedDataPath "$build_root/DerivedData" \
     ARCHS="$arch" ONLY_ACTIVE_ARCH=YES PW_RUST_TARGET="$rust_target" \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-    REGISTER_WITH_LAUNCH_SERVICES=NO \
     build 2>&1 | tee "$build_root/xcode-build.log"
 python3 ci/verify-macos-bundle.py \
     "$build_root/DerivedData/Build/Products/Release/PortaWeave.app" \

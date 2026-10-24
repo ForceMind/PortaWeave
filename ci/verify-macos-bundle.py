@@ -42,7 +42,19 @@ def check_bundle(app, arch):
         libraries = dynamic_dependencies(
             subprocess.check_output(["otool", "-L", str(binary)], text=True)
         )
-        binaries.append({"bundle": identifier, "architectures": architectures, "libraries": libraries})
+        signature = subprocess.run(
+            ["codesign", "-d", "--verbose=2", str(binary)], capture_output=True, text=True
+        )
+        if signature.returncode == 0 and "Signature=adhoc" in signature.stderr:
+            signing = "linker ad-hoc signature; no developer identity"
+        elif signature.returncode != 0 and "not signed at all" in signature.stderr:
+            signing = "unsigned"
+        else:
+            raise ValueError("Unexpected signing identity in laboratory build")
+        binaries.append({
+            "bundle": identifier, "architectures": architectures,
+            "libraries": libraries, "signing": signing,
+        })
     attrs = info["EXAppExtensionAttributes"]
     if attrs.get("EXExtensionPointIdentifier") != "com.apple.fskit.fsmodule":
         raise ValueError("Missing FSKit extension point")
@@ -58,9 +70,9 @@ def check_bundle(app, arch):
         "scope": "unsigned Xcode application and ExtensionKit bundle build",
         "os": platform.platform(),
         "binaries": binaries,
-        "signed": False,
-        "installed": False,
-        "extension_enabled": False,
+        "developer_signed": False,
+        "installation_attempted": False,
+        "extension_enable_attempted": False,
         "actual_mount": "NOT_RUN",
         "development_volume_certified": False,
     }
