@@ -1,0 +1,32 @@
+name: macOS App and FSKit bundle build (unsigned, no mount)
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos-bundle:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust compiler on disposable runner
+        run: rustup toolchain install 1.99.1 --profile minimal
+      - name: Build actual host app, native static library and embedded FSKit extension
+        shell: bash
+        run: bash ci/build-macos-lab.sh
+      - name: Preserve build logs, metadata evidence and unsigned lab bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-unsigned-lab
+          path: |
+            target/macos-lab-*/*.txt
+            target/macos-lab-*/*.log
+            target/macos-lab-*/*.json
+            target/macos-lab-*/*.zip
+          if-no-files-found: error

@@ -4,6 +4,7 @@
 import Foundation
 import FSKit
 import OSLog
+import PortaWeaveNative
 
 final class PortaWeaveUnaryFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     private let logger = Logger(subsystem: "dev.portaweave.fs", category: "FSKit")
@@ -32,7 +33,7 @@ final class PortaWeaveUnaryFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOpera
         _ = options
         // Never return an FSVolume until mount/unmount/synchronize, data,
         // metadata and sandbox authorization semantics exist and are tested.
-        logger.warning("Refusing to load an incomplete PortaWeave volume")
+        logger.warning("Refusing to load an incomplete PortaWeave volume; core ABI \(pw_abi_version())")
         replyHandler(nil, POSIXError(.ENOTSUP))
     }
 

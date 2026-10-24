@@ -1,0 +1,6 @@
+PRODUCT_NAME = PortaWeaveFSKit
+PRODUCT_BUNDLE_IDENTIFIER = dev.portaweave.lab.fskit
+INFOPLIST_FILE = FSKitExtension/Info.plist
+CODE_SIGN_ENTITLEMENTS = FSKitExtension/PortaWeaveFSKitExtension.entitlements
+APPLICATION_EXTENSION_API_ONLY = YES
+SKIP_INSTALL = YES

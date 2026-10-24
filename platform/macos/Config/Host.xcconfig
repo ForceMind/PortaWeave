@@ -1,0 +1,4 @@
+PRODUCT_NAME = PortaWeave
+PRODUCT_BUNDLE_IDENTIFIER = dev.portaweave.lab
+INFOPLIST_FILE = HostApp/Info.plist
+CODE_SIGN_ENTITLEMENTS = HostApp/PortaWeave.entitlements
