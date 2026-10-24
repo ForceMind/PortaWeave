@@ -8,7 +8,7 @@ import PortaWeaveNative
 func pwCheck(_ status: Int32) throws {
     guard status != PW_OK else { return }
     let code: POSIXErrorCode
-    switch status {
+    switch Int(status) {
     case PW_NOT_FOUND: code = .ENOENT
     case PW_EXISTS: code = .EEXIST
     case PW_NOT_DIR: code = .ENOTDIR
