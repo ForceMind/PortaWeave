@@ -33,8 +33,8 @@ pub use space::{SpacePolicy, SpaceStatus};
 #[cfg(feature = "fault-injection")]
 pub use volume::FaultPoint;
 pub use volume::{
-    CapacitySnapshot, CheckpointStatus, Entry, FileId, Handle, Kind, MaintenanceStatus, ROOT,
-    ReadView, ReadViewLimits, Stat, Stats, StorageSyncStatus, Volume, WritePosition,
+    CapacitySnapshot, CheckpointStatus, Entry, FileId, Handle, Kind, MaintenanceStatus, ObjectInfo,
+    ROOT, ReadView, ReadViewLimits, Stat, Stats, StorageSyncStatus, Volume, WritePosition,
 };
 
 pub const BLOCK_SIZE: usize = 64 * 1024;

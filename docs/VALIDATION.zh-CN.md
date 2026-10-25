@@ -170,3 +170,13 @@ PR #25 已验收：准确 head `3ad88cec27e544f003445a4b2de91b2d1c506eaa` / tree
 Work Linux full default/all-feature workspace、clippy/fmt、真实 C caller（含 Windows 纯投影 ABI）及 C++17 header 实际通过。新增核心 projection refusal 1 项，write_requests 累计 all-feature 8/default 6；native 新增 FILETIME 单元 1 项和 ABI 2 项，ABI 累计 11。最初 check 提示一个未用 import，已移除，不放宽 lint。
 
 Windows MSVC/真实回调签名及 Dispatcher 自检必须由本增量准确源码 CI 验证；新标记 WINFSP_GRANTED_IO_CONTRACT_OK 仅表示直接回调与核心连通。未在 Work Linux 运行 Windows 驱动或 MSVC，也没有把纯投影 ABI 当成 OS I/O。源码对应的 Windows job、SDK/bundle、完整交接及最终合并见 PR；所有真实挂载/ACL/共享/Flush/Codex 沙盒和物理介质门禁保持未通过。
+
+PR #26 已验收：准确 head `513170fef5bbc16de8d0f1047fdb13bf580a465f` / tree `ae0e59696a8ad47f013fd6d3e6e450f2f638e0fb` 全部 17 项 completed/success。core 40188731498、native 40188731577、bundle 40188731499、handover 40188731493、host 40188731487 / 40188729391。Windows MSVC job 121154954006 实际输出 WINFSP_GRANTED_IO_CONTRACT_OK / CALLBACK_CONTRACT_OK / SERVICE_SELFTEST_OK；macOS SDK job 121154953831 的 metadata/setattr/callback 合同通过。返回 job 121155376274 输出 WRITE_REQUEST_HANDOVER_OK 和 v1/v2 恢复导出/原件哈希保全成功。无冲突/评审阻断，合并 `832023dab77429432b7035a17ab66fec7468fd50` tree 一致；合并主线 14 项全部通过（core 40189098891、native 40189098888、bundle 40189098870、handover 40189098932、host 40189098892）。
+
+同 source PR 的 Windows 环境 artifact 12597655777（执行候选 `f4794cc68945706d209f004fd06fe51a489fea0f`，tree 与准确源码/合并一致）已实际下载，ZIP SHA-256 `5446c54ca28a27d7e9439d6a27ab2f99d4124deadec7d29cc3d09de1d7b50cff` 核验通过。Windows 10.0.26100.0 AMD64，runtimes=[]、drivers=[]、actual_mount=NOT_RUN；安装/服务修改/挂载尝试均 false。因此直接回调成功不提升为真实 mount。
+
+## 2026-10-25 续研：M0-O FSKit 事务内属性回执
+
+Work Linux full default/all-feature workspace、clippy/fmt、真实 C caller/C++17 header 及本地四阶段交接实际通过。新增 attribute_replies 核心 all-feature 4/default 2 项，native ABI 新增 2 项（累计 13），覆盖 v1 元数据缺席、v2/mixed/root、投影拒绝和提交前后故障、完整属性/generation/重开、expected object 和管理/策略 token 隔离。本地交接新增 ATTRIBUTE_REPLY_HANDOVER_OK，仍不冒充其他 OS。
+
+FSKit SDK 合同新增 root/no-op/metadata-only/v1 回执精度与有效位检查。Work Linux 不提供 Swift/FSKit 编译证据；准确 SDK 运行、App/Extension build、Windows 回归及真实跨 OS artifact 返回，以本增量 PR 的 source SHA/CI 为准，不预报 PASS。原生身份/ACL/共享/缓存/Flush、真正挂载/Codex 正常沙盒/越界、物理 exFAT/USB/断电门禁仍未通过。

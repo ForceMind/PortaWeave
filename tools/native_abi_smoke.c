@@ -111,7 +111,11 @@ int main(int argc, char **argv) {
     update.mode = 06751;
     update.modified.seconds = -456;
     update.modified.nanoseconds = 123456789;
-    REQUIRE(pw_file_truncate_with_metadata(volume, handle, 2, &update));
+    PwFsKitAttributes committed_attributes;
+    REQUIRE(pw_fskit_file_set_attributes(volume, handle, node, 2, &update, &committed_attributes));
+    if (committed_attributes.file_id != (uint64_t)node + 1 || committed_attributes.size != 2 ||
+        committed_attributes.metadata_valid != 1 || committed_attributes.metadata.mode != 0751 ||
+        committed_attributes.metadata.modified.seconds != -456 || committed_attributes.metadata.modified.nanoseconds != 123456789) return 53;
     REQUIRE(pw_file_close(volume, handle));
     REQUIRE(pw_volume_close(volume));
     REQUIRE(pw_volume_open((const uint8_t *)metadata_path, strlen(metadata_path), &volume));
@@ -129,7 +133,8 @@ int main(int argc, char **argv) {
     if (pw_posix_create(volume, 1, (const uint8_t *)"absent", 6, 0, 0666, 0027, &other, &protected_node) != PW_DENIED || protected_node != 99) return 30;
     update.valid = PW_META_MODE;
     update.mode = 01777;
-    REQUIRE(pw_metadata_set(volume, 1, &update));
+    REQUIRE(pw_fskit_metadata_set(volume, 1, &update, &committed_attributes));
+    if (committed_attributes.file_id != 2 || committed_attributes.kind != 1 || committed_attributes.metadata.mode != 01777) return 54;
     REQUIRE(pw_posix_create(volume, 1, (const uint8_t *)"owned", 5, 0, 0666, 0027, &owner, &protected_node));
     REQUIRE(pw_metadata_get(volume, protected_node, &metadata));
     if (metadata.uid != 501 || metadata.gid != 55 || metadata.mode != 0640) return 31;

@@ -15,3 +15,5 @@ These reply structures describe committed core state, not Windows allocation res
 Primary native contract reviewed from the pinned WinFsp v2.1 header (`ddca7bd5481857a65ba552f643b8776fd070836f`):
 https://github.com/winfsp/winfsp/blob/ddca7bd5481857a65ba552f643b8776fd070836f/inc/winfsp/winfsp.h
 https://winfsp.dev/doc/WinFsp-API-winfsp.h/
+
+M0-O applies the same decision to administrative FSKit metadata-only/mixed setters. A format-aware ObjectInfo retains v1 metadata absence. A pure projection validates expected identity, counts and native times before commit, and Swift consumes its captured result without a post-commit query. The administrative/policy token boundary and native caller/mount gates remain unchanged.

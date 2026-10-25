@@ -169,6 +169,22 @@ int32_t pw_posix_read_view_close(uint64_t volume, uint64_t view);
 int32_t pw_posix_metadata_set(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, const PwCredentials *caller, const PwMetadataUpdate *update);
 int32_t pw_posix_file_truncate_with_metadata(uint64_t volume, uint64_t file, uint64_t size, const PwCredentials *caller, const PwMetadataUpdate *update);
 
+/* FSKit laboratory ADMINISTRATIVE setters, NOT native caller authorization.
+ * Projection/expected object checks complete before commit. No post-commit query.
+ * Empty metadata-only calls observe v1/v2; v1 mixed size requires empty metadata.
+ * Only admin file tokens are accepted by file_set_attributes, never policy grants.
+ * Failed outputs remain unchanged. metadata_valid=0 explicitly means v1 missing.
+ */
+typedef struct PwFsKitAttributes {
+  uint64_t file_id, size;
+  uint32_t kind, links, metadata_valid, reserved;
+  PwMetadata metadata;
+} PwFsKitAttributes;
+int32_t pw_fskit_metadata_set(uint64_t volume, int64_t object,
+                            const PwMetadataUpdate *update, PwFsKitAttributes *out_attributes);
+int32_t pw_fskit_file_set_attributes(uint64_t volume, uint64_t file, int64_t object, uint64_t size,
+                                   const PwMetadataUpdate *update, PwFsKitAttributes *out_attributes);
+
 uint32_t pw_abi_version(void);
 int64_t pw_root_id(void);
 int32_t pw_volume_create(const uint8_t *path, size_t path_len, uint64_t quota, uint64_t *out_volume);

@@ -4,6 +4,8 @@
 //! Raw callers must respect the ownership and buffer requirements in the header.
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod fskit;
+pub use fskit::{PwFsKitAttributes, pw_fskit_file_set_attributes, pw_fskit_metadata_set};
 mod windows;
 pub use windows::{
     PwWindowsFileInfo, PwWindowsWriteResult, pw_windows_file_info, pw_windows_file_set_size,
@@ -12,7 +14,7 @@ pub use windows::{
 
 use portaweave_core::{
     Access, CreateAttributes, Credentials, Entry, Error, FileAccess, FileId, FileInfo, Handle,
-    Kind, MAX_IO, MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, MetadataUpdate, PosixFile,
+    Kind, MAX_IO, MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, Metadata, MetadataUpdate, PosixFile,
     PosixReadView, ROOT, ReadView, Timestamp, Volume, WritePosition,
 };
 use std::{
@@ -409,6 +411,20 @@ pub struct PwMetadata {
     pub accessed: PwTimestamp,
     pub modified: PwTimestamp,
     pub changed: PwTimestamp,
+}
+impl From<Metadata> for PwMetadata {
+    fn from(m: Metadata) -> Self {
+        Self {
+            uid: m.uid,
+            gid: m.gid,
+            mode: u32::from(m.mode),
+            reserved: 0,
+            created: m.created.into(),
+            accessed: m.accessed.into(),
+            modified: m.modified.into(),
+            changed: m.changed.into(),
+        }
+    }
 }
 /// Serialized granted-file information. Not a persistent snapshot or OS cache.
 #[repr(C)]
