@@ -283,7 +283,7 @@ impl Volume {
             reply(ObjectInfo::at(db, version, id)?)
         })
     }
-    fn set_metadata_request<T>(
+    pub(crate) fn set_metadata_request<T>(
         &mut self,
         id: FileId,
         update: MetadataUpdate,

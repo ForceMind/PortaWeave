@@ -128,6 +128,23 @@ int32_t pw_windows_file_info(uint64_t volume, uint64_t file, PwWindowsFileInfo *
 int32_t pw_windows_file_write(uint64_t volume, uint64_t file, uint64_t offset,
                             const uint8_t *data, size_t length, uint32_t flags, PwWindowsWriteResult *out_result);
 int32_t pw_windows_file_set_size(uint64_t volume, uint64_t file, uint64_t size, PwWindowsFileInfo *out_info);
+/* Laboratory SetBasicInfo input: file_attributes MUST be UINT32_MAX (leave
+ * unchanged), reserved=0; creation/access/write ticks=0 mean unchanged.
+ * Nonzero times must fit [1, INT64_MAX]; time-control sentinels -1/-2 refuse.
+ * Explicit change_time (nonzero) and all DOS-attribute requests are unsupported.
+ * No partial mutation, timestamp saturation or successful attribute no-op.
+ * Current trusted caller metadata authority is independent of file data rights;
+ * a READ-only owner can change times, a nonowner WRITE grant cannot.
+ * Native Windows WRITE_ATTRIBUTES/SID/ACL checks are still NOT implemented.
+ * The whole reply is projected BEFORE one commit. Failed outputs unchanged;
+ * actual commit failure may be indeterminate; inspect pw_health after success.
+ */
+typedef struct PwWindowsBasicInfo {
+  uint32_t file_attributes, reserved;
+  uint64_t creation_time, last_access_time, last_write_time, change_time;
+} PwWindowsBasicInfo;
+int32_t pw_windows_file_set_basic_info(uint64_t volume, uint64_t file, const PwCredentials *caller,
+                                     const PwWindowsBasicInfo *request, PwWindowsFileInfo *out_info);
 
 typedef struct PwMetadataUpdate {
   uint64_t valid; /* only bits above; change time is maintained by the core */
@@ -167,6 +184,13 @@ int32_t pw_posix_read_view_close(uint64_t volume, uint64_t view);
  * Raw setters remain administrative; no native caller authentication here.
  */
 int32_t pw_posix_metadata_set(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, const PwCredentials *caller, const PwMetadataUpdate *update);
+/* Live policy file + current metadata authority, independent of data rights.
+ * No current pathname/ancestor check is needed for an already granted file.
+ * All fields use the existing owner/group/setid rules. Reply captured before
+ * commit; no-op preserves generation/ctime; failed output remains unchanged.
+ */
+int32_t pw_posix_file_set_metadata_info(uint64_t volume, uint64_t file, const PwCredentials *caller,
+                                        const PwMetadataUpdate *update, PwFileInfo *out_info);
 int32_t pw_posix_file_truncate_with_metadata(uint64_t volume, uint64_t file, uint64_t size, const PwCredentials *caller, const PwMetadataUpdate *update);
 
 /* FSKit laboratory ADMINISTRATIVE setters, NOT native caller authorization.

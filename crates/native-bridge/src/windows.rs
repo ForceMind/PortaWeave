@@ -1,7 +1,7 @@
 //! Pure Windows laboratory projection, callable without a driver on every OS.
 //! No SID/ACL authentication, reservation, kernel cache or mounted disk claim.
-use super::{Fault, MAX_IO, OK, readable, required, run, with_session};
-use portaweave_core::{Error, FileInfo, Result, Timestamp, WritePosition};
+use super::{Fault, MAX_IO, OK, PwCredentials, credentials, readable, required, run, with_session};
+use portaweave_core::{Error, FileInfo, MetadataUpdate, Result, Timestamp, WritePosition};
 
 /// 4096-byte logical allocation geometry of the WinFsp lab dispatcher.
 /// AllocationSize >= EOF is a logical projection, NOT physical reservation.
@@ -26,6 +26,51 @@ pub struct PwWindowsWriteResult {
     pub written: usize,
     pub offset: u64,
     pub info: PwWindowsFileInfo,
+}
+
+/// WinFsp SetBasicInfo laboratory input. INVALID_FILE_ATTRIBUTES and zero
+/// times mean unchanged. DOS flags and explicit change time are unsupported.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PwWindowsBasicInfo {
+    pub file_attributes: u32,
+    pub reserved: u32,
+    pub creation_time: u64,
+    pub last_access_time: u64,
+    pub last_write_time: u64,
+    pub change_time: u64,
+}
+
+fn timestamp(ticks: u64) -> Result<Option<Timestamp>> {
+    if ticks == 0 {
+        return Ok(None);
+    }
+    // Includes the -1/-2 per-handle time-control sentinels. There is no
+    // automatic time-control state to implement them yet; never fake success.
+    if ticks > i64::MAX as u64 {
+        return Err(Error::UnsupportedOperation);
+    }
+    Ok(Some(Timestamp {
+        seconds: (ticks / TICKS_PER_SECOND as u64) as i64 - UNIX_EPOCH_SECONDS as i64,
+        nanoseconds: (ticks % TICKS_PER_SECOND as u64) as u32 * 100,
+    }))
+}
+
+impl PwWindowsBasicInfo {
+    fn update(self) -> super::FResult<MetadataUpdate> {
+        if self.reserved != 0 {
+            return Err(Fault::invalid());
+        }
+        if self.file_attributes != u32::MAX || self.change_time != 0 {
+            return Err(Error::UnsupportedOperation.into());
+        }
+        Ok(MetadataUpdate {
+            created: timestamp(self.creation_time)?,
+            accessed: timestamp(self.last_access_time)?,
+            modified: timestamp(self.last_write_time)?,
+            ..Default::default()
+        })
+    }
 }
 
 fn file_time(t: Timestamp) -> Result<u64> {
@@ -145,6 +190,38 @@ pub unsafe extern "C" fn pw_windows_file_set_size(
     })
 }
 
+/// Policy file plus CURRENT trusted caller. Not Windows SID/ACL authorization.
+/// The core authorizes all requested metadata and projects the Windows reply
+/// before one commit. Success must be followed by a separate health query.
+/// # Safety
+/// Caller/groups and input readable, output writable/aligned/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_windows_file_set_basic_info(
+    volume: u64,
+    file: u64,
+    caller: *const PwCredentials,
+    request: *const PwWindowsBasicInfo,
+    out_info: *mut PwWindowsFileInfo,
+) -> i32 {
+    run(|| {
+        required(out_info)?;
+        readable(request, 1)?;
+        let caller = unsafe { credentials(caller)? };
+        let update = unsafe { request.read() }.update()?;
+        with_session(volume, |s| {
+            let file = *s.policy_files.get(&file).ok_or_else(Fault::invalid)?;
+            let info = s
+                .volume
+                .posix(caller)
+                .map_err(Fault::from)?
+                .set_file_metadata_with_reply(file, update, project)
+                .map_err(Fault::from)?;
+            unsafe { out_info.write(info) };
+            Ok(OK)
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,6 +249,27 @@ mod tests {
             (0, 1_000_000_000),
         ] {
             assert!(matches!(at(s, n), Err(Error::UnsupportedOperation)));
+        }
+    }
+
+    #[test]
+    fn basic_times_round_trip_exact_ticks_and_refuse_controls() {
+        assert_eq!(timestamp(0).unwrap(), None);
+        for ticks in [
+            1,
+            99,
+            100,
+            9_999_999,
+            10_000_000,
+            116_444_736_000_000_007,
+            i64::MAX as u64,
+        ] {
+            let value = timestamp(ticks).unwrap().unwrap();
+            assert_eq!(file_time(value).unwrap(), ticks);
+            assert_eq!(value.nanoseconds % 100, 0);
+        }
+        for ticks in [i64::MAX as u64 + 1, u64::MAX - 1, u64::MAX] {
+            assert!(matches!(timestamp(ticks), Err(Error::UnsupportedOperation)));
         }
     }
 }

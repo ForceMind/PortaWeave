@@ -19,9 +19,9 @@ cargo test --locked -p portaweave-partition-inspector
 
 GPT requires valid CRC32 header/entry tables; it reports damaged primary/backup as DEGRADED, does not repair anything, and refuses ambiguous hybrid MBR/GPT. MBR extended EBR logical partitions are not yet enumerated. A virtual partitionable block device (.pwdisk), physical device management and resize/clone/recovery are **planned, not implemented**. None of these claims weakens the standard Codex/Git working-volume release gates.
 
-## Status — 2026-10-25
+## Status — 2026-10-26
 
-**M0-N WinFsp granted-file and M0-Q laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-M atomic write/metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-R WinFsp granted-file and M0-Q laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-N descriptor metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -91,6 +91,10 @@ Laboratory create reserves native handle admission/tokens and prepares its Swift
 ## M0-O FSKit committed attribute replies
 
 Laboratory setattr now consumes a pre-commit projected reply for size, mixed and metadata-only changes. It no longer queries the catalog after known success; failed projections roll back before commit, and later maintenance warnings remain separate. v1 size replies explicitly lack metadata. These are administrative callbacks with native identity/load/mount still closed. See [M0-O](docs/IMPLEMENTATION-M0O.zh-CN.md).
+
+## M0-R WinFsp basic-time callback contract
+
+The real SetBasicInfo callback now uses current trusted metadata authority and a pre-commit reply to set creation/access/write times atomically. Unsupported DOS flags, explicit change time and time-control sentinels reject before mutation; missing test credentials deny. Read-only data rights and current metadata authority are separate. No Windows SID/ACL/WRITE_ATTRIBUTES or mount claim is made. See [M0-R](docs/IMPLEMENTATION-M0R.zh-CN.md), [M1-N](docs/IMPLEMENTATION-M1N.zh-CN.md) and [ADR 0009](docs/adr/0009-fallible-windows-reply-projection.md).
 
 ## M0-N WinFsp granted-file callback contract
 

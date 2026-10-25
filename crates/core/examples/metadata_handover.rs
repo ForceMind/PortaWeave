@@ -169,6 +169,30 @@ fn verify_policy(v: &mut Volume) -> TestResult {
     let no_change = writer.write_request(v, WritePosition::EndOfFile, b"blocked", true)?;
     assert_eq!(no_change.written, 0);
     assert_eq!(no_change.info, restored);
+    let metadata_reply = v
+        .posix(Credentials::new(501, 50, &[])?)?
+        .set_file_metadata_request(
+            writer,
+            MetadataUpdate {
+                modified: Some(OLD),
+                ..Default::default()
+            },
+        )?;
+    assert_eq!(metadata_reply, writer.info(v)?);
+    assert_eq!(metadata_reply.stat.generation, restored.stat.generation + 1);
+    assert_eq!(metadata_reply.metadata.modified, OLD);
+    assert!(matches!(
+        v.posix(Credentials::new(502, 20, &[50])?)?
+            .set_file_metadata_request(
+                writer,
+                MetadataUpdate {
+                    modified: Some(stage_time(0)),
+                    ..Default::default()
+                }
+            ),
+        Err(CoreError::PermissionDenied)
+    ));
+    assert_eq!(writer.info(v)?, metadata_reply);
     writer.close(v)?;
     assert_eq!(lease.read(v, 1, 3)?, b"oli");
     lease.close(v)?;
@@ -178,6 +202,9 @@ fn verify_policy(v: &mut Volume) -> TestResult {
         Err(CoreError::NotFound)
     ));
     println!("WRITE_REQUEST_HANDOVER_OK (atomic append/constrained/truncate replies; no OS mount)");
+    println!(
+        "DESCRIPTOR_METADATA_HANDOVER_OK (current trusted owner; pre-commit reply, no OS ACL claim)"
+    );
     println!("POSIX_POLICY_HANDOVER_OK (trusted claims, not native authorization)");
     println!("POSIX_DESCRIPTOR_HANDOVER_OK (read grants and current metadata privileges)");
     println!(

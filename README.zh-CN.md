@@ -19,9 +19,9 @@ cargo test --locked -p portaweave-partition-inspector
 
 支持 512/4096 字节扇区、GPT 主备 CRC 校验和异常报告；MBR 只解析四个主分区，扩展 EBR 链暂不支持。只有一份 GPT 有效时报告 DEGRADED 并且绝不自动修复。后续独立规划逻辑子卷、动态块设备 .pwdisk 和受控真实磁盘管理，**不能用“分区 UI”掩盖当前尚未完成的双端工作盘、Codex/Git 验收**。
 
-## 当前状态（2026-10-25）
+## 当前状态（2026-10-26）
 
-**M0-N WinFsp 授权文件合同与 M0-Q 实验性 FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-M 原子写入/元数据核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
+**M0-R WinFsp 授权文件合同与 M0-Q 实验性 FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-N 文件句柄属性核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
 
 实现范围见 [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md)、[M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md)、[M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md)，历史测试见[验证记录](docs/VALIDATION.zh-CN.md)。确切源码版本的测试结果记录在对应 PR；实现文档不是自动的通过声明。云端三系统核心测试不等于真实 exFAT、挂载盘或 Codex 已兼容。
 
@@ -91,6 +91,10 @@ M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提�
 ## M0-O FSKit 事务内属性回执
 
 实验 setattr 的大小、混合和 metadata-only 请求统一使用提交前完成投影的属性回执，消除已成功修改后再次查询失败而误报业务失败的路径；v1 大小回执明确不含元数据，后续维护告警单独报告。仍是管理回调，原生 caller/load/mount 不开放。见 [M0-O](docs/IMPLEMENTATION-M0O.zh-CN.md)。
+
+## M0-R WinFsp 基本时间回调合同
+
+真正的 SetBasicInfo 回调使用当前受信任属性权限，在同一事务设置创建/访问/修改时间并生成提交前回执。不支持的 DOS flags、显式 ctime 和时间控制值在修改前拒绝；缺少测试凭据时拒绝。数据只读授权与当前属性权限独立，不代表 Windows SID/ACL/WRITE_ATTRIBUTES 或系统挂载通过。见 [M0-R](docs/IMPLEMENTATION-M0R.zh-CN.md)、[M1-N](docs/IMPLEMENTATION-M1N.zh-CN.md) 和 [ADR 0009](docs/adr/0009-fallible-windows-reply-projection.md)。
 
 ## M0-N WinFsp 授权文件回调合同
 

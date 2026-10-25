@@ -65,6 +65,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 42. M0-Q initial file size is quota-checked sparse zero space, never physical reservation. Initialize size and supported v2 times in the creation transaction, without follow-up truncate/setattr or fake v1 metadata. Directory size is unsupported even when zero; validate times/flags before mutation. Initial mode is trusted creation state, not verified privileged execution. Native permission/load/mount gates remain closed.
 
+43. M1-N descriptor metadata uses CURRENT trusted owner/group authority independently of open-time data rights; do not reopen its path or turn WRITE into chmod/chown permission. M0-R SetBasicInfo leaves DOS attributes unchanged only with INVALID_FILE_ATTRIBUTES, treats zero times as unchanged and rejects unsupported flags/explicit ctime/time-control sentinels before mutation. Keep the pure reply projection before commit, failed outputs unchanged and health separate. Test-only metadata_caller claims are not Windows SID/ACL/WRITE_ATTRIBUTES authentication; NULL must deny and native security/Open/Flush remain closed.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

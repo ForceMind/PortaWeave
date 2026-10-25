@@ -16,6 +16,10 @@ typedef struct PW_PROBE_VOLUME {
 typedef struct PW_PROBE_FILE {
     uint64_t file; /* separately typed granted policy token, not raw admin token */
     int32_t close_status;
+    /* Test-only, lifetime-valid trusted claims. NULL denies metadata mutation.
+     * Open never manufactures this context. Future native ACL authorization
+     * must not infer these claims from daemon UID or untrusted request data. */
+    const PwCredentials *metadata_caller;
 } PW_PROBE_FILE;
 
 static NTSTATUS PwNtStatus(int32_t result)
@@ -183,6 +187,34 @@ static NTSTATUS PwSetFileSize(
     PwCopyFileInfo(&info, out);
     return STATUS_SUCCESS;
 }
+static NTSTATUS PwSetBasicInfo(
+    FSP_FILE_SYSTEM *fs, PVOID context, UINT32 attributes,
+    UINT64 created, UINT64 accessed, UINT64 modified, UINT64 changed,
+    FSP_FSCTL_FILE_INFO *out)
+{
+    PW_PROBE_VOLUME *volume;
+    PW_PROBE_FILE *file;
+    PwWindowsBasicInfo request;
+    PwWindowsFileInfo info;
+    NTSTATUS status;
+    if (!fs || !fs->UserContext || !context || !out)
+        return STATUS_INVALID_PARAMETER;
+    volume = (PW_PROBE_VOLUME *)fs->UserContext;
+    file = (PW_PROBE_FILE *)context;
+    if (!file->metadata_caller) return STATUS_ACCESS_DENIED;
+    ZeroMemory(&request, sizeof(request));
+    request.file_attributes = attributes;
+    request.creation_time = created;
+    request.last_access_time = accessed;
+    request.last_write_time = modified;
+    request.change_time = changed;
+    status = PwNtStatus(pw_windows_file_set_basic_info(volume->volume, file->file,
+        file->metadata_caller, &request, &info));
+    if (!NT_SUCCESS(status)) return status;
+    /* Projection and authorization completed before commit. Copy cannot fail. */
+    PwCopyFileInfo(&info, out);
+    return STATUS_SUCCESS;
+}
 static VOID PwClose(FSP_FILE_SYSTEM *fs, PVOID context)
 {
     PW_PROBE_VOLUME *volume;
@@ -213,6 +245,7 @@ static VOID PwInterfaceInit(FSP_FILE_SYSTEM_INTERFACE *callbacks)
     callbacks->GetFileInfo = PwGetFileInfo;
     callbacks->Write = PwWrite;
     callbacks->SetFileSize = PwSetFileSize;
+    callbacks->SetBasicInfo = PwSetBasicInfo;
     callbacks->Close = PwClose;
     callbacks->Flush = PwFlush;
     /* Create, Rename, Directory, ACL, mmap etc. remain unset. */
@@ -246,7 +279,8 @@ int main(int argc, char **argv)
     fs.UserContext = &context;
     PwInterfaceInit(&callbacks);
     REQUIRE(callbacks.GetFileInfo == PwGetFileInfo && callbacks.Write == PwWrite &&
-        callbacks.SetFileSize == PwSetFileSize && callbacks.Create == NULL);
+        callbacks.SetFileSize == PwSetFileSize && callbacks.SetBasicInfo == PwSetBasicInfo &&
+        callbacks.Create == NULL);
     REQUIRE(STATUS_SUCCESS == callbacks.GetVolumeInfo(&fs, &info));
     REQUIRE(info.TotalSize == 65536 && info.FreeSize <= info.TotalSize);
     REQUIRE(STATUS_ACCESS_DENIED == callbacks.GetSecurityByName(&fs, L"\\", NULL, NULL, NULL));
@@ -300,14 +334,64 @@ int main(int argc, char **argv)
     REQUIRE(resultCount == 8 && 0 == memcmp(output, "pay\0\0\0\0\0", 8));
     update.created.seconds = 0;
     REQUIRE(PW_OK == pw_metadata_set(volume, node, &update));
+    /* Real SetBasicInfo signature, trusted laboratory mode policy only. */
+    REQUIRE(STATUS_SUCCESS == callbacks.GetFileInfo(&fs, &reader, &oldInfo));
+    fileInfo = oldInfo;
+    REQUIRE(STATUS_ACCESS_DENIED == callbacks.SetBasicInfo(&fs, &reader,
+        INVALID_FILE_ATTRIBUTES, 1, 0, 0, 0, &fileInfo));
+    REQUIRE(0 == memcmp(&fileInfo, &oldInfo, sizeof(fileInfo)));
+    reader.metadata_caller = &caller; /* explicit claims, no daemon/root fallback */
+    REQUIRE(STATUS_SUCCESS == callbacks.SetBasicInfo(&fs, &reader,
+        INVALID_FILE_ATTRIBUTES, 1, UINT64_C(116444736000000007),
+        UINT64_C(116444735999999999), 0, &fileInfo));
+    REQUIRE(fileInfo.CreationTime == 1 &&
+        fileInfo.LastAccessTime == UINT64_C(116444736000000007) &&
+        fileInfo.LastWriteTime == UINT64_C(116444735999999999) &&
+        fileInfo.IndexNumber == (UINT64)node && fileInfo.FileSize == 8);
+    oldInfo = fileInfo;
+    REQUIRE(STATUS_SUCCESS == callbacks.SetBasicInfo(&fs, &reader,
+        INVALID_FILE_ATTRIBUTES, 0, 0, 0, 0, &fileInfo));
+    REQUIRE(0 == memcmp(&fileInfo, &oldInfo, sizeof(fileInfo)));
+    REQUIRE(STATUS_NOT_SUPPORTED == callbacks.SetBasicInfo(&fs, &reader,
+        FILE_ATTRIBUTE_NORMAL, UINT64_C(116444736000000000), 0, 0, 0, &fileInfo));
+    REQUIRE(STATUS_NOT_SUPPORTED == callbacks.SetBasicInfo(&fs, &reader,
+        INVALID_FILE_ATTRIBUTES, 0, 0, UINT64_MAX, 0, &fileInfo));
+    REQUIRE(STATUS_NOT_SUPPORTED == callbacks.SetBasicInfo(&fs, &reader,
+        INVALID_FILE_ATTRIBUTES, 0, 0, UINT64_MAX - 1, 0, &fileInfo));
+    REQUIRE(STATUS_NOT_SUPPORTED == callbacks.SetBasicInfo(&fs, &reader,
+        INVALID_FILE_ATTRIBUTES, 0, 0, 0, 1, &fileInfo));
+    REQUIRE(STATUS_INVALID_PARAMETER == callbacks.SetBasicInfo(&fs, &reader,
+        INVALID_FILE_ATTRIBUTES, 0, 0, 0, 0, NULL));
+    REQUIRE(0 == memcmp(&fileInfo, &oldInfo, sizeof(fileInfo)));
+    REQUIRE(STATUS_SUCCESS == callbacks.GetFileInfo(&fs, &reader, &fileInfo));
+    REQUIRE(0 == memcmp(&fileInfo, &oldInfo, sizeof(fileInfo)));
+    /* A data writer who is no longer owner cannot change metadata. */
+    file.metadata_caller = &caller;
+    update.valid = PW_META_UID;
+    update.uid = 101;
+    REQUIRE(PW_OK == pw_metadata_set(volume, node, &update));
+    REQUIRE(STATUS_SUCCESS == callbacks.GetFileInfo(&fs, &file, &oldInfo));
+    fileInfo = oldInfo;
+    REQUIRE(STATUS_ACCESS_DENIED == callbacks.SetBasicInfo(&fs, &file,
+        INVALID_FILE_ATTRIBUTES, 0, 0, 1, 0, &fileInfo));
+    REQUIRE(0 == memcmp(&fileInfo, &oldInfo, sizeof(fileInfo)));
     /* Still-open inode data and identity survive final unlink. */
     REQUIRE(PW_OK == pw_posix_remove(volume, 1, (const uint8_t *)"probe.txt", 9, 0, &caller));
     REQUIRE(STATUS_SUCCESS == callbacks.GetFileInfo(&fs, &file, &fileInfo));
     REQUIRE(fileInfo.IndexNumber == (UINT64)node);
+    {
+        PwCredentials current = {101, 20, NULL, 0, 0};
+        file.metadata_caller = &current;
+        REQUIRE(STATUS_SUCCESS == callbacks.SetBasicInfo(&fs, &file,
+            INVALID_FILE_ATTRIBUTES, 0, 0, UINT64_C(116444736000000123), 0, &fileInfo));
+        REQUIRE(fileInfo.LastWriteTime == UINT64_C(116444736000000123));
+        file.metadata_caller = NULL;
+    }
     callbacks.Close(&fs, &reader); callbacks.Close(&fs, &file);
     REQUIRE(reader.file == 0 && file.file == 0 && reader.close_status == PW_OK && file.close_status == PW_OK);
     REQUIRE(STATUS_INVALID_PARAMETER == callbacks.GetFileInfo(&fs, &file, &fileInfo));
     REQUIRE(PW_OK == pw_volume_close(volume));
+    puts("WINFSP_BASIC_INFO_CONTRACT_OK (trusted current-owner policy; no Windows ACL/mount certification)");
     puts("WINFSP_GRANTED_IO_CONTRACT_OK (regular-file grants; no ACL/Open/mount certification)");
     puts("WINFSP_CALLBACK_CONTRACT_OK (no mount, no driver)");
     return 0;

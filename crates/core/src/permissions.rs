@@ -399,6 +399,29 @@ impl PosixSession<'_> {
         self.volume
             .truncate_with_metadata(file.handle, size, update)
     }
+    /// Current metadata authority on a live granted inode, independent of its
+    /// data rights or current pathname. Reply is captured before commit.
+    pub fn set_file_metadata_request(
+        &mut self,
+        file: PosixFile,
+        update: MetadataUpdate,
+    ) -> Result<FileInfo> {
+        self.set_file_metadata_with_reply(file, update, Ok)
+    }
+    /// Pure platform projection; refusal rolls back the metadata transaction.
+    /// A data grant is not a grant to change metadata: current owner/group
+    /// checks still apply, including after rename/unlink or chown.
+    pub fn set_file_metadata_with_reply<T>(
+        &mut self,
+        file: PosixFile,
+        update: MetadataUpdate,
+        reply: impl FnOnce(FileInfo) -> Result<T>,
+    ) -> Result<T> {
+        let id = file.object(self.volume, Access::EXISTS)?;
+        let update = self.metadata_update(id, update)?;
+        self.volume
+            .set_metadata_request(id, update, |db, _, id| reply(FileInfo::at(db, id)?))
+    }
     fn creation_attributes(
         &self,
         parent: FileId,
