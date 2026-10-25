@@ -7,6 +7,178 @@ use std::{
 };
 
 #[test]
+fn granted_tokens_do_not_confuse_administrative_handles_or_leak_failed_io_outputs() {
+    let s = Scratch::new();
+    let mut volume = 0;
+    let a = PwCreateAttributes {
+        uid: 100,
+        gid: 20,
+        mode: 0o777,
+        reserved: 0,
+    };
+    let owner = PwCredentials {
+        uid: 200,
+        gid: 20,
+        groups: std::ptr::null(),
+        group_count: 0,
+        reserved: 0,
+    };
+    let other = PwCredentials {
+        uid: 300,
+        gid: 20,
+        groups: std::ptr::null(),
+        group_count: 0,
+        reserved: 0,
+    };
+    assert_eq!(
+        unsafe {
+            pw_volume_create_with_metadata(
+                s.path().as_ptr(),
+                s.path().len(),
+                1 << 20,
+                &a,
+                &mut volume,
+            )
+        },
+        0
+    );
+    let mut node = 0;
+    assert_eq!(
+        unsafe {
+            pw_posix_create(
+                volume,
+                1,
+                b"file".as_ptr(),
+                4,
+                0,
+                0o600,
+                0,
+                &owner,
+                &mut node,
+            )
+        },
+        0
+    );
+    let mut denied = 99;
+    assert_eq!(
+        unsafe { pw_posix_file_open(volume, 1, b"file".as_ptr(), 4, 4, &other, &mut denied) },
+        -17
+    );
+    assert_eq!(denied, 99);
+    assert_eq!(
+        unsafe { pw_posix_file_open(volume, 1, b"file".as_ptr(), 4, 1, &owner, &mut denied) },
+        -1
+    );
+    assert_eq!(denied, 99);
+    let mut reader = 0;
+    let mut writer = 0;
+    let mut raw = 0;
+    assert_eq!(
+        unsafe { pw_posix_file_open(volume, 1, b"file".as_ptr(), 4, 4, &owner, &mut reader) },
+        0
+    );
+    assert_eq!(
+        unsafe { pw_posix_file_open(volume, 1, b"file".as_ptr(), 4, 6, &owner, &mut writer) },
+        0
+    );
+    assert_eq!(unsafe { pw_file_open(volume, node, &mut raw) }, 0);
+    let mut count = 99;
+    let mut buffer = [77; 16];
+    assert_eq!(
+        unsafe { pw_posix_file_write(volume, reader, 0, b"bad".as_ptr(), 3, &mut count) },
+        -17
+    );
+    assert_eq!(count, 99);
+    assert_eq!(
+        unsafe {
+            pw_posix_file_read(
+                volume,
+                raw,
+                0,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut count,
+            )
+        },
+        -1
+    );
+    assert_eq!(count, 99);
+    assert_eq!(buffer, [77; 16]);
+    assert_eq!(
+        unsafe {
+            pw_file_read(
+                volume,
+                reader,
+                0,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut count,
+            )
+        },
+        -1
+    );
+    assert_eq!(count, 99);
+    assert_eq!(buffer, [77; 16]);
+    assert_eq!(
+        unsafe { pw_posix_file_write(volume, writer, 0, b"abcdef".as_ptr(), 6, &mut count) },
+        0
+    );
+    let update = PwMetadataUpdate {
+        valid: 4 | 32,
+        mode: 0o6751,
+        modified: PwTimestamp {
+            seconds: -123,
+            nanoseconds: 987_654_321,
+            reserved: 0,
+        },
+        ..Default::default()
+    };
+    assert_eq!(
+        unsafe { pw_posix_file_truncate_with_metadata(volume, writer, 3, &other, &update) },
+        -17
+    );
+    assert_eq!(
+        unsafe { pw_posix_file_truncate_with_metadata(volume, writer, 3, &owner, &update) },
+        0
+    );
+    assert_eq!(pw_file_close(volume, reader), -1);
+    assert_eq!(pw_posix_file_close(volume, raw), -1);
+    assert_eq!(pw_volume_close(volume), -7);
+    assert_eq!(pw_file_close(volume, raw), 0);
+    assert_eq!(
+        unsafe {
+            pw_posix_file_read(
+                volume,
+                reader,
+                0,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut count,
+            )
+        },
+        0
+    );
+    assert_eq!(&buffer[..count], b"abc");
+    assert_eq!(pw_posix_file_close(volume, reader), 0);
+    assert_eq!(pw_posix_file_close(volume, reader), -1);
+    assert_eq!(
+        unsafe {
+            pw_posix_file_read(
+                volume,
+                reader,
+                0,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut count,
+            )
+        },
+        -1
+    );
+    assert_eq!(pw_posix_file_close(volume, writer), 0);
+    assert_eq!(pw_volume_close(volume), 0);
+}
+
+#[test]
 fn posix_abi_bounds_claims_and_denial_leaves_outputs_and_health_unchanged() {
     let s = Scratch::new();
     let mut volume = 0;

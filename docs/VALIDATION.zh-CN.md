@@ -146,3 +146,7 @@ PR #21 验收补记：准确 head `75a1a19d0e977d16028f216f3589ca0f8f403d5e` / t
 Work 临时目录被回收后，重新克隆准确主线，并恢复既有云端只读准备产物的 Rust 1.99.1/锁定依赖；核验 ZIP SHA-256 与 tar 内部 SHA256SUMS，未操作用户机器或改变沙盒。新增核心权限集成 all-feature 9/default 8 项、纯 mode 矩阵 40,960 断言、native ABI 拒绝/输出/健康回归，以及真实 C caller。完整 default/all-feature workspace、clippy/fmt 和四阶段本地程序运行有实际结果；本地阶段名不构成跨 OS 证据。
 
 metadata_handover 新增 trusted-ID 权限允许/拒绝及无副作用校验；准确三平台 source SHA/CI 以 M1-J PR 验收为准。Swift/WinFsp 的拒绝码映射测试不代表回调已启用认证。原生 OS 身份、ACL、数据句柄权限、真实挂载与 Codex 正常沙盒仍未验收，详见 [M1-J](IMPLEMENTATION-M1J.zh-CN.md)。
+
+PR #22 已验收：准确 head `65251b0414aa71c7b0d0e8c656bc8e881504a8c7` / tree `96efea5d77f7bb4812a108fbc7ec7da66b1c63be` 17 检查 success，core 40173465484、native 40173465507、bundle 40173465512、handover 40173465518、host 40173465496 / 40173462347。返回 job 121109468180 实际输出 POSIX_POLICY_HANDOVER_OK 及 v2 恢复/原件哈希保全成功。合并 `7ac870cd2dd98d0d2f42783a32c99addfca700ff`，源码/候选树一致，远端 main 已核验，无未解决评审。
+
+M1-K 增加 all-feature 9/default 7 项 granted-file/metadata 授权回归、1 项原生 ABI 回归，含 4096 总预算（计入管理句柄）、旧 FD/失效/跨 owner/混用 token、读写拒绝输出不变、属性授权和事务故障。Work Linux 完整 workspace、clippy/fmt、真实 C caller 与四阶段程序已实际运行；修复本地 clippy nested-if 和 C 原型/类型声明顺序错误后再验证。准确三平台 source CI 见本增量 PR；受信任 FD 测试不是 OS 认证、执行或真挂载证据。
