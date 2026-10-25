@@ -617,8 +617,8 @@ impl Volume {
         if self.stat(id)?.kind != Kind::File {
             return Err(Error::IsDirectory);
         }
-        let handle = Handle(token()?);
-        self.handles.insert(handle, id);
+        let handle = self.reserve_file_handle()?;
+        self.publish_file_handle(handle, id);
         Ok(handle)
     }
     pub(crate) fn reserve_file_handle(&self) -> Result<Handle> {

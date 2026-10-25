@@ -34,6 +34,8 @@ M1-N / M0-R（2026-10-26）继续当前主线：活策略文件的当前属性�
 
 M0-S（2026-10-26）接续删除/改名的同请求、事务内 expected source/target 校验；FSKit 不再用独立 lookup 保护随后按名字修改。PW_STALE 映射 ESTALE，大小写同目录项与硬链接 alias 分别处理。真实 C 线程受控交错、提交前后故障、SDK v1/v2 与 artifact 标记见对应 PR；不是 OS 身份/缓存/挂载或完整 ABA 世代。
 
+2026-10-26 句柄准入补正：原始 Rust open_file 现复用统一 reserve/publish；修复可绕过 4096 总额度的管理入口。现有 admin-only 与混合 policy/admin 测试强化，保留修复前失败证据；逻辑预算不是精确堆/OOM 保护。详见 M0-P/ADR0011 和对应 PR。
+
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 
 ## 不可降低的目标

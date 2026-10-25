@@ -13,3 +13,7 @@
 SDK 合同新增真实 C 预算耗尽场景：在一个缓存文件之外打开 4095 原生句柄，创建普通文件必须在修改前 ENOMEM，字段不消费、名字不存在、父时间不变；目录可创建，释放后文件创建恢复，未 reclaim 的 pin 阻止 deactivate。CI 标记 FSVOLUME_ATOMIC_CREATE_CONTRACT_OK 只代表直接 SDK/ABI，不是 OS 分发或 mount。
 
 Work Linux full default/all-feature workspace（包括已有 Disk Studio 只读检查器）、clippy/fmt、C caller/C++17 header、Python 9 项和本地四阶段程序实际通过。默认测试最初有一个仅故障特性使用的 import warning，已修正并重跑对应默认套件与 lint。准确 macOS SDK/完整 App+Extension、MSVC 与跨 OS 交接结果以本增量 PR/source SHA 为准。没有改变 schema/依赖/工作流，也没有修改 Disk Studio 模块或操作物理盘。原生权限/ACL/共享/缓存/完整同步、真实挂载、Codex 沙盒和物理 exFAT/USB/断电继续 BLOCKED/NOT_RUN。
+
+## 2026-10-26 准入补正
+
+持续审查发现，M0-P 的创建 pin 和 POSIX open 已检查共享额度，但原始 Rust `Volume::open_file` 仍直接分配管理句柄，可以绕过 4096 总量。新增断言在修复前确实失败；该入口现复用同一 `reserve_file_handle` / `publish_file_handle`，保留文件存在/类型检查和管理接口性质。额度满时返回 ResourceLimit、不写保护、不改元数据/名字，不提前运行维护；释放一个后可重新准入且不复用旧标识。目录创建不消费普通文件 pin。强化现有 admin-only 与混合 policy/admin 两个测试，没有把这项补正冒称精确堆预算或原生安全。

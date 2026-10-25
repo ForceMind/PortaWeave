@@ -80,6 +80,8 @@ M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提�
 
 只有 READ 文件能力可申请不可变范围租约，只写能力拒绝。原 FD 关闭或内容变化后仍保留原范围/EOF/字节，共用核心准入预算，释放前 volume_close 保持 BUSY。C 策略/管理 view 分表。这是进程内读能力，不是 OS mmap 或调用者身份认证。见 [M1-L](docs/IMPLEMENTATION-M1L.zh-CN.md)。
 
+所有核心普通文件打开入口（包括原始 Rust 管理 open）与创建 pin、策略 grant 共享 4096 句柄准入上限；这是逻辑资源额度，不是精确堆预算。
+
 ## M0-Q 创建初始状态
 
 普通文件可在创建时设置经配额检查的稀疏逻辑大小，v2 同时设置精确的创建/访问/修改时间；初始状态、名字、元数据和 pin 回执同事务提交，generation 保持 0，不追加 truncate。v1 仅支持 size 并保持元数据缺席，目录 size 明确拒绝。不是物理预留或原生授权。见 [M0-Q](docs/IMPLEMENTATION-M0Q.zh-CN.md)。
