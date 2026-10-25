@@ -16,7 +16,8 @@
 - PR #19（M0-L）已合并 `3098c4cb24a06d8a4695b82dc57ee444297e63a1`，准确 head `0ab866f517b417cb8b908e83ea5d2d0d79bfc012` / tree `4e6c1605c909c9f78acc847c2f5db70241707e4f` 17 检查通过。v2 UUID/元数据接入 FSVolume 身份、getAttributes 与枚举；实际 SDK v1/v2 合同通过。保留独立 session tag，v1 不伪造字段，设置与 access/load/mount 仍关闭。
 - PR #20（M1-I）已合并 `1e0fc95fb28d099a1a640b3ecca3d1408e88c6a8`，准确 head `a32096f24ddd9db176f1684859e1d7a5e0c8103f` / tree `801c040038657946e8d4d342e26ba2f467ad0e8f` 17 检查通过。`truncate_with_metadata` / `pw_file_truncate_with_metadata` 单事务更新大小/块引用与元数据；显式 mtime 优先，截断最终清除 file setid，一次 generation。core 13/10 项套件、C caller、真实三平台 atomic artifact 交接和恢复通过。
 - PR #21（M0-M）已合并 `3a5cd787519ecfba468addc5c96f9b776343c8cc`，准确 head `75a1a19d0e977d16028f216f3589ca0f8f403d5e` / tree `bb8ac4acbdd299bdd466885a0d8aaf4379bb2e9e` 17 检查通过，合并后 main 14 项也通过。FSKit v2 混合 setattr 和 uid/gid/mode 创建在实际 SDK 合同运行；access/load/mount 继续关闭。
-- M1-J `PosixSession` 实施受信任 caller 的选定目录权限策略、全部祖先搜索、sticky 两端替换、umask/setgid 继承，独立 PW_DENIED 映射。合成凭据不等于 OS 身份认证，裸数据句柄/属性变更授权仍需接入。准确 CI/head/合并状态见对应 PR，不继承旧源码绿色。
+- PR #22（M1-J）已合并 `7ac870cd2dd98d0d2f42783a32c99addfca700ff`，准确 head `65251b0414aa71c7b0d0e8c656bc8e881504a8c7` / tree `96efea5d77f7bb4812a108fbc7ec7da66b1c63be` 17 项检查通过。`PosixSession` 实施受信任 caller 的选定目录权限、全部祖先搜索、sticky 两端替换、umask/setgid 继承，独立 PW_DENIED 映射；合成凭据不等于 OS 身份认证。
+- M1-K 增加不透明 PosixFile 数据能力与当前 metadata 修改授权，token 与管理表分离、共同 4096 限额/BUSY，旧 FD 权限保持至关闭。混合变更同时检查 WRITE 和当前 owner/group，仍为一次核心提交。准确 CI/head/合并状态见对应 PR。
 
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 
@@ -28,7 +29,7 @@ Recovery 保全原始文件并在独立副本恢复 SQLite/WAL；普通 Volume::
 
 ## 下一阶段
 
-1. 继续核心数据句柄/metadata-change 授权与原生 caller 身份绑定，再衔接 FSKit 权限策略、security-scoped resource、符号链接/xattr 和真实缓存/同步。受信任策略已有 umask/setgid/sticky，但原生 callback 未绑定可信身份，不能开放；创建 size/time 仍未支持。签名及系统授权需合适的已授权环境，不把直接 SDK 调用或打包当真挂载。
+1. 继续范围租约授权及原生 caller/内核权限委托，再衔接 FSKit 策略、security-scoped resource、符号链接/xattr 和真实缓存/同步。受信任目录/数据/属性策略已有，但原生 callback 未绑定可信身份，不能开放；创建 size/time 仍未支持。签名及系统授权需合适的已授权环境，不把直接 SDK 调用或打包当真挂载。
 2. 推进 WinFsp ACL/共享/删除/缓存/同步及缺失回调；硬链接接口缺口仍 BLOCKED，需要上游或替代后端方案，不能用核心硬链接关闭。
 3. 继续核心空间预约、应急预留、SQLite VFS 故障矩阵、有界空闲维护、名称版本、明确迁移工具与完整解析器资源预算；不得静默把 v1 升成 v2。
 4. 真挂载后完成 Git/npm/pnpm/Python/Cargo/IDE/SQLite 与实际 Codex 正常沙盒的正向和越界拒绝测试，原始 backing 目录也纳入权限边界。

@@ -5,8 +5,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use portaweave_core::{
-    Access, CreateAttributes, Credentials, Entry, Error, FileId, Handle, Kind, MAX_IO,
-    MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, MetadataUpdate, ROOT, ReadView, Timestamp, Volume,
+    Access, CreateAttributes, Credentials, Entry, Error, FileAccess, FileId, Handle, Kind, MAX_IO,
+    MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, MetadataUpdate, PosixFile, ROOT, ReadView,
+    Timestamp, Volume,
 };
 use std::{
     collections::BTreeMap,
@@ -99,6 +100,7 @@ struct Cursor {
 struct Session {
     volume: Volume,
     files: BTreeMap<u64, Handle>,
+    policy_files: BTreeMap<u64, PosixFile>,
     dirs: BTreeMap<u64, Cursor>,
     views: BTreeMap<u64, ReadView>,
 }
@@ -451,6 +453,191 @@ pub struct PwVolumeIdentity {
 pub extern "C" fn pw_abi_version() -> u32 {
     1
 }
+
+/// Open a separately typed, granted file token using explicit trusted claims.
+/// # Safety
+/// Name/caller/groups readable, output writable/aligned/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_file_open(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    access: u8,
+    caller: *const PwCredentials,
+    out_file: *mut u64,
+) -> i32 {
+    run(|| {
+        required(out_file)?;
+        let access = match access {
+            4 => FileAccess::Read,
+            2 => FileAccess::Write,
+            6 => FileAccess::ReadWrite,
+            _ => return Err(Fault::invalid()),
+        };
+        let caller = unsafe { credentials(caller)? };
+        let name = unsafe { text(name, name_len)? };
+        with_session(volume, |s| {
+            if s.files.len() + s.policy_files.len() >= MAX_HANDLES {
+                return Err(Fault::resource());
+            }
+            let token = next_token()?;
+            let file = s
+                .volume
+                .posix(caller)
+                .map_err(Fault::from)?
+                .open_file(file_id(parent)?, name, access)
+                .map_err(Fault::from)?;
+            s.policy_files.insert(token, file);
+            unsafe { out_file.write(token) };
+            Ok(OK)
+        })
+    })
+}
+
+/// # Safety
+/// Buffer writable for capacity bytes, output count writable/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_file_read(
+    volume: u64,
+    file: u64,
+    offset: u64,
+    buffer: *mut u8,
+    capacity: usize,
+    out_read: *mut usize,
+) -> i32 {
+    run(|| {
+        required(out_read)?;
+        readable(buffer, capacity)?;
+        if capacity > MAX_IO {
+            return Err(Fault::invalid());
+        }
+        with_session(volume, |s| {
+            let file = *s.policy_files.get(&file).ok_or_else(Fault::invalid)?;
+            let bytes = file
+                .read(&s.volume, offset, capacity)
+                .map_err(Fault::from)?;
+            if !bytes.is_empty() {
+                unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, bytes.len()) };
+            }
+            unsafe { out_read.write(bytes.len()) };
+            Ok(OK)
+        })
+    })
+}
+
+/// # Safety
+/// Data readable for length bytes, output count writable/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_file_write(
+    volume: u64,
+    file: u64,
+    offset: u64,
+    data: *const u8,
+    length: usize,
+    out_written: *mut usize,
+) -> i32 {
+    run(|| {
+        required(out_written)?;
+        readable(data, length)?;
+        if length > MAX_IO {
+            return Err(Fault::invalid());
+        }
+        with_session(volume, |s| {
+            let file = *s.policy_files.get(&file).ok_or_else(Fault::invalid)?;
+            let data = if length == 0 {
+                &[]
+            } else {
+                unsafe { slice::from_raw_parts(data, length) }
+            };
+            let count = file
+                .write(&mut s.volume, offset, data)
+                .map_err(Fault::from)?;
+            unsafe { out_written.write(count) };
+            Ok(OK)
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_posix_file_truncate(volume: u64, file: u64, size: u64) -> i32 {
+    run(|| {
+        with_session(volume, |s| {
+            s.policy_files
+                .get(&file)
+                .copied()
+                .ok_or_else(Fault::invalid)?
+                .truncate(&mut s.volume, size)
+                .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_posix_file_close(volume: u64, file: u64) -> i32 {
+    run(|| {
+        with_session(volume, |s| {
+            s.policy_files
+                .get(&file)
+                .copied()
+                .ok_or_else(Fault::invalid)?
+                .close(&mut s.volume)
+                .map_err(Fault::from)?;
+            s.policy_files.remove(&file);
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// Name/caller/groups/update are readable/aligned and valid throughout the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_metadata_set(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    caller: *const PwCredentials,
+    update: *const PwMetadataUpdate,
+) -> i32 {
+    run(|| {
+        let caller = unsafe { credentials(caller)? };
+        let name = unsafe { text(name, name_len)? };
+        readable(update, 1)?;
+        let update = unsafe { update.read() }.core()?;
+        with_session(volume, |s| {
+            s.volume
+                .posix(caller)
+                .map_err(Fault::from)?
+                .set_metadata(file_id(parent)?, name, update)
+                .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// Caller/groups/update are readable/aligned and valid throughout the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_file_truncate_with_metadata(
+    volume: u64,
+    file: u64,
+    size: u64,
+    caller: *const PwCredentials,
+    update: *const PwMetadataUpdate,
+) -> i32 {
+    run(|| {
+        let caller = unsafe { credentials(caller)? };
+        readable(update, 1)?;
+        let update = unsafe { update.read() }.core()?;
+        with_session(volume, |s| {
+            let file = *s.policy_files.get(&file).ok_or_else(Fault::invalid)?;
+            s.volume
+                .posix(caller)
+                .map_err(Fault::from)?
+                .truncate_with_metadata(file, size, update)
+                .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn pw_root_id() -> i64 {
     ROOT.raw()
@@ -479,6 +666,7 @@ pub unsafe extern "C" fn pw_volume_create(
                 Session {
                     volume,
                     files: BTreeMap::new(),
+                    policy_files: BTreeMap::new(),
                     dirs: BTreeMap::new(),
                     views: BTreeMap::new(),
                 },
@@ -519,6 +707,7 @@ pub unsafe extern "C" fn pw_volume_create_with_metadata(
                 Session {
                     volume,
                     files: BTreeMap::new(),
+                    policy_files: BTreeMap::new(),
                     dirs: BTreeMap::new(),
                     views: BTreeMap::new(),
                 },
@@ -656,6 +845,7 @@ pub unsafe extern "C" fn pw_volume_open(
                 Session {
                     volume,
                     files: BTreeMap::new(),
+                    policy_files: BTreeMap::new(),
                     dirs: BTreeMap::new(),
                     views: BTreeMap::new(),
                 },
@@ -673,7 +863,11 @@ pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
     run(|| {
         with_table(|all| {
             let session = all.get(&volume).ok_or_else(Fault::invalid)?;
-            if !session.files.is_empty() || !session.dirs.is_empty() || !session.views.is_empty() {
+            if !session.files.is_empty()
+                || !session.policy_files.is_empty()
+                || !session.dirs.is_empty()
+                || !session.views.is_empty()
+            {
                 return Err(Fault::busy());
             }
             all.remove(&volume);
@@ -857,7 +1051,7 @@ pub unsafe extern "C" fn pw_file_open(volume: u64, object: i64, out_file: *mut u
     run(|| {
         required(out_file)?;
         with_session(volume, |s| {
-            if s.files.len() >= MAX_HANDLES {
+            if s.files.len() + s.policy_files.len() >= MAX_HANDLES {
                 return Err(Fault::resource());
             }
             let token = next_token()?;

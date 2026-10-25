@@ -59,6 +59,10 @@ M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提�
 
 `Volume::posix(Credentials)` 与新增 C 接口实际约束选定目录操作的 owner/group/other、祖先搜索、粘滞删除/改名、caller 所有权、umask 与 setgid 目录继承。凭据是显式受信任的声明，尚不认证原生调用者、不控制裸数据句柄、不实施 Windows ACL。默认 v1 不变，原生 access/load/mount 门槛继续关闭。见 [M1-J 范围/测试](docs/IMPLEMENTATION-M1J.zh-CN.md)与 [ADR 0006](docs/adr/0006-trusted-posix-policy.md)。
 
+## M1-K 打开文件能力与属性授权
+
+不透明策略文件在 chmod/chown/rename/unlink 后保留打开时的读写能力，直到关闭；属性变更另查当前 owner/group，混合大小/属性仍使用单事务。C 的策略与管理 token 分表，共享总限额及 BUSY 规则。受信任凭据测试不认证 OS caller，也不开放挂载。见 [M1-K](docs/IMPLEMENTATION-M1K.zh-CN.md)与 [ADR 0007](docs/adr/0007-granted-files-and-metadata-policy.md)。
+
 ## 运行存储实验
 
 使用 `rust-toolchain.toml` 锁定的工具链和 Cargo.lock。示例只接受全新可丢弃目录，不挂载或格式化磁盘。

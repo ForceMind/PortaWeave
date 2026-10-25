@@ -579,11 +579,14 @@ impl Volume {
         self.handles.insert(handle, id);
         Ok(handle)
     }
-    fn object(&self, handle: Handle) -> Result<FileId> {
+    pub(crate) fn object(&self, handle: Handle) -> Result<FileId> {
         self.handles
             .get(&handle)
             .copied()
             .ok_or(Error::InvalidHandle)
+    }
+    pub(crate) fn open_handle_count(&self) -> usize {
+        self.handles.len()
     }
     pub fn close_file(&mut self, handle: Handle) -> Result<()> {
         // Closing remains possible in protection mode, but does not run GC there.

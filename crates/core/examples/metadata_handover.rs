@@ -1,8 +1,8 @@
 //! Same opt-in v2 bytes through Linux -> macOS -> Windows -> Linux.
 //! Artifact handover only: no mount, exFAT medium or caller authorization.
 use portaweave_core::{
-    Access, CreateAttributes, Credentials, Error as CoreError, MetadataUpdate, ROOT, Timestamp,
-    Volume,
+    Access, CreateAttributes, Credentials, Error as CoreError, FileAccess, MetadataUpdate, ROOT,
+    Timestamp, Volume,
 };
 use std::{error::Error, path::Path};
 type TestResult = Result<(), Box<dyn Error>>;
@@ -44,6 +44,13 @@ fn seed(path: &Path) -> TestResult {
     v.hard_link(id, ROOT, "alias")?;
     v.posix(Credentials::new(501, 50, &[])?)?
         .create_file(ROOT, "policy", 0o666, 0o027)?;
+    let policy_file = v.posix(Credentials::new(501, 50, &[])?)?.open_file(
+        ROOT,
+        "policy",
+        FileAccess::ReadWrite,
+    )?;
+    policy_file.write(&mut v, 0, b"policy")?;
+    policy_file.close(&mut v)?;
     let atomic = v.create_file_with_attributes(ROOT, "atomic", FILE_ATTR)?;
     let h = v.open_file(atomic)?;
     v.write(h, 0, b"abcdef")?;
@@ -82,13 +89,32 @@ fn verify_policy(v: &mut Volume) -> TestResult {
         p.create_file(ROOT, "forbidden", 0o600, 0),
         Err(CoreError::PermissionDenied)
     ));
+    let reader = p.open_file(ROOT, "policy", FileAccess::Read)?;
+    assert!(matches!(
+        p.set_metadata(
+            ROOT,
+            "policy",
+            MetadataUpdate {
+                mode: Some(0o777),
+                ..Default::default()
+            }
+        ),
+        Err(CoreError::PermissionDenied)
+    ));
     assert!(!p.is_write_protected());
+    assert_eq!(reader.read(v, 0, 100)?, b"policy");
+    assert!(matches!(
+        reader.write(v, 0, b"bad"),
+        Err(CoreError::PermissionDenied)
+    ));
+    reader.close(v)?;
     assert_eq!(v.metadata(ROOT)?, before);
     assert!(matches!(
         v.lookup(ROOT, "forbidden"),
         Err(CoreError::NotFound)
     ));
     println!("POSIX_POLICY_HANDOVER_OK (trusted claims, not native authorization)");
+    println!("POSIX_DESCRIPTOR_HANDOVER_OK (read grants and current metadata privileges)");
     Ok(())
 }
 fn handover(path: &Path, expected: u8, next: Option<u8>) -> TestResult {

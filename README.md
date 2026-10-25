@@ -59,6 +59,10 @@ M1-I adds a single-transaction size/metadata mutation for native adapters, with 
 
 `Volume::posix(Credentials)` and additive C calls enforce owner/group/other checks, ancestor search, sticky deletion/rename, caller ownership, umask and setgid-directory inheritance for selected namespace operations. Credentials are explicit trusted claims; this does not authenticate native callers, govern raw data handles or implement Windows ACLs. Default v1 remains unchanged and native access/load/mount gates stay closed. See [M1-J scope/tests](docs/IMPLEMENTATION-M1J.zh-CN.md) and [ADR 0006](docs/adr/0006-trusted-posix-policy.md).
 
+## M1-K granted files and metadata authority
+
+Opaque policy files retain their read/write grants across chmod/chown/rename/unlink until close. Current owner/group authority is checked separately for metadata changes; mixed size/attributes use one transaction. Policy and administrative C tokens are distinct and share admission/BUSY limits. These trusted-credential tests do not authenticate OS callers or enable mounts. See [M1-K](docs/IMPLEMENTATION-M1K.zh-CN.md) and [ADR 0007](docs/adr/0007-granted-files-and-metadata-policy.md).
+
 ## Run the storage lab
 
 Use `rust-toolchain.toml` and the committed dependency lock. The example accepts only a NEW disposable directory; it does not mount or format a drive.

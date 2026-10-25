@@ -247,7 +247,7 @@ docs/
 .github/workflows/
 ```
 
-当前仓库提供规划和兼容性探针；上述 Rust 核心、平台挂载与桌面程序尚未实现。探针在普通文件夹通过不代表 PortaWeave 通过。
+上述为目标工程组织。当前已有实验 Rust 核心、原生 C ABI、WinFsp Dispatcher，以及 macOS App/FSKit 回调工程；逐阶段实现和准确证据见 IMPLEMENTATION、VALIDATION 与对应 PR。有效原生权限、真正系统挂载、完整开发盘及桌面客户端仍未完成；普通文件夹探针或核心/直接 SDK 测试通过不能代替这些门禁。
 
 保持中英文 README；文档区分“设计/已实现/已实测/发布支持”。每个里程碑提交到用户授权的仓库与分支，不能以描述性进展替代 Git 提交和测试证据。
 

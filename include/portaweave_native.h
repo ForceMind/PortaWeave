@@ -64,7 +64,7 @@ enum { PW_ACCESS_EXISTS=0, PW_ACCESS_READ=4, PW_ACCESS_WRITE=2, PW_ACCESS_EXECUT
  * Creation takes permissions 0777 (mkdir also sticky 01000) and umask 0777.
  * uid comes from caller; setgid parents pass their group and directory setgid.
  * Unsupported mode bits are refused. Failure leaves output unchanged.
- * Does NOT authorize raw file handles/data I/O, ACLs, symlinks or OS callbacks.
+ * Does NOT govern administrative file handles, ACLs, symlinks or OS callbacks.
  */
 int32_t pw_posix_check_access(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, uint8_t access, const PwCredentials *caller);
 int32_t pw_posix_create(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, uint8_t directory, uint16_t mode, uint16_t umask, const PwCredentials *caller, int64_t *out_object);
@@ -91,6 +91,26 @@ typedef struct PwVolumeIdentity {
   uint8_t uuid[16]; /* persistent UUID v4; not a credential or secret */
   uint64_t capabilities; /* currently 1: POSIX metadata storage */
 } PwVolumeIdentity;
+
+/* Granted policy file tokens are separate from administrative file tokens.
+ * Open accepts READ, WRITE or READ|WRITE only; ancestor/mode checks happen once.
+ * Granted data rights survive chmod/chown/rename/unlink until explicit close.
+ * Wrong grants return DENIED; stale/foreign/type-confused tokens return INVALID.
+ * Both token tables share the 4096 per-volume admission limit and close BUSY.
+ * IDs are process-local lifecycle tokens, not unguessable authentication secrets.
+ */
+int32_t pw_posix_file_open(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, uint8_t access, const PwCredentials *caller, uint64_t *out_file);
+int32_t pw_posix_file_read(uint64_t volume, uint64_t file, uint64_t offset, uint8_t *buffer, size_t capacity, size_t *out_read);
+int32_t pw_posix_file_write(uint64_t volume, uint64_t file, uint64_t offset, const uint8_t *data, size_t length, size_t *out_written);
+int32_t pw_posix_file_truncate(uint64_t volume, uint64_t file, uint64_t size);
+int32_t pw_posix_file_close(uint64_t volume, uint64_t file);
+/* Metadata changes use CURRENT trusted caller ownership/group privileges.
+ * They do not inherit the data descriptor's open-time rights. Mixed size+
+ * metadata requires WRITE plus metadata authorization, then one core commit.
+ * Raw setters remain administrative; no native caller authentication here.
+ */
+int32_t pw_posix_metadata_set(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, const PwCredentials *caller, const PwMetadataUpdate *update);
+int32_t pw_posix_file_truncate_with_metadata(uint64_t volume, uint64_t file, uint64_t size, const PwCredentials *caller, const PwMetadataUpdate *update);
 
 uint32_t pw_abi_version(void);
 int64_t pw_root_id(void);

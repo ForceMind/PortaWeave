@@ -1,12 +1,13 @@
 //! Mode-only policy over a serialized v2 owner. Credentials are TRUSTED INPUT,
 //! not authentication of an OS caller. Raw Volume APIs remain administrative.
 use crate::{
-    CreateAttributes, Entry, Error, FileId, Kind, MaintenanceStatus, Metadata, ROOT, Result, Stat,
-    Volume,
+    CreateAttributes, Entry, Error, FileId, Handle, Kind, MaintenanceStatus, Metadata,
+    MetadataUpdate, ROOT, Result, Stat, Volume, metadata,
 };
 use std::collections::BTreeSet;
 
 pub const MAX_SUPPLEMENTARY_GROUPS: usize = 128;
+pub const MAX_POSIX_FILES: usize = 4096;
 const MAX_SEARCH_DIRECTORIES: usize = 256;
 
 /// Effective IDs supplied by an authenticated adapter. No Default/root fallback.
@@ -62,6 +63,63 @@ impl std::ops::BitOr for Access {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self {
         Self(self.0 | rhs.0)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FileAccess {
+    Read,
+    Write,
+    ReadWrite,
+}
+impl FileAccess {
+    fn rights(self) -> Access {
+        match self {
+            Self::Read => Access::READ,
+            Self::Write => Access::WRITE,
+            Self::ReadWrite => Access::READ | Access::WRITE,
+        }
+    }
+}
+
+/// Granted descriptor capability, not a path or an authenticated caller token.
+/// Explicit close is required; copies become invalid together after close.
+#[must_use = "close the granted file explicitly to release its open-object reference"]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PosixFile {
+    handle: Handle,
+    rights: Access,
+}
+impl PosixFile {
+    fn object(self, volume: &Volume, access: Access) -> Result<FileId> {
+        let id = volume.object(self.handle)?;
+        if self.rights.0 & access.0 != access.0 {
+            return Err(Error::PermissionDenied);
+        }
+        Ok(id)
+    }
+    /// Granted read/write rights survive later chmod/chown/unlink/rename.
+    pub fn read(self, volume: &Volume, offset: u64, len: usize) -> Result<Vec<u8>> {
+        self.object(volume, Access::READ)?;
+        volume.read(self.handle, offset, len)
+    }
+    pub fn write(self, volume: &mut Volume, offset: u64, data: &[u8]) -> Result<usize> {
+        self.object(volume, Access::WRITE)?;
+        volume.write(self.handle, offset, data)
+    }
+    pub fn truncate(self, volume: &mut Volume, size: u64) -> Result<()> {
+        self.object(volume, Access::WRITE)?;
+        volume.truncate(self.handle, size)
+    }
+    pub fn stat(self, volume: &Volume) -> Result<Stat> {
+        volume.stat(self.object(volume, Access::EXISTS)?)
+    }
+    pub fn metadata(self, volume: &Volume) -> Result<Metadata> {
+        volume.metadata(self.object(volume, Access::EXISTS)?)
+    }
+    pub fn close(self, volume: &mut Volume) -> Result<()> {
+        self.object(volume, Access::EXISTS)?;
+        volume.close_file(self.handle)
     }
 }
 
@@ -168,6 +226,74 @@ impl PosixSession<'_> {
     pub fn list_bounded(&self, parent: FileId, maximum: usize) -> Result<Vec<Entry>> {
         self.directory_access(parent, Access::READ | Access::EXECUTE)?;
         self.volume.list_bounded(parent, maximum)
+    }
+    pub fn open_file(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        access: FileAccess,
+    ) -> Result<PosixFile> {
+        let id = self.lookup(parent, name)?.id;
+        if self.volume.stat(id)?.kind != Kind::File {
+            return Err(Error::IsDirectory);
+        }
+        let rights = access.rights();
+        mode_access(&self.caller, self.volume.metadata(id)?, Kind::File, rights)?;
+        if self.volume.open_handle_count() >= MAX_POSIX_FILES {
+            return Err(Error::ResourceLimit);
+        }
+        let handle = self.volume.open_file(id)?;
+        Ok(PosixFile { handle, rights })
+    }
+    fn metadata_update(&self, id: FileId, mut update: MetadataUpdate) -> Result<MetadataUpdate> {
+        metadata::validate_update(update)?;
+        if update == MetadataUpdate::default() {
+            return Ok(update);
+        }
+        let old = self.volume.metadata(id)?;
+        if self.caller.uid != 0 {
+            if self.caller.uid != old.uid
+                || update.uid.is_some_and(|uid| uid != old.uid)
+                || update.gid.is_some_and(|gid| !self.caller.in_group(gid))
+            {
+                return Err(Error::PermissionDenied);
+            }
+            let gid = update.gid.unwrap_or(old.gid);
+            if let Some(mode) = update.mode.as_mut()
+                && !self.caller.in_group(gid)
+            {
+                *mode &= !0o2000;
+            }
+        }
+        // This profile clears file setid on any explicit ownership request,
+        // including same-ID requests; raw administrative semantics stay unchanged.
+        if self.volume.stat(id)?.kind == Kind::File
+            && (update.uid.is_some() || update.gid.is_some())
+        {
+            update.mode = Some(update.mode.unwrap_or(old.mode) & 0o1777);
+        }
+        Ok(update)
+    }
+    pub fn set_metadata(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        update: MetadataUpdate,
+    ) -> Result<()> {
+        let id = self.lookup(parent, name)?.id;
+        let update = self.metadata_update(id, update)?;
+        self.volume.set_metadata(id, update)
+    }
+    pub fn truncate_with_metadata(
+        &mut self,
+        file: PosixFile,
+        size: u64,
+        update: MetadataUpdate,
+    ) -> Result<()> {
+        let id = file.object(self.volume, Access::WRITE)?;
+        let update = self.metadata_update(id, update)?;
+        self.volume
+            .truncate_with_metadata(file.handle, size, update)
     }
     fn creation_attributes(
         &self,
