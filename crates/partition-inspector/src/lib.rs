@@ -140,7 +140,7 @@ fn gpt_copy(file: &mut File, sectors: u64, sector_size: u64, primary: bool) -> R
     }
     let count = get32(&header,80);
     let entry_size = get32(&header,84);
-    if count==0 || entry_size < 128 || entry_size % 128 != 0
+    if count==0 || entry_size < 128 || !entry_size.is_multiple_of(128)
         || !(entry_size/128).is_power_of_two() {
         return Err(invalid("invalid GPT entry geometry"));
     }
@@ -186,7 +186,7 @@ fn gpt_copy(file: &mut File, sectors: u64, sector_size: u64, primary: bool) -> R
         if b<a || a<first || b>last {
             return Err(invalid("GPT partition outside usable LBA range"));
         }
-        let units: Vec<u16>=item[56..128].chunks_exact(2)
+        let units: Vec<u16>=item[56..128].as_chunks::<2>().0.iter()
             .map(|x|u16::from_le_bytes([x[0],x[1]]))
             .take_while(|u|*u!=0).collect();
         let name=String::from_utf16(&units).map_err(|_|invalid("invalid GPT UTF16 name"))?;
