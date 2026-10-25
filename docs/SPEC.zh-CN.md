@@ -256,3 +256,7 @@ docs/
 格式升级必须显式、可回退或先备份；未知 required feature 拒绝写入。版本 1.0 前格式不稳定须明示，不能静默把用户唯一容器迁移到不可回退状态。
 
 开发环境缺少 Mac、Windows、签名或测试盘时，继续完成可执行的核心工作，把硬件/平台验证标为未运行。不得声称 Linux 单元测试等同于双端挂载或断电验证。不得未经授权操作用户 Mac、格式化实际磁盘或部署网站。
+
+## 可选扩展：Disk Studio（2026-10-25）
+
+用户另提出参考 DiskGenius 的分区管理、克隆、备份与恢复功能。该需求另由 [Disk Studio 规格](DISK-STUDIO.zh-CN.md)、[ADR 0010](adr/0010-partition-manager-separate-block-plane.md) 和 GitHub Issue #28 管理。原有 .pwvol 仍是文件系统而非 GPT/MBR 块设备，不自动更改格式。Disk Studio 分为逻辑子卷、独立虚拟块设备 .pwdisk 和受许可保护的物理磁盘管理三层；本轮只读 RAW/IMG 分区表检查器不代表这些功能已完成。任何真实磁盘写入均需要独立安全审查及用户明确授权，正常 Codex 工作盘门禁保持不变。

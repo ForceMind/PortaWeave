@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/native-bridge"]
+members = ["crates/core", "crates/native-bridge", "crates/partition-inspector"]
 
 [workspace.package]
 version = "0.1.0"
