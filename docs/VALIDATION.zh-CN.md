@@ -150,3 +150,7 @@ metadata_handover 新增 trusted-ID 权限允许/拒绝及无副作用校验；�
 PR #22 已验收：准确 head `65251b0414aa71c7b0d0e8c656bc8e881504a8c7` / tree `96efea5d77f7bb4812a108fbc7ec7da66b1c63be` 17 检查 success，core 40173465484、native 40173465507、bundle 40173465512、handover 40173465518、host 40173465496 / 40173462347。返回 job 121109468180 实际输出 POSIX_POLICY_HANDOVER_OK 及 v2 恢复/原件哈希保全成功。合并 `7ac870cd2dd98d0d2f42783a32c99addfca700ff`，源码/候选树一致，远端 main 已核验，无未解决评审。
 
 M1-K 增加 all-feature 9/default 7 项 granted-file/metadata 授权回归、1 项原生 ABI 回归，含 4096 总预算（计入管理句柄）、旧 FD/失效/跨 owner/混用 token、读写拒绝输出不变、属性授权和事务故障。Work Linux 完整 workspace、clippy/fmt、真实 C caller 与四阶段程序已实际运行；修复本地 clippy nested-if 和 C 原型/类型声明顺序错误后再验证。准确三平台 source CI 见本增量 PR；受信任 FD 测试不是 OS 认证、执行或真挂载证据。
+
+PR #23 已验收：准确 head `0077e1660727391416b47830348830acf3ea934e` / tree `71c01f76b9e593a184179d2878173957b17c7a53` 17 检查 success，core 40174370270、native 40174370286、bundle 40174370319、handover 40174370274、host 40174370299 / 40174368052。返回 job 121112127994 实际输出 POSIX_DESCRIPTOR_HANDOVER_OK 及 v2 恢复/原件哈希保全成功。合并 `3b89b92783bb1e7c94d2662a84071ee47e437e2f`，源码/候选树一致，远端 main 已核验，无未解决评审。
+
+M1-L 增加 all-feature 6/default 5 项核心视图权限/生命周期回归、1 项 ABI 回归、实际 C 调用及 C++ header 检查。Work Linux 完整 default/all-feature workspace、clippy/fmt、C caller 与四阶段程序实际执行；只写不能通过空租约读取，非法范围/混用 token 无输出，源 FD 关闭/覆盖后旧范围与最后释放均验证。三平台准确 source/CI 看本增量 PR；范围租约不是 metadata snapshot、OS mmap 或原生认证。所有真实系统挂载/Codex/物理介质门禁仍未通过。

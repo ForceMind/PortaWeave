@@ -102,12 +102,24 @@ fn verify_policy(v: &mut Volume) -> TestResult {
         Err(CoreError::PermissionDenied)
     ));
     assert!(!p.is_write_protected());
+    let lease = reader.acquire_range_view(v, 1, 3)?;
     assert_eq!(reader.read(v, 0, 100)?, b"policy");
     assert!(matches!(
         reader.write(v, 0, b"bad"),
         Err(CoreError::PermissionDenied)
     ));
     reader.close(v)?;
+    let writer = v.posix(Credentials::new(501, 50, &[])?)?.open_file(
+        ROOT,
+        "policy",
+        FileAccess::ReadWrite,
+    )?;
+    writer.write(v, 0, b"POLICY")?;
+    assert_eq!(lease.read(v, 1, 3)?, b"oli");
+    writer.write(v, 0, b"policy")?;
+    writer.close(v)?;
+    assert_eq!(lease.read(v, 1, 3)?, b"oli");
+    lease.close(v)?;
     assert_eq!(v.metadata(ROOT)?, before);
     assert!(matches!(
         v.lookup(ROOT, "forbidden"),
@@ -115,6 +127,9 @@ fn verify_policy(v: &mut Volume) -> TestResult {
     ));
     println!("POSIX_POLICY_HANDOVER_OK (trusted claims, not native authorization)");
     println!("POSIX_DESCRIPTOR_HANDOVER_OK (read grants and current metadata privileges)");
+    println!(
+        "POSIX_LEASE_HANDOVER_OK (read-authorized immutable range after source close/overwrite)"
+    );
     Ok(())
 }
 fn handover(path: &Path, expected: u8, next: Option<u8>) -> TestResult {

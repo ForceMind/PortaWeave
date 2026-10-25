@@ -7,6 +7,124 @@ use std::{
 };
 
 #[test]
+fn policy_leases_reject_write_only_and_administrative_tokens_and_keep_busy_lifetime() {
+    let s = Scratch::new();
+    let mut volume = 0;
+    let mut node = 0;
+    let a = PwCreateAttributes {
+        uid: 100,
+        gid: 20,
+        mode: 0o777,
+        reserved: 0,
+    };
+    let c = PwCredentials {
+        uid: 200,
+        gid: 20,
+        groups: std::ptr::null(),
+        group_count: 0,
+        reserved: 0,
+    };
+    assert_eq!(
+        unsafe {
+            pw_volume_create_with_metadata(
+                s.path().as_ptr(),
+                s.path().len(),
+                1 << 20,
+                &a,
+                &mut volume,
+            )
+        },
+        0
+    );
+    assert_eq!(
+        unsafe { pw_posix_create(volume, 1, b"file".as_ptr(), 4, 0, 0o600, 0, &c, &mut node) },
+        0
+    );
+    let mut file = 0;
+    let mut writer = 0;
+    let mut raw = 0;
+    assert_eq!(
+        unsafe { pw_posix_file_open(volume, 1, b"file".as_ptr(), 4, 6, &c, &mut file) },
+        0
+    );
+    assert_eq!(
+        unsafe { pw_posix_file_open(volume, 1, b"file".as_ptr(), 4, 2, &c, &mut writer) },
+        0
+    );
+    assert_eq!(unsafe { pw_file_open(volume, node, &mut raw) }, 0);
+    let mut count = 99;
+    assert_eq!(
+        unsafe { pw_posix_file_write(volume, file, 0, b"abcdef".as_ptr(), 6, &mut count) },
+        0
+    );
+    let mut lease = 99;
+    assert_eq!(
+        unsafe { pw_posix_read_view_begin(volume, writer, 1, 3, &mut lease) },
+        -17
+    );
+    assert_eq!(lease, 99);
+    assert_eq!(
+        unsafe { pw_posix_read_view_begin(volume, raw, 1, 3, &mut lease) },
+        -1
+    );
+    assert_eq!(lease, 99);
+    assert_eq!(
+        unsafe { pw_read_view_begin(volume, file, 1, 3, &mut lease) },
+        -1
+    );
+    assert_eq!(lease, 99);
+    assert_eq!(
+        unsafe { pw_posix_read_view_begin(volume, file, 1, 3, &mut lease) },
+        0
+    );
+    let mut admin = 0;
+    assert_eq!(
+        unsafe { pw_read_view_begin(volume, raw, 0, 6, &mut admin) },
+        0
+    );
+    let mut buffer = [77; 16];
+    count = 99;
+    assert_eq!(
+        unsafe { pw_posix_read_view_read(volume, admin, 0, buffer.as_mut_ptr(), 3, &mut count) },
+        -1
+    );
+    assert_eq!(count, 99);
+    assert_eq!(buffer, [77; 16]);
+    assert_eq!(
+        unsafe { pw_read_view_read(volume, lease, 1, buffer.as_mut_ptr(), 3, &mut count) },
+        -1
+    );
+    assert_eq!(count, 99);
+    assert_eq!(buffer, [77; 16]);
+    assert_eq!(
+        unsafe { pw_posix_read_view_read(volume, lease, 0, buffer.as_mut_ptr(), 1, &mut count) },
+        -1
+    );
+    assert_eq!(count, 99);
+    assert_eq!(buffer, [77; 16]);
+    assert_eq!(pw_posix_read_view_close(volume, admin), -1);
+    assert_eq!(pw_read_view_close(volume, lease), -1);
+    assert_eq!(pw_posix_file_truncate(volume, file, 0), 0);
+    assert_eq!(pw_posix_file_close(volume, file), 0);
+    assert_eq!(pw_posix_file_close(volume, writer), 0);
+    assert_eq!(pw_file_close(volume, raw), 0);
+    assert_eq!(
+        unsafe { pw_posix_remove(volume, 1, b"file".as_ptr(), 4, 0, &c) },
+        0
+    );
+    assert_eq!(pw_read_view_close(volume, admin), 0);
+    assert_eq!(pw_volume_close(volume), -7);
+    assert_eq!(
+        unsafe { pw_posix_read_view_read(volume, lease, 1, buffer.as_mut_ptr(), 3, &mut count) },
+        0
+    );
+    assert_eq!(&buffer[..count], b"bcd");
+    assert_eq!(pw_posix_read_view_close(volume, lease), 0);
+    assert_eq!(pw_posix_read_view_close(volume, lease), -1);
+    assert_eq!(pw_volume_close(volume), 0);
+}
+
+#[test]
 fn granted_tokens_do_not_confuse_administrative_handles_or_leak_failed_io_outputs() {
     let s = Scratch::new();
     let mut volume = 0;

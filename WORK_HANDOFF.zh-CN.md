@@ -17,7 +17,8 @@
 - PR #20（M1-I）已合并 `1e0fc95fb28d099a1a640b3ecca3d1408e88c6a8`，准确 head `a32096f24ddd9db176f1684859e1d7a5e0c8103f` / tree `801c040038657946e8d4d342e26ba2f467ad0e8f` 17 检查通过。`truncate_with_metadata` / `pw_file_truncate_with_metadata` 单事务更新大小/块引用与元数据；显式 mtime 优先，截断最终清除 file setid，一次 generation。core 13/10 项套件、C caller、真实三平台 atomic artifact 交接和恢复通过。
 - PR #21（M0-M）已合并 `3a5cd787519ecfba468addc5c96f9b776343c8cc`，准确 head `75a1a19d0e977d16028f216f3589ca0f8f403d5e` / tree `bb8ac4acbdd299bdd466885a0d8aaf4379bb2e9e` 17 检查通过，合并后 main 14 项也通过。FSKit v2 混合 setattr 和 uid/gid/mode 创建在实际 SDK 合同运行；access/load/mount 继续关闭。
 - PR #22（M1-J）已合并 `7ac870cd2dd98d0d2f42783a32c99addfca700ff`，准确 head `65251b0414aa71c7b0d0e8c656bc8e881504a8c7` / tree `96efea5d77f7bb4812a108fbc7ec7da66b1c63be` 17 项检查通过。`PosixSession` 实施受信任 caller 的选定目录权限、全部祖先搜索、sticky 两端替换、umask/setgid 继承，独立 PW_DENIED 映射；合成凭据不等于 OS 身份认证。
-- M1-K 增加不透明 PosixFile 数据能力与当前 metadata 修改授权，token 与管理表分离、共同 4096 限额/BUSY，旧 FD 权限保持至关闭。混合变更同时检查 WRITE 和当前 owner/group，仍为一次核心提交。准确 CI/head/合并状态见对应 PR。
+- PR #23（M1-K）已合并 `3b89b92783bb1e7c94d2662a84071ee47e437e2f`，准确 head `0077e1660727391416b47830348830acf3ea934e` / tree `71c01f76b9e593a184179d2878173957b17c7a53` 17 项检查通过。不透明 PosixFile 数据能力、当前属性授权、两表共同 4096 限额/BUSY、旧 FD 权限及混合事务均有回归，真实交接含 descriptor 检查。
+- M1-L 为 READ grant 接入不可变范围租约，策略/管理 view 分表，保留原范围/EOF/字节并共享准入，源 FD 关闭后仍 BUSY 至释放。进程内能力不会序列化跨系统传递；每阶段重新授权测试。准确 CI/head/合并状态见对应 PR。
 
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 
@@ -29,7 +30,7 @@ Recovery 保全原始文件并在独立副本恢复 SQLite/WAL；普通 Volume::
 
 ## 下一阶段
 
-1. 继续范围租约授权及原生 caller/内核权限委托，再衔接 FSKit 策略、security-scoped resource、符号链接/xattr 和真实缓存/同步。受信任目录/数据/属性策略已有，但原生 callback 未绑定可信身份，不能开放；创建 size/time 仍未支持。签名及系统授权需合适的已授权环境，不把直接 SDK 调用或打包当真挂载。
+1. 继续原生 caller/内核权限委托，再衔接 FSKit 策略、security-scoped resource、符号链接/xattr 和真实缓存/同步。受信任目录/数据/属性/租约策略已有，但原生 callback 未绑定可信身份，不能开放；创建 size/time 仍未支持。签名及系统授权需合适的已授权环境，不把直接 SDK 调用或打包当真挂载。
 2. 推进 WinFsp ACL/共享/删除/缓存/同步及缺失回调；硬链接接口缺口仍 BLOCKED，需要上游或替代后端方案，不能用核心硬链接关闭。
 3. 继续核心空间预约、应急预留、SQLite VFS 故障矩阵、有界空闲维护、名称版本、明确迁移工具与完整解析器资源预算；不得静默把 v1 升成 v2。
 4. 真挂载后完成 Git/npm/pnpm/Python/Cargo/IDE/SQLite 与实际 Codex 正常沙盒的正向和越界拒绝测试，原始 backing 目录也纳入权限边界。

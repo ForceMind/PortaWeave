@@ -6,8 +6,8 @@
 
 use portaweave_core::{
     Access, CreateAttributes, Credentials, Entry, Error, FileAccess, FileId, Handle, Kind, MAX_IO,
-    MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, MetadataUpdate, PosixFile, ROOT, ReadView,
-    Timestamp, Volume,
+    MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, MetadataUpdate, PosixFile, PosixReadView, ROOT,
+    ReadView, Timestamp, Volume,
 };
 use std::{
     collections::BTreeMap,
@@ -101,6 +101,7 @@ struct Session {
     volume: Volume,
     files: BTreeMap<u64, Handle>,
     policy_files: BTreeMap<u64, PosixFile>,
+    policy_views: BTreeMap<u64, PosixReadView>,
     dirs: BTreeMap<u64, Cursor>,
     views: BTreeMap<u64, ReadView>,
 }
@@ -454,6 +455,77 @@ pub extern "C" fn pw_abi_version() -> u32 {
     1
 }
 
+/// Admit a bounded immutable read lease from a granted READ file.
+/// # Safety
+/// Output points to writable/aligned u64 storage for the call duration.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_read_view_begin(
+    volume: u64,
+    file: u64,
+    offset: u64,
+    length: u64,
+    out_view: *mut u64,
+) -> i32 {
+    run(|| {
+        required(out_view)?;
+        with_session(volume, |s| {
+            let file = *s.policy_files.get(&file).ok_or_else(Fault::invalid)?;
+            let token = next_token()?;
+            let view = file
+                .acquire_range_view(&mut s.volume, offset, length)
+                .map_err(Fault::from)?;
+            s.policy_views.insert(token, view);
+            unsafe { out_view.write(token) };
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// Buffer writable for capacity bytes, output count writable/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_read_view_read(
+    volume: u64,
+    view: u64,
+    offset: u64,
+    buffer: *mut u8,
+    capacity: usize,
+    out_read: *mut usize,
+) -> i32 {
+    run(|| {
+        required(out_read)?;
+        readable(buffer, capacity)?;
+        if capacity > MAX_IO {
+            return Err(Fault::invalid());
+        }
+        with_session(volume, |s| {
+            let view = *s.policy_views.get(&view).ok_or_else(Fault::invalid)?;
+            let data = view
+                .read(&s.volume, offset, capacity)
+                .map_err(Fault::from)?;
+            if !data.is_empty() {
+                unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), buffer, data.len()) };
+            }
+            unsafe { out_read.write(data.len()) };
+            Ok(OK)
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_posix_read_view_close(volume: u64, view: u64) -> i32 {
+    run(|| {
+        with_session(volume, |s| {
+            s.policy_views
+                .get(&view)
+                .copied()
+                .ok_or_else(Fault::invalid)?
+                .close(&mut s.volume)
+                .map_err(Fault::from)?;
+            s.policy_views.remove(&view);
+            Ok(OK)
+        })
+    })
+}
+
 /// Open a separately typed, granted file token using explicit trusted claims.
 /// # Safety
 /// Name/caller/groups readable, output writable/aligned/nonaliasing.
@@ -667,6 +739,7 @@ pub unsafe extern "C" fn pw_volume_create(
                     volume,
                     files: BTreeMap::new(),
                     policy_files: BTreeMap::new(),
+                    policy_views: BTreeMap::new(),
                     dirs: BTreeMap::new(),
                     views: BTreeMap::new(),
                 },
@@ -708,6 +781,7 @@ pub unsafe extern "C" fn pw_volume_create_with_metadata(
                     volume,
                     files: BTreeMap::new(),
                     policy_files: BTreeMap::new(),
+                    policy_views: BTreeMap::new(),
                     dirs: BTreeMap::new(),
                     views: BTreeMap::new(),
                 },
@@ -846,6 +920,7 @@ pub unsafe extern "C" fn pw_volume_open(
                     volume,
                     files: BTreeMap::new(),
                     policy_files: BTreeMap::new(),
+                    policy_views: BTreeMap::new(),
                     dirs: BTreeMap::new(),
                     views: BTreeMap::new(),
                 },
@@ -865,6 +940,7 @@ pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
             let session = all.get(&volume).ok_or_else(Fault::invalid)?;
             if !session.files.is_empty()
                 || !session.policy_files.is_empty()
+                || !session.policy_views.is_empty()
                 || !session.dirs.is_empty()
                 || !session.views.is_empty()
             {

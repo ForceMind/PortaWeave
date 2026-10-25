@@ -2,7 +2,7 @@
 //! not authentication of an OS caller. Raw Volume APIs remain administrative.
 use crate::{
     CreateAttributes, Entry, Error, FileId, Handle, Kind, MaintenanceStatus, Metadata,
-    MetadataUpdate, ROOT, Result, Stat, Volume, metadata,
+    MetadataUpdate, ROOT, ReadView, Result, Stat, Volume, metadata,
 };
 use std::collections::BTreeSet;
 
@@ -120,6 +120,32 @@ impl PosixFile {
     pub fn close(self, volume: &mut Volume) -> Result<()> {
         self.object(volume, Access::EXISTS)?;
         volume.close_file(self.handle)
+    }
+    pub fn acquire_range_view(
+        self,
+        volume: &mut Volume,
+        offset: u64,
+        length: u64,
+    ) -> Result<PosixReadView> {
+        self.object(volume, Access::READ)?;
+        Ok(PosixReadView {
+            view: volume.acquire_range_view(self.handle, offset, length)?,
+        })
+    }
+}
+
+/// Immutable read grant over one admitted absolute range; not native mmap.
+#[must_use = "close the view explicitly to release its retained block mappings"]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PosixReadView {
+    view: ReadView,
+}
+impl PosixReadView {
+    pub fn read(self, volume: &Volume, offset: u64, len: usize) -> Result<Vec<u8>> {
+        volume.read_view(self.view, offset, len)
+    }
+    pub fn close(self, volume: &mut Volume) -> Result<()> {
+        volume.release_view(self.view)
     }
 }
 

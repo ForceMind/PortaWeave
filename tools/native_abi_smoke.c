@@ -156,6 +156,8 @@ int main(int argc, char **argv) {
     REQUIRE(pw_posix_metadata_set(volume, 1, (const uint8_t *)"cap", 3, &owner, &update));
     REQUIRE(pw_posix_file_read(volume, reader, 0, buffer, sizeof(buffer), &count));
     if (count != 6 || memcmp(buffer, "abcdef", 6) != 0) return 37;
+    uint64_t policy_view = 99;
+    REQUIRE(pw_posix_read_view_begin(volume, reader, 1, 3, &policy_view));
     update.valid = PW_META_MODE | PW_META_MODIFIED;
     update.mode = 06751;
     update.modified.seconds = -789;
@@ -170,6 +172,14 @@ int main(int argc, char **argv) {
     REQUIRE(pw_posix_file_close(volume, reader));
     if (pw_posix_file_close(volume, reader) != PW_INVALID) return 41;
     REQUIRE(pw_posix_file_close(volume, writer));
+    if (pw_volume_close(volume) != PW_BUSY) return 42;
+    count = 99;
+    if (pw_posix_read_view_read(volume, policy_view, 0, buffer, 1, &count) != PW_INVALID || count != 99 ||
+        pw_read_view_read(volume, policy_view, 1, buffer, 3, &count) != PW_INVALID || count != 99) return 43;
+    REQUIRE(pw_posix_read_view_read(volume, policy_view, 1, buffer, 3, &count));
+    if (count != 3 || memcmp(buffer, "bcd", 3) != 0) return 44;
+    REQUIRE(pw_posix_read_view_close(volume, policy_view));
+    if (pw_posix_read_view_close(volume, policy_view) != PW_INVALID) return 45;
     REQUIRE(pw_volume_close(volume));
     puts("NATIVE_C_ABI_OK");
     return 0;
