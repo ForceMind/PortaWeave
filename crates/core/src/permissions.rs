@@ -139,6 +139,18 @@ impl PosixFile {
         data: &[u8],
         constrained: bool,
     ) -> Result<FileWriteResult> {
+        self.write_request_with_reply(volume, position, data, constrained, Ok)
+    }
+    /// A pure, fallible platform projection runs before commit. It must not
+    /// perform external side effects; rejection rolls back the business change.
+    pub fn write_request_with_reply<T>(
+        self,
+        volume: &mut Volume,
+        position: WritePosition,
+        data: &[u8],
+        constrained: bool,
+        reply: impl FnOnce(FileWriteResult) -> Result<T>,
+    ) -> Result<T> {
         self.object(volume, Access::WRITE)?;
         volume.write_request(
             self.handle,
@@ -146,7 +158,7 @@ impl PosixFile {
             data,
             constrained,
             |db, id, written, offset| {
-                Ok(FileWriteResult {
+                reply(FileWriteResult {
                     written,
                     offset,
                     info: FileInfo::at(db, id)?,
@@ -159,8 +171,19 @@ impl PosixFile {
         volume.observe(FileInfo::at(&volume.db, id))
     }
     pub fn truncate_request(self, volume: &mut Volume, size: u64) -> Result<FileInfo> {
+        self.truncate_request_with_reply(volume, size, Ok)
+    }
+    /// Pure platform reply construction, under the same pre-commit contract.
+    pub fn truncate_request_with_reply<T>(
+        self,
+        volume: &mut Volume,
+        size: u64,
+        reply: impl FnOnce(FileInfo) -> Result<T>,
+    ) -> Result<T> {
         self.object(volume, Access::WRITE)?;
-        volume.truncate_request(self.handle, size, MetadataUpdate::default(), FileInfo::at)
+        volume.truncate_request(self.handle, size, MetadataUpdate::default(), |db, id| {
+            reply(FileInfo::at(db, id)?)
+        })
     }
     pub fn truncate(self, volume: &mut Volume, size: u64) -> Result<()> {
         self.object(volume, Access::WRITE)?;

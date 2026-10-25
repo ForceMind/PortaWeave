@@ -20,7 +20,9 @@
 - PR #23（M1-K）已合并 `3b89b92783bb1e7c94d2662a84071ee47e437e2f`，准确 head `0077e1660727391416b47830348830acf3ea934e` / tree `71c01f76b9e593a184179d2878173957b17c7a53` 17 项检查通过。不透明 PosixFile 数据能力、当前属性授权、两表共同 4096 限额/BUSY、旧 FD 权限及混合事务均有回归，真实交接含 descriptor 检查。
 - PR #24（M1-L）已合并 `8334bc538396743edf16e204e18c66d64a54b8de`，准确 head `d458f8f0123e517356f1dc1c513a79cbef703261` / tree `b57feef2397d92a9818b3add59532440ea2ef962` 17 项检查通过，主线 14 项也通过。为 READ grant 接入不可变范围租约，策略/管理 view 分表，保留原范围/EOF/字节并共享准入，源 FD 关闭后仍 BUSY 至释放。进程内能力不会序列化跨系统传递；每阶段重新授权测试。准确 CI/head/合并状态见对应 PR。
 
-M1-M 增加单请求追加/EOF 裁剪及事务内信息回执；同一核心写入/截断实现复用，策略 C API 的并发追加/拒绝输出有回归。准确源码 CI/合并状态以对应 PR 为准；WinFsp 回调、身份/ACL/共享/缓存/Flush 和实际挂载仍待接入验收。
+PR #25（M1-M）已合并 `fe63c2db52308af77cd0ab9602f86f1f82da697b`，准确 head `3ad88cec27e544f003445a4b2de91b2d1c506eaa` / tree `0cae02573dd7427129254e58eeda9b7b720187ec` 17 检查通过。增加单请求追加/EOF 裁剪及事务内信息回执；同一核心写入/截断实现复用，策略 C API 的并发追加/拒绝输出有回归。准确源码 CI/合并状态以对应 PR 为准；WinFsp 回调、身份/ACL/共享/缓存/Flush 和实际挂载仍待接入验收。
+
+M0-N 衔接策略 grant 的 WinFsp GetFileInfo/Write/SetFileSize EOF、Read EOF/Close 状态和提交前 Windows 投影；allocation 请求拒绝，HardLinks 仍按固定 SDK 的未实现约束置零并 BLOCKED。准确 MSVC/回调执行与 source CI 见对应 PR；安全 Open/Flush 不开放。
 
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 

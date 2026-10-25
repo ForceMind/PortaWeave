@@ -162,3 +162,11 @@ PR #24 验收补记：准确 head `d458f8f0123e517356f1dc1c513a79cbef703261` / t
 从重新核验的 `8334bc538396743edf16e204e18c66d64a54b8de` 主线继续。Work Linux 实际 default/all-feature workspace 全套通过；新增 write_requests 为 all-feature 7/default 5 项，含 384 步模型及提交前后故障；native ABI 累计 9 项通过，其中新增 2 项覆盖错误输出、原始/策略 token 拒绝和 6 线程 96 记录追加。真实 C caller 输出 NATIVE_C_ABI_OK，C++17 公共头检查通过，Python 9 项通过；本地四阶段均输出 WRITE_REQUEST_HANDOVER_OK，仍只是 Linux 流程验证。
 
 首次 clippy 因固定长度 chunks_exact 要求改用 as_chunks 失败；修复测试解码写法后 clippy/fmt 和 native 套件重新通过，没有放宽规则。准确三平台、MSVC、SDK/bundle、artifact 往返结果以本增量 PR 的 source SHA 为准；未在这里预报远端结果。真实挂载、原生身份/ACL/共享/缓存/Flush、Codex 正常沙盒与越界负向、物理 exFAT/USB/断电仍未通过。
+
+PR #25 已验收：准确 head `3ad88cec27e544f003445a4b2de91b2d1c506eaa` / tree `0cae02573dd7427129254e58eeda9b7b720187ec` 全部 17 检查 completed/success。core 40188261205、native 40188261276、bundle 40188261226、handover 40188261230、host 40188261207 / 40188259420。返回 job 121153961408 实际输出 WRITE_REQUEST_HANDOVER_OK，v1/v2 恢复导出和原件 SHA-256 保全成功。无冲突/评审阻断，合并 `fe63c2db52308af77cd0ab9602f86f1f82da697b` 的 tree 与源码相同；主线 push 的结果单独核验。
+
+## 2026-10-25 续研：M0-N WinFsp 授权文件合同
+
+Work Linux full default/all-feature workspace、clippy/fmt、真实 C caller（含 Windows 纯投影 ABI）及 C++17 header 实际通过。新增核心 projection refusal 1 项，write_requests 累计 all-feature 8/default 6；native 新增 FILETIME 单元 1 项和 ABI 2 项，ABI 累计 11。最初 check 提示一个未用 import，已移除，不放宽 lint。
+
+Windows MSVC/真实回调签名及 Dispatcher 自检必须由本增量准确源码 CI 验证；新标记 WINFSP_GRANTED_IO_CONTRACT_OK 仅表示直接回调与核心连通。未在 Work Linux 运行 Windows 驱动或 MSVC，也没有把纯投影 ABI 当成 OS I/O。源码对应的 Windows job、SDK/bundle、完整交接及最终合并见 PR；所有真实挂载/ACL/共享/Flush/Codex 沙盒和物理介质门禁保持未通过。

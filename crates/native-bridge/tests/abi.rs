@@ -1179,3 +1179,204 @@ fn concurrent_native_append_resolves_eof_inside_the_serialized_owner() {
     assert_eq!(pw_posix_file_close(volume, reader), 0);
     assert_eq!(pw_volume_close(volume), 0);
 }
+
+#[test]
+fn windows_projection_io_rolls_back_unrepresentable_replies_and_keeps_exact_core_metadata() {
+    let s = Scratch::new();
+    let (volume, writer, reader, object) = request_volume(&s);
+    let mut stored = PwFileInfo::default();
+    let mut info = PwWindowsFileInfo::default();
+    let mut update = PwMetadataUpdate {
+        valid: 8 | 16 | 32,
+        created: PwTimestamp {
+            seconds: -1,
+            nanoseconds: 999_999_999,
+            reserved: 0,
+        },
+        accessed: PwTimestamp {
+            seconds: 0,
+            nanoseconds: 123_456_789,
+            reserved: 0,
+        },
+        modified: PwTimestamp {
+            seconds: 0,
+            nanoseconds: 99,
+            reserved: 0,
+        },
+        ..Default::default()
+    };
+    assert_eq!(unsafe { pw_metadata_set(volume, object, &update) }, 0);
+    assert_eq!(
+        unsafe { pw_windows_file_info(volume, reader, &mut info) },
+        0
+    );
+    assert_eq!(info.index_number, object as u64);
+    assert_eq!(info.file_size, 0);
+    assert_eq!(info.allocation_size, 0);
+    assert_eq!(info.creation_time, 116_444_735_999_999_999);
+    assert_eq!(info.last_access_time, 116_444_736_001_234_567);
+    assert_eq!(info.last_write_time, 116_444_736_000_000_000);
+    assert_eq!(
+        unsafe { pw_posix_file_info(volume, reader, &mut stored) },
+        0
+    );
+    assert_eq!(stored.metadata.created, update.created);
+    assert_eq!(stored.metadata.accessed, update.accessed);
+    let mut result = PwWindowsWriteResult::default();
+    assert_eq!(
+        unsafe {
+            pw_windows_file_write(volume, writer, u64::MAX, b"abc".as_ptr(), 3, 1, &mut result)
+        },
+        0
+    );
+    assert_eq!(
+        (
+            result.written,
+            result.offset,
+            result.info.file_size,
+            result.info.allocation_size
+        ),
+        (3, 0, 3, 4096)
+    );
+    assert_eq!(
+        unsafe { pw_windows_file_info(volume, writer, &mut info) },
+        0
+    );
+    assert_eq!(info, result.info);
+    assert_eq!(
+        unsafe { pw_windows_file_write(volume, writer, 2, b"XYZ".as_ptr(), 3, 2, &mut result) },
+        0
+    );
+    assert_eq!((result.written, result.info.file_size), (1, 3));
+    assert_eq!(
+        unsafe { pw_windows_file_set_size(volume, writer, 4097, &mut info) },
+        0
+    );
+    assert_eq!((info.file_size, info.allocation_size), (4097, 8192));
+    assert_eq!(
+        unsafe { pw_windows_file_set_size(volume, writer, 3, &mut info) },
+        0
+    );
+    update.valid = 8;
+    update.created.seconds = -11_644_473_601;
+    assert_eq!(unsafe { pw_metadata_set(volume, object, &update) }, 0);
+    assert_eq!(
+        unsafe { pw_posix_file_info(volume, reader, &mut stored) },
+        0
+    );
+    let old = stored;
+    let sentinel = result;
+    let old_info = info;
+    assert_eq!(
+        unsafe { pw_windows_file_info(volume, reader, &mut info) },
+        -11
+    );
+    assert_eq!(info, old_info);
+    assert_eq!(
+        unsafe {
+            pw_windows_file_write(volume, writer, u64::MAX, b"bad".as_ptr(), 3, 1, &mut result)
+        },
+        -11
+    );
+    assert_eq!(result, sentinel);
+    assert_eq!(
+        unsafe { pw_windows_file_set_size(volume, writer, 0, &mut info) },
+        -11
+    );
+    assert_eq!(info, old_info);
+    assert_eq!(
+        unsafe { pw_posix_file_info(volume, writer, &mut stored) },
+        0
+    );
+    assert_eq!(stored, old);
+    let mut bytes = [0; 10];
+    let mut count = 99;
+    assert_eq!(
+        unsafe { pw_posix_file_read(volume, reader, 0, bytes.as_mut_ptr(), 10, &mut count) },
+        0
+    );
+    assert_eq!(&bytes[..count], b"abX");
+    let (mut maintenance, mut protected) = (9, 9);
+    assert_eq!(
+        unsafe { pw_health(volume, &mut maintenance, &mut protected) },
+        0
+    );
+    assert_eq!((maintenance, protected), (0, 0));
+    update.created.seconds = 0;
+    update.created.nanoseconds = 0;
+    assert_eq!(unsafe { pw_metadata_set(volume, object, &update) }, 0);
+    assert_eq!(
+        unsafe { pw_windows_file_set_size(volume, writer, 4, &mut info) },
+        0
+    );
+    assert_eq!(pw_posix_file_close(volume, writer), 0);
+    assert_eq!(pw_posix_file_close(volume, reader), 0);
+    assert_eq!(pw_volume_close(volume), 0);
+}
+
+#[test]
+fn windows_io_rejects_read_only_admin_stale_and_invalid_requests_before_mutation() {
+    let s = Scratch::new();
+    let (volume, writer, reader, object) = request_volume(&s);
+    let mut info = PwWindowsFileInfo::default();
+    let mut result = PwWindowsWriteResult::default();
+    assert_eq!(
+        unsafe { pw_windows_file_info(volume, reader, &mut info) },
+        0
+    );
+    let old = info;
+    let sentinel = result;
+    assert_eq!(
+        unsafe { pw_windows_file_write(volume, reader, 0, std::ptr::null(), 0, 1, &mut result) },
+        -17
+    );
+    assert_eq!(
+        unsafe { pw_windows_file_set_size(volume, reader, 0, &mut info) },
+        -17
+    );
+    assert_eq!(
+        unsafe {
+            pw_windows_file_write(volume, writer, 0, b"x".as_ptr(), 1, 0, std::ptr::null_mut())
+        },
+        -1
+    );
+    assert_eq!(
+        unsafe { pw_windows_file_write(volume, writer, 0, std::ptr::null(), 1, 0, &mut result) },
+        -1
+    );
+    assert_eq!(
+        unsafe { pw_windows_file_write(volume, writer, 0, b"x".as_ptr(), 1, 4, &mut result) },
+        -1
+    );
+    assert_eq!(
+        unsafe { pw_windows_file_set_size(volume, writer, 10, std::ptr::null_mut()) },
+        -1
+    );
+    assert_eq!(result, sentinel);
+    assert_eq!(info, old);
+    let mut raw = 0;
+    assert_eq!(unsafe { pw_file_open(volume, object, &mut raw) }, 0);
+    assert_eq!(unsafe { pw_windows_file_info(volume, raw, &mut info) }, -1);
+    assert_eq!(
+        unsafe { pw_windows_file_write(volume, raw, 0, b"x".as_ptr(), 1, 0, &mut result) },
+        -1
+    );
+    assert_eq!(
+        unsafe { pw_windows_file_set_size(volume, raw, 1, &mut info) },
+        -1
+    );
+    assert_eq!(pw_file_close(volume, raw), 0);
+    assert_eq!(
+        unsafe { pw_windows_file_info(volume, writer, &mut info) },
+        0
+    );
+    assert_eq!(info, old);
+    assert_eq!(pw_posix_file_close(volume, writer), 0);
+    assert_eq!(
+        unsafe { pw_windows_file_info(volume, writer, &mut info) },
+        -1
+    );
+    assert_eq!(info, old);
+    assert_eq!(pw_posix_file_close(volume, reader), 0);
+    assert_eq!(pw_volume_close(volume), 0);
+}

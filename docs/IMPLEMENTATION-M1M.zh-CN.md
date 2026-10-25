@@ -10,4 +10,4 @@ C ABI 增加 `PwFileInfo`、`PwWriteResult` 和 `pw_posix_file_info/write_reques
 
 新增核心 all-feature 7/default 5 项，含 384 步模型、共享句柄、旧范围租约、硬链接与最后 unlink、配额已满时的零写、i64 EOF/溢出、拒绝与失效授权、提交前回滚、提交后成功回执与独立维护故障。新增 ABI 2 项，含 6 线程共 96 个定长记录并发追加，核验每个偏移、完整内容与无覆盖；真实 C caller/C++ 头文件及 v2 artifact 交接也调用新增 API。
 
-Work Linux 与准确源码三平台 CI 的执行结果由 VALIDATION/对应 PR 记录；本地阶段名不是 macOS/Windows 执行证据。Windows WinFsp 文件信息/Write/SetFileSize 回调仍待接入；原生身份/ACL/共享访问、缓存、Flush、真实挂载/Codex 沙盒及物理 exFAT/断电继续 BLOCKED/NOT_RUN。见 ADR 0008。
+Work Linux 与准确源码三平台 CI 的执行结果由 VALIDATION/对应 PR 记录；本地阶段名不是 macOS/Windows 执行证据。Windows WinFsp 文件信息/Write/SetFileSize 回调随后由 M0-N 接入实验合同；安全 Open/权限仍未接通；原生身份/ACL/共享访问、缓存、Flush、真实挂载/Codex 沙盒及物理 exFAT/断电继续 BLOCKED/NOT_RUN。见 ADR 0008。

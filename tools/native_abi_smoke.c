@@ -160,6 +160,14 @@ int main(int argc, char **argv) {
     if (request_info.stat.size != 6 || request_info.metadata.uid != owner.uid) return 47;
     REQUIRE(pw_posix_file_write_request(volume, writer, UINT64_MAX, NULL, 0, PW_WRITE_APPEND, &request_result));
     if (request_result.written != 0 || request_result.offset != 6 || request_result.info.stat.generation != request_info.stat.generation) return 48;
+    PwWindowsFileInfo windows_info;
+    PwWindowsWriteResult windows_write;
+    REQUIRE(pw_windows_file_info(volume, reader, &windows_info));
+    if (windows_info.index_number != (uint64_t)protected_node || windows_info.file_size != 6 || windows_info.allocation_size != 4096) return 50;
+    REQUIRE(pw_windows_file_write(volume, writer, UINT64_MAX, (const uint8_t *)"!", 1, PW_WRITE_APPEND, &windows_write));
+    if (windows_write.offset != 6 || windows_write.written != 1 || windows_write.info.file_size != 7) return 51;
+    REQUIRE(pw_windows_file_set_size(volume, writer, 6, &windows_info));
+    if (windows_info.file_size != 6 || pw_windows_file_write(volume, writer, 0, (const uint8_t *)"bad", 3, 0, NULL) != PW_INVALID) return 52;
     if (pw_posix_file_write_request(volume, writer, 0, (const uint8_t *)"bad", 3, 0, NULL) != PW_INVALID ||
         pw_posix_file_write_request(volume, reader, 0, NULL, 0, PW_WRITE_APPEND, &request_result) != PW_DENIED) return 49;
     count = 99;
