@@ -63,6 +63,10 @@ M1-I adds a single-transaction size/metadata mutation for native adapters, with 
 
 Opaque policy files retain their read/write grants across chmod/chown/rename/unlink until close. Current owner/group authority is checked separately for metadata changes; mixed size/attributes use one transaction. Policy and administrative C tokens are distinct and share admission/BUSY limits. These trusted-credential tests do not authenticate OS callers or enable mounts. See [M1-K](docs/IMPLEMENTATION-M1K.zh-CN.md) and [ADR 0007](docs/adr/0007-granted-files-and-metadata-policy.md).
 
+## M1-L read-authorized range leases
+
+Granted READ files can admit immutable range leases; WRITE-only files cannot. Leases keep original bounds/EOF/content after source close and mutation, share core admission budgets, and keep volume close BUSY until released. Policy/admin C view tokens stay distinct. This is process-local read capability work, not OS mmap or caller authentication. See [M1-L](docs/IMPLEMENTATION-M1L.zh-CN.md).
+
 ## Run the storage lab
 
 Use `rust-toolchain.toml` and the committed dependency lock. The example accepts only a NEW disposable directory; it does not mount or format a drive.

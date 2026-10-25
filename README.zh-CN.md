@@ -63,6 +63,10 @@ M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提�
 
 不透明策略文件在 chmod/chown/rename/unlink 后保留打开时的读写能力，直到关闭；属性变更另查当前 owner/group，混合大小/属性仍使用单事务。C 的策略与管理 token 分表，共享总限额及 BUSY 规则。受信任凭据测试不认证 OS caller，也不开放挂载。见 [M1-K](docs/IMPLEMENTATION-M1K.zh-CN.md)与 [ADR 0007](docs/adr/0007-granted-files-and-metadata-policy.md)。
 
+## M1-L 受限读能力的范围租约
+
+只有 READ 文件能力可申请不可变范围租约，只写能力拒绝。原 FD 关闭或内容变化后仍保留原范围/EOF/字节，共用核心准入预算，释放前 volume_close 保持 BUSY。C 策略/管理 view 分表。这是进程内读能力，不是 OS mmap 或调用者身份认证。见 [M1-L](docs/IMPLEMENTATION-M1L.zh-CN.md)。
+
 ## 运行存储实验
 
 使用 `rust-toolchain.toml` 锁定的工具链和 Cargo.lock。示例只接受全新可丢弃目录，不挂载或格式化磁盘。

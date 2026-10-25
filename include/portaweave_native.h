@@ -104,6 +104,16 @@ int32_t pw_posix_file_read(uint64_t volume, uint64_t file, uint64_t offset, uint
 int32_t pw_posix_file_write(uint64_t volume, uint64_t file, uint64_t offset, const uint8_t *data, size_t length, size_t *out_written);
 int32_t pw_posix_file_truncate(uint64_t volume, uint64_t file, uint64_t size);
 int32_t pw_posix_file_close(uint64_t volume, uint64_t file);
+/* Immutable range leases require a granted READ file. Separate policy-view
+ * tokens cannot be used by administrative lease APIs (or vice versa).
+ * Bounds use absolute offsets and original EOF; no read outside the range.
+ * Leases survive source file close/mutation/unlink; live leases block close.
+ * Owner-wide active/index budgets include both policy/administrative views.
+ * Outputs remain unchanged on failure. These are not OS mmap or heap budgets.
+ */
+int32_t pw_posix_read_view_begin(uint64_t volume, uint64_t file, uint64_t offset, uint64_t length, uint64_t *out_view);
+int32_t pw_posix_read_view_read(uint64_t volume, uint64_t view, uint64_t offset, uint8_t *buffer, size_t capacity, size_t *out_read);
+int32_t pw_posix_read_view_close(uint64_t volume, uint64_t view);
 /* Metadata changes use CURRENT trusted caller ownership/group privileges.
  * They do not inherit the data descriptor's open-time rights. Mixed size+
  * metadata requires WRITE plus metadata authorization, then one core commit.
