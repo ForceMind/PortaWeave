@@ -55,6 +55,10 @@ M0-L bridges v2 persistent UUID and stored owner/mode/timestamps into FSVolume i
 
 M1-I adds a single-transaction size/metadata mutation for native adapters, with explicit timestamp precedence and tested commit/maintenance failures. Existing views retain old content. See [M1-I](docs/IMPLEMENTATION-M1I.zh-CN.md); native permission enforcement remains separate work.
 
+## M1-J namespace permission policy
+
+`Volume::posix(Credentials)` and additive C calls enforce owner/group/other checks, ancestor search, sticky deletion/rename, caller ownership, umask and setgid-directory inheritance for selected namespace operations. Credentials are explicit trusted claims; this does not authenticate native callers, govern raw data handles or implement Windows ACLs. Default v1 remains unchanged and native access/load/mount gates stay closed. See [M1-J scope/tests](docs/IMPLEMENTATION-M1J.zh-CN.md) and [ADR 0006](docs/adr/0006-trusted-posix-policy.md).
+
 ## Run the storage lab
 
 Use `rust-toolchain.toml` and the committed dependency lock. The example accepts only a NEW disposable directory; it does not mount or format a drive.

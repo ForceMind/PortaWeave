@@ -138,3 +138,11 @@ M1-I 大小/元数据混合事务新增 4 项场景，元数据套件累计 all-
 PR #20 已验收：准确 head `a32096f24ddd9db176f1684859e1d7a5e0c8103f` / tree `801c040038657946e8d4d342e26ba2f467ad0e8f` 17 检查 success，core 40115026207、native 40115026214、bundle 40115026242、handover 40115026280、host 40115026185 / 40115023053。返回 job 120934994651 实际输出 ATOMIC_ATTRIBUTES_HANDOVER_OK incoming=2 outgoing=None，并验证 v2 内容/链接与原件哈希保全。合并 `1e0fc95fb28d099a1a640b3ecca3d1408e88c6a8`，源码/候选树一致，远端 main 已核验。
 
 M0-M 在 macOS 实际 SDK 合同增加 metadata-only/混合 setattr、成功消费位、一次 generation、写模式拒绝、非法纳秒、未知字段无截断、明确 owner/mode 创建及不支持创建字段不留名字的回归。Work Linux 仅做 diff/文本检查；准确 SDK 运行与 App/Extension 编译结果以本增量 PR 为准。有效权限/系统安装挂载仍未通过。
+
+PR #21 验收补记：准确 head `75a1a19d0e977d16028f216f3589ca0f8f403d5e` / tree `bb8ac4acbdd299bdd466885a0d8aaf4379bb2e9e` 17 项 completed/success，实际 SDK job 120935604428 输出 SETATTR / METADATA / CALLBACK 三类合同成功；合并 `3a5cd787519ecfba468addc5c96f9b776343c8cc` 的主线 14 项全部 success。core 40115720966、native 40115720993、bundle 40115721001、handover 40115721017、host 40115720981。当前新一轮开始已通过连接器重新核验该 SHA、14 检查及无未合并 PR。
+
+## 2026-10-25 续研：M1-J 权限策略
+
+Work 临时目录被回收后，重新克隆准确主线，并恢复既有云端只读准备产物的 Rust 1.99.1/锁定依赖；核验 ZIP SHA-256 与 tar 内部 SHA256SUMS，未操作用户机器或改变沙盒。新增核心权限集成 all-feature 9/default 8 项、纯 mode 矩阵 40,960 断言、native ABI 拒绝/输出/健康回归，以及真实 C caller。完整 default/all-feature workspace、clippy/fmt 和四阶段本地程序运行有实际结果；本地阶段名不构成跨 OS 证据。
+
+metadata_handover 新增 trusted-ID 权限允许/拒绝及无副作用校验；准确三平台 source SHA/CI 以 M1-J PR 验收为准。Swift/WinFsp 的拒绝码映射测试不代表回调已启用认证。原生 OS 身份、ACL、数据句柄权限、真实挂载与 Codex 正常沙盒仍未验收，详见 [M1-J](IMPLEMENTATION-M1J.zh-CN.md)。

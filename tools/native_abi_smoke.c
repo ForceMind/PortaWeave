@@ -123,6 +123,24 @@ int main(int argc, char **argv) {
         metadata.modified.nanoseconds != 123456789) return 26;
     REQUIRE(pw_stat(volume, node, &stat));
     if (stat.size != 2) return 27;
+    PwCredentials owner = {501, 55, NULL, 0, 0};
+    PwCredentials other = {502, 55, NULL, 0, 0};
+    int64_t protected_node = 99;
+    if (pw_posix_create(volume, 1, (const uint8_t *)"absent", 6, 0, 0666, 0027, &other, &protected_node) != PW_DENIED || protected_node != 99) return 30;
+    update.valid = PW_META_MODE;
+    update.mode = 01777;
+    REQUIRE(pw_metadata_set(volume, 1, &update));
+    REQUIRE(pw_posix_create(volume, 1, (const uint8_t *)"owned", 5, 0, 0666, 0027, &owner, &protected_node));
+    REQUIRE(pw_metadata_get(volume, protected_node, &metadata));
+    if (metadata.uid != 501 || metadata.gid != 55 || metadata.mode != 0640) return 31;
+    REQUIRE(pw_posix_check_access(volume, 1, (const uint8_t *)"owned", 5, PW_ACCESS_READ, &other));
+    if (pw_posix_check_access(volume, 1, (const uint8_t *)"owned", 5, PW_ACCESS_WRITE, &other) != PW_DENIED ||
+        pw_posix_remove(volume, 1, (const uint8_t *)"owned", 5, 0, &other) != PW_DENIED) return 32;
+    uint32_t maintenance = 99, protected_state = 99;
+    REQUIRE(pw_health(volume, &maintenance, &protected_state));
+    if (maintenance != 0 || protected_state != 0) return 33;
+    REQUIRE(pw_posix_rename(volume, 1, (const uint8_t *)"owned", 5, 1, (const uint8_t *)"renamed", 7, 0, &owner));
+    REQUIRE(pw_posix_remove(volume, 1, (const uint8_t *)"renamed", 7, 0, &owner));
     REQUIRE(pw_volume_close(volume));
     puts("NATIVE_C_ABI_OK");
     return 0;

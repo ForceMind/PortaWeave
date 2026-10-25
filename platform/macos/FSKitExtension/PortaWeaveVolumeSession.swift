@@ -19,6 +19,7 @@ func pwCheck(_ status: Int32) throws {
     case PW_NO_SPACE: code = .ENOSPC
     case PW_QUOTA: code = .EDQUOT
     case PW_READ_ONLY: code = .EROFS
+    case PW_DENIED: code = .EACCES
     case PW_UNSUPPORTED: code = .ENOTSUP
     case PW_RESOURCE: code = .ENOMEM
     case PW_BUFFER_TOO_SMALL: code = .EOVERFLOW

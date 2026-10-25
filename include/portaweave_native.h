@@ -18,7 +18,7 @@ enum {
   PW_EXISTS = -3, PW_NOT_DIR = -4, PW_IS_DIR = -5, PW_NOT_EMPTY = -6,
   PW_BUSY = -7, PW_NO_SPACE = -8, PW_QUOTA = -9, PW_READ_ONLY = -10,
   PW_UNSUPPORTED = -11, PW_CORRUPT = -12, PW_IO = -13, PW_RESOURCE = -14,
-  PW_INTERNAL = -15, PW_BUFFER_TOO_SMALL = -16
+  PW_INTERNAL = -15, PW_BUFFER_TOO_SMALL = -16, PW_DENIED = -17
 };
 
 typedef struct PwStat {
@@ -47,6 +47,29 @@ typedef struct PwStorageSync {
 typedef struct PwCreateAttributes {
   uint32_t uid, gid, mode, reserved; /* mode <= 07777; reserved must be zero */
 } PwCreateAttributes;
+/* Trusted effective-ID claims, NOT OS caller authentication or Windows ACLs.
+ * No default root identity. reserved must be zero. groups is NULL only when
+ * group_count=0; maximum 128 groups, copied before serialized policy checks.
+ * Never accept these claims from untrusted IPC. Raw APIs remain administrative.
+ */
+typedef struct PwCredentials {
+  uint32_t uid, gid;
+  const uint32_t *groups;
+  size_t group_count;
+  uint64_t reserved;
+} PwCredentials;
+enum { PW_ACCESS_EXISTS=0, PW_ACCESS_READ=4, PW_ACCESS_WRITE=2, PW_ACCESS_EXECUTE=1 };
+/* v2 mode-only namespace policy. All ancestor directories require search.
+ * Denial is PW_DENIED, not READ_ONLY, and does not latch write protection.
+ * Creation takes permissions 0777 (mkdir also sticky 01000) and umask 0777.
+ * uid comes from caller; setgid parents pass their group and directory setgid.
+ * Unsupported mode bits are refused. Failure leaves output unchanged.
+ * Does NOT authorize raw file handles/data I/O, ACLs, symlinks or OS callbacks.
+ */
+int32_t pw_posix_check_access(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, uint8_t access, const PwCredentials *caller);
+int32_t pw_posix_create(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, uint8_t directory, uint16_t mode, uint16_t umask, const PwCredentials *caller, int64_t *out_object);
+int32_t pw_posix_remove(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, uint8_t directory, const PwCredentials *caller);
+int32_t pw_posix_rename(uint64_t volume, int64_t from_parent, const uint8_t *from, size_t from_len, int64_t to_parent, const uint8_t *to, size_t to_len, uint8_t replace, const PwCredentials *caller);
 typedef struct PwTimestamp {
   int64_t seconds;
   uint32_t nanoseconds, reserved; /* fraction < 1000000000, reserved zero */

@@ -7,6 +7,149 @@ use std::{
 };
 
 #[test]
+fn posix_abi_bounds_claims_and_denial_leaves_outputs_and_health_unchanged() {
+    let s = Scratch::new();
+    let mut volume = 0;
+    let attrs = PwCreateAttributes {
+        uid: 100,
+        gid: 20,
+        mode: 0o1777,
+        reserved: 0,
+    };
+    assert_eq!(
+        unsafe {
+            pw_volume_create_with_metadata(
+                s.path().as_ptr(),
+                s.path().len(),
+                1 << 20,
+                &attrs,
+                &mut volume,
+            )
+        },
+        0
+    );
+    let mut claims = PwCredentials {
+        uid: 200,
+        gid: 50,
+        groups: std::ptr::null(),
+        group_count: 0,
+        reserved: 0,
+    };
+    let mut node = 99;
+    assert_eq!(
+        unsafe {
+            pw_posix_create(
+                volume,
+                1,
+                b"file".as_ptr(),
+                4,
+                0,
+                0o666,
+                0o027,
+                std::ptr::null(),
+                &mut node,
+            )
+        },
+        -1
+    );
+    assert_eq!(node, 99);
+    claims.group_count = 129;
+    assert_eq!(
+        unsafe {
+            pw_posix_create(
+                volume,
+                1,
+                b"file".as_ptr(),
+                4,
+                0,
+                0o666,
+                0o027,
+                &claims,
+                &mut node,
+            )
+        },
+        -14
+    );
+    assert_eq!(node, 99);
+    claims.group_count = 1;
+    assert_eq!(
+        unsafe {
+            pw_posix_create(
+                volume,
+                1,
+                b"file".as_ptr(),
+                4,
+                0,
+                0o666,
+                0o027,
+                &claims,
+                &mut node,
+            )
+        },
+        -1
+    );
+    claims.group_count = 0;
+    claims.reserved = 1;
+    assert_eq!(
+        unsafe {
+            pw_posix_create(
+                volume,
+                1,
+                b"file".as_ptr(),
+                4,
+                0,
+                0o666,
+                0o027,
+                &claims,
+                &mut node,
+            )
+        },
+        -1
+    );
+    claims.reserved = 0;
+    assert_eq!(
+        unsafe {
+            pw_posix_create(
+                volume,
+                1,
+                b"file".as_ptr(),
+                4,
+                0,
+                0o666,
+                0o027,
+                &claims,
+                &mut node,
+            )
+        },
+        0
+    );
+    claims.uid = 300;
+    assert_eq!(
+        unsafe { pw_posix_check_access(volume, 1, b"file".as_ptr(), 4, 8, &claims) },
+        -1
+    );
+    assert_eq!(
+        unsafe { pw_posix_remove(volume, 1, b"file".as_ptr(), 4, 0, &claims) },
+        -17
+    );
+    assert_eq!(
+        unsafe { pw_posix_check_access(volume, 1, b"file".as_ptr(), 4, 2, &claims) },
+        -17
+    );
+    let mut health = 99;
+    let mut protected = 99;
+    assert_eq!(unsafe { pw_health(volume, &mut health, &mut protected) }, 0);
+    assert_eq!((health, protected), (0, 0));
+    let mut found = 0;
+    assert_eq!(
+        unsafe { pw_lookup(volume, 1, b"file".as_ptr(), 4, &mut found) },
+        0
+    );
+    assert_eq!(found, node);
+    assert_eq!(pw_volume_close(volume), 0);
+}
+
+#[test]
 fn metadata_abi_rejects_unknown_fields_preserves_outputs_and_keeps_v2_identity() {
     let s = Scratch::new();
     let mut volume = 77;

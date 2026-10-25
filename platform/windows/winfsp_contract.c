@@ -30,6 +30,7 @@ static NTSTATUS PwNtStatus(int32_t result)
     case PW_NO_SPACE: return STATUS_DISK_FULL;
     case PW_QUOTA: return STATUS_QUOTA_EXCEEDED;
     case PW_READ_ONLY: return STATUS_MEDIA_WRITE_PROTECTED;
+    case PW_DENIED: return STATUS_ACCESS_DENIED;
     case PW_UNSUPPORTED: return STATUS_NOT_SUPPORTED;
     case PW_CORRUPT: return STATUS_DATA_ERROR;
     case PW_IO: return STATUS_IO_DEVICE_ERROR;
@@ -158,6 +159,8 @@ int main(int argc, char **argv)
     uint8_t output[64] = {0};
     if (argc != 2)
         return 2;
+    REQUIRE(PwNtStatus(PW_DENIED) == STATUS_ACCESS_DENIED);
+    REQUIRE(PwNtStatus(PW_READ_ONLY) == STATUS_MEDIA_WRITE_PROTECTED);
     REQUIRE(PW_OK == pw_volume_create(
         (const uint8_t *)argv[1], strlen(argv[1]), 65536, &volume));
     context.volume = volume;
