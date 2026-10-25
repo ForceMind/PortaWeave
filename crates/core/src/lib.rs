@@ -11,6 +11,7 @@ mod metadata;
 mod names;
 mod namespace;
 mod owner;
+mod permissions;
 mod recovery;
 mod segment;
 mod segment_io;
@@ -21,6 +22,7 @@ mod volume;
 
 pub use error::{Error, Result};
 pub use metadata::{CreateAttributes, Metadata, MetadataUpdate, Timestamp, VolumeIdentity};
+pub use permissions::{Access, Credentials, MAX_SUPPLEMENTARY_GROUPS, PosixSession};
 pub use recovery::{ExportLinks, ExportReport, Recovery, RecoveryLimits, RecoveryReport};
 #[cfg(feature = "fault-injection")]
 pub use segment_io::StorageFault;

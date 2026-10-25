@@ -12,6 +12,8 @@ pub enum Error {
     InvalidName,
     InvalidHandle,
     InvalidRange,
+    /// Policy refusal, distinct from storage write protection or an I/O error.
+    PermissionDenied,
     Quota,
     /// Refused BEFORE staging data; does not imply failed I/O or corrupt state.
     HostSpace {

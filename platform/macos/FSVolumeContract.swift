@@ -232,6 +232,12 @@ struct FSVolumeContract {
         print("FSVOLUME_SETATTR_CONTRACT_OK (atomic v2 callbacks/creation; caller authorization remains closed)")
     }
     static func main() throws {
+        do {
+            try pwCheck(Int32(PW_DENIED))
+            throw ContractFailure(message: "permission denial mapped to success")
+        } catch let error as POSIXError {
+            try require(error.code == .EACCES, "permission denial became storage write protection")
+        }
         guard CommandLine.arguments.count == 2 else { throw ContractFailure(message: "new scratch path required") }
         let url = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         let other = url.appendingPathExtension("other")

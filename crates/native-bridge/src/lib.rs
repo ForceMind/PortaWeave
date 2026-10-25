@@ -5,8 +5,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use portaweave_core::{
-    CreateAttributes, Entry, Error, FileId, Handle, Kind, MAX_IO, MaintenanceStatus,
-    MetadataUpdate, ROOT, ReadView, Timestamp, Volume,
+    Access, CreateAttributes, Credentials, Entry, Error, FileId, Handle, Kind, MAX_IO,
+    MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, MetadataUpdate, ROOT, ReadView, Timestamp, Volume,
 };
 use std::{
     collections::BTreeMap,
@@ -37,6 +37,7 @@ const IO: i32 = -13;
 const RESOURCE: i32 = -14;
 const INTERNAL: i32 = -15;
 const BUFFER_TOO_SMALL: i32 = -16;
+const DENIED: i32 = -17;
 
 const MAX_STRING: usize = 32 * 1024;
 const MAX_SESSIONS: usize = 16;
@@ -59,6 +60,7 @@ impl From<Error> for Fault {
             Error::Quota => QUOTA,
             Error::HostSpace { .. } => NO_SPACE,
             Error::WriteProtected => READ_ONLY,
+            Error::PermissionDenied => DENIED,
             Error::UnsupportedFormat | Error::UnsupportedOperation => UNSUPPORTED,
             Error::Corrupt(_) => CORRUPT,
             Error::ResourceLimit | Error::RecoveryLimit => RESOURCE,
@@ -202,6 +204,162 @@ pub struct PwCreateAttributes {
     pub gid: u32,
     pub mode: u32,
     pub reserved: u32,
+}
+/// Trusted caller claims, NOT authentication. Never read them from untrusted IPC.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PwCredentials {
+    pub uid: u32,
+    pub gid: u32,
+    pub groups: *const u32,
+    pub group_count: usize,
+    pub reserved: u64,
+}
+/// # Safety
+/// Caller supplies a readable/aligned struct and group_count valid u32 values.
+unsafe fn credentials(pointer: *const PwCredentials) -> FResult<Credentials> {
+    readable(pointer, 1)?;
+    let c = unsafe { pointer.read() };
+    if c.reserved != 0 {
+        return Err(Fault::invalid());
+    }
+    if c.group_count > MAX_SUPPLEMENTARY_GROUPS {
+        return Err(Fault::resource());
+    }
+    readable(c.groups, c.group_count)?;
+    let groups = if c.group_count == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(c.groups, c.group_count) }
+    };
+    Credentials::new(c.uid, c.gid, groups).map_err(Fault::from)
+}
+
+/// Effective-ID mode check for trusted caller claims, not OS access(2).
+/// # Safety
+/// Name and caller/group buffers are readable/aligned for the call duration.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_check_access(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    access: u8,
+    caller: *const PwCredentials,
+) -> i32 {
+    run(|| {
+        let caller = unsafe { credentials(caller)? };
+        let name = unsafe { text(name, name_len)? };
+        let access = Access::from_bits(access).map_err(Fault::from)?;
+        with_session(volume, |s| {
+            s.volume
+                .posix(caller)
+                .map_err(Fault::from)?
+                .check_access(file_id(parent)?, name, access)
+                .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// Name/caller/group buffers readable; output writable/aligned/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_create(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    directory: u8,
+    mode: u16,
+    umask: u16,
+    caller: *const PwCredentials,
+    out_object: *mut i64,
+) -> i32 {
+    run(|| {
+        required(out_object)?;
+        if directory > 1 {
+            return Err(Fault::invalid());
+        }
+        let caller = unsafe { credentials(caller)? };
+        let name = unsafe { text(name, name_len)? };
+        with_session(volume, |s| {
+            let mut policy = s.volume.posix(caller).map_err(Fault::from)?;
+            let id = if directory == 1 {
+                policy.mkdir(file_id(parent)?, name, mode, umask)
+            } else {
+                policy.create_file(file_id(parent)?, name, mode, umask)
+            }
+            .map_err(Fault::from)?;
+            unsafe { out_object.write(id.raw()) };
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// Name/caller/group buffers are readable/aligned for the call duration.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_remove(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    directory: u8,
+    caller: *const PwCredentials,
+) -> i32 {
+    run(|| {
+        if directory > 1 {
+            return Err(Fault::invalid());
+        }
+        let caller = unsafe { credentials(caller)? };
+        let name = unsafe { text(name, name_len)? };
+        with_session(volume, |s| {
+            let mut policy = s.volume.posix(caller).map_err(Fault::from)?;
+            if directory == 1 {
+                policy.rmdir(file_id(parent)?, name)
+            } else {
+                policy.unlink(file_id(parent)?, name)
+            }
+            .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// Names/caller/group buffers are readable/aligned and valid throughout the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_rename(
+    volume: u64,
+    from_parent: i64,
+    from: *const u8,
+    from_len: usize,
+    to_parent: i64,
+    to: *const u8,
+    to_len: usize,
+    replace: u8,
+    caller: *const PwCredentials,
+) -> i32 {
+    run(|| {
+        if replace > 1 {
+            return Err(Fault::invalid());
+        }
+        let caller = unsafe { credentials(caller)? };
+        let from = unsafe { text(from, from_len)? };
+        let to = unsafe { text(to, to_len)? };
+        with_session(volume, |s| {
+            s.volume
+                .posix(caller)
+                .map_err(Fault::from)?
+                .rename(
+                    file_id(from_parent)?,
+                    from,
+                    file_id(to_parent)?,
+                    to,
+                    replace == 1,
+                )
+                .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
 }
 impl PwCreateAttributes {
     fn core(self) -> FResult<CreateAttributes> {

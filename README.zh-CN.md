@@ -55,6 +55,10 @@ M0-L 将 v2 持久 UUID、所有者/权限位/时间接入 FSVolume 身份、属
 
 M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提交前故障与提交后维护失败，旧内容租约继续有效。见 [M1-I](docs/IMPLEMENTATION-M1I.zh-CN.md)；原生有效权限仍需完成。
 
+## M1-J 目录权限策略
+
+`Volume::posix(Credentials)` 与新增 C 接口实际约束选定目录操作的 owner/group/other、祖先搜索、粘滞删除/改名、caller 所有权、umask 与 setgid 目录继承。凭据是显式受信任的声明，尚不认证原生调用者、不控制裸数据句柄、不实施 Windows ACL。默认 v1 不变，原生 access/load/mount 门槛继续关闭。见 [M1-J 范围/测试](docs/IMPLEMENTATION-M1J.zh-CN.md)与 [ADR 0006](docs/adr/0006-trusted-posix-policy.md)。
+
 ## 运行存储实验
 
 使用 `rust-toolchain.toml` 锁定的工具链和 Cargo.lock。示例只接受全新可丢弃目录，不挂载或格式化磁盘。
