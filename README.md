@@ -80,6 +80,8 @@ Opaque policy files retain their read/write grants across chmod/chown/rename/unl
 
 Granted READ files can admit immutable range leases; WRITE-only files cannot. Leases keep original bounds/EOF/content after source close and mutation, share core admission budgets, and keep volume close BUSY until released. Policy/admin C view tokens stay distinct. This is process-local read capability work, not OS mmap or caller authentication. See [M1-L](docs/IMPLEMENTATION-M1L.zh-CN.md).
 
+All core regular-file opens, including raw administrative Rust opens, now share the 4096-handle admission gate with creation pins and policy grants. The limit is a logical resource cap, not an exact heap budget.
+
 ## M0-Q initial creation state
 
 Files can start with a quota-checked sparse logical size; v2 creation can include exact birth/access/modify times. Initial state, name, metadata and the pinned reply share one creation transaction (generation 0), with no follow-up truncate. v1 accepts size while retaining explicit metadata absence; directory size requests reject. No physical reservation or native authorization is claimed. See [M0-Q](docs/IMPLEMENTATION-M0Q.zh-CN.md).

@@ -214,3 +214,11 @@ PR #32 已验收：准确 head `ff74f2d03bb17f3f139d04aafcab781c1d156a9b` / tree
 Work Linux full default/all-feature workspace（含 Disk Studio）、clippy/fmt、真实 C caller/C++17 公共头及 Python 9 项通过。新增核心 checked_namespace 6/4 项（all-feature/default）、ABI 3 项，总计 native ABI 23 项。核心验证 v1/v2 身份不匹配不改名字/内容/元数据/健康、case/Unicode/alias、目录/环路、前后提交故障及旧打开 inode；C 两个真实线程经 Barrier 受控替换后，使用旧身份删除/rename 返回 STALE，保护替换文件。原有未 checked 接口与名字规则保持，新增语义不冒充原生授权。
 
 C caller 输出 NATIVE_C_ABI_OK，本地四阶段例程输出 CHECKED_NAMESPACE_HANDOVER_OK。真实 macOS SDK 新合同、App/Extension 完整构建、MSVC 回归和同一 artifact 的实际跨 OS 交接需由此增量准确源码 CI 验证，精确记录在对应 PR；不从 Linux 预报平台通过，也不以 SDK/返回容器证明真实挂载。原生 caller/ACL/共享/缓存/同步/安全卸载、Codex 沙盒/越界与物理介质门禁继续 BLOCKED/NOT_RUN。
+
+PR #33 已验收：准确 head `68152a9f0f6982b10132eb25bb59a70c50d516fc` / tree `0f299bb1c466ce20ee47df2ace0ba7f97a23e6ce` 全部 17 项 completed/success；core 40221060853、native 40221060870、bundle 40221060822、handover 40221060815、host 40221060862 / 40221041132。真实 SDK job 121252531379 输出 FSVOLUME_CHECKED_NAMESPACE_CONTRACT_OK，MSVC job 121252531356 保持全部 C/WinFsp 合同通过；return job 121253044406 输出 CHECKED_NAMESPACE_HANDOVER_OK 与 v1/v2 原件 SHA-256 保全。无冲突/未解决评审，候选 `ff7f3a77ef472299d2b5779d59ad7310324f964f` 和实际合并 `c7292690beedea190c2d5ad842382697d3cd247b` 树一致，远端 main 已核验。合并主线的 push CI 单独记录在 PR；不把 SDK 成功提升为系统挂载。
+
+## 2026-10-26 补正：原始 Rust 打开入口的共享句柄上限
+
+实际复现：强化已有 create_replies 的 4096 额度测试后，未修复代码仍允许 `Volume::open_file` 额外打开，断言返回 ResourceLimit 失败（记录 pin-admission-before.log；属于预期的修复前失败）。修复将管理 open 路由到既有 core reserve/publish；另强化混合 policy/admin 满额用例，以及释放一个后重新准入、不复用 ID 和目录不占普通文件 pin。
+
+修复后 Work Linux full default/all-feature workspace（各 30 个 test/doc-test suite，含 Disk Studio）、clippy `-D warnings` 和 fmt 实际通过，两个既有预算回归均保留；没有把强化断言计算为新增独立测试。无格式/schema/ABI/依赖/工作流变更，也未改变管理接口权限或 native mount gates。精确 source/tree、三平台/native/SDK/bundle/artifact 与最终 main 核验见对应 PR。

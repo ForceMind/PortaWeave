@@ -397,6 +397,8 @@ fn policy_open_admission_counts_administrative_handles_and_old_grants_expire_aft
         p.open_file(ROOT, "file", FileAccess::Read),
         Err(Error::ResourceLimit)
     ));
+    // Raw administrative opens cannot bypass a budget filled by policy grants.
+    assert!(matches!(v.open_file(id), Err(Error::ResourceLimit)));
     let old = files.pop().unwrap();
     old.close(&mut v).unwrap();
     let replacement = v

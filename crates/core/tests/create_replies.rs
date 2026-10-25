@@ -121,10 +121,11 @@ fn file_admission_counts_administrative_handles_and_does_not_block_directory_cre
     let s = Scratch::new();
     let mut v = s.volume(true);
     let id = v.create_file(ROOT, "source").unwrap();
-    let handles: Vec<_> = (0..MAX_POSIX_FILES)
+    let mut handles: Vec<_> = (0..MAX_POSIX_FILES)
         .map(|_| v.open_file(id).unwrap())
         .collect();
     let before = v.object_info(ROOT).unwrap();
+    assert!(matches!(v.open_file(id), Err(Error::ResourceLimit)));
     assert!(matches!(
         v.create_node_with_reply(ROOT, "absent", Kind::File, None, Ok),
         Err(Error::ResourceLimit)
@@ -137,6 +138,12 @@ fn file_admission_counts_administrative_handles_and_does_not_block_directory_cre
         .unwrap();
     assert!(dir.handle.is_none());
     assert_eq!(v.stats().unwrap().open_handles, MAX_POSIX_FILES);
+    let released = handles.pop().unwrap();
+    v.close_file(released).unwrap();
+    let admitted = v.open_file(id).unwrap();
+    assert_ne!(released, admitted);
+    assert_eq!(v.stats().unwrap().open_handles, MAX_POSIX_FILES);
+    v.close_file(admitted).unwrap();
     for h in handles {
         v.close_file(h).unwrap();
     }

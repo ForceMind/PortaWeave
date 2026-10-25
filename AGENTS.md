@@ -69,6 +69,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 44. M0-S native cached identities must be checked in the same request and rechecked in the mutation transaction, not by a separate lookup before blind remove/rename. STALE refusals leave namespace/metadata/health unchanged. An absent expected target permits same-entry case changes, never a different hard-link alias; matching aliases keep no-op semantics. IDs are not authorization or full ABA generations. Administrative/policy APIs remain separate and no native mount/access/Flush gate is enabled.
 
+45. Every regular-file handle admission, including raw Rust Volume::open_file, must use the shared core reservation gate. Native/policy preflight is not a substitute for enforcing the core-wide 4096 budget. Refusal does not poison writes or run maintenance; freeing a handle admits a fresh identifier. Never silently evict live pins to satisfy the limit.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.
