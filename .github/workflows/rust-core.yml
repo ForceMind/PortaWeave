@@ -31,6 +31,8 @@ jobs:
         run: cargo test --workspace --all-features --locked -- --nocapture
       - name: Test default build without fault-injection feature
         run: cargo test --workspace --locked
+      - name: Strict read-only GPT/MBR image regression (no raw devices)
+        run: cargo test --locked -p portaweave-partition-inspector -- --nocapture
       - name: Repeated parallel storage, recovery and capacity regression on Linux
         if: runner.os == 'Linux'
         shell: bash

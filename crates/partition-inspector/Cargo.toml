@@ -1,0 +1,12 @@
+[package]
+name = "portaweave-partition-inspector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "pw-partitions"
+path = "src/bin/pw-partitions.rs"
+
+# No dependencies: read-only parser on regular files.

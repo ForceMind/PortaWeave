@@ -60,3 +60,11 @@ The repository contains an **experimental persistent Rust core and offline safet
 39. M0-N Windows time/size projection is pure and fallible BEFORE business commit, never after known success. Do not saturate unrepresentable metadata, invent mode-to-ACL mappings, claim rounded logical allocation is physical reservation, or make allocation setters successful no-ops. WinFsp I/O contexts carry policy grants; synthetic fixtures do not authenticate OS callers. Open/security/Flush remain closed and HardLinks remains an upstream interface blocker.
 
 40. M0-O FSKit setattr replies are projected and object/count/time validated before commit. Successful Swift paths must not re-query attributes or throw a conversion after known commit; consume fields only after success and report health separately. These C setters are administrative, reject policy-token confusion/expected-object mismatch, retain explicit v1 metadata absence, and never supply OS caller authentication or enable load/mount. Pure reply projections must not perform external side effects.
+
+## Disk Studio safety boundary (Issue #28)
+
+- Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.
+- The new partition inspector MUST stay read-only and accept only explicit regular image files. No device paths, no symlinks, no automatic GPT repair; bounded GPT arrays, verified CRC32 and primary/backup correspondence are mandatory.
+- A real block-device (.pwdisk) mapping needs independent LBA storage, transactional write ordering, copy-on-write, guest filesystem awareness, per-OS adapter certification and fault injection. A WinFsp/FSKit file mount is NOT a raw block disk.
+- All physical disk changes require a separate privileged helper, exact stable device identity, offline exclusive access, explicit user authorization, verified external backup, dry-run preview and independent safety review. Do not format, clone-overwrite, resize or repair any physical disk autonomously; test only disposable images unless specifically authorized.
+- Preserve all existing Codex/Git/mount/permissions/flush/GC release gates. Disk Studio is not a reason to deprioritize or falsely close them.

@@ -6,6 +6,19 @@
 
 PortaWeave targets an exFAT-backed, dynamically growing directory container mounted as a **real read/write development volume** on macOS and Windows. Ordinary applications, local Codex, Git, editors, package managers and build tools must work directly inside it, without a hidden working copy on the system disk.
 
+## Disk Studio (partition management, experimental)
+
+DiskGenius-style partition management is a **separate future product module**, not a reinterpretation of the existing file-based .pwvol format. See [Disk Studio architecture](docs/DISK-STUDIO.zh-CN.md), [ADR 0010](docs/adr/0010-partition-manager-separate-block-plane.md), and [Issue #28](https://github.com/ForceMind/PortaWeave/issues/28).
+
+**M0 implements read-only GPT/MBR inspection of regular RAW/IMG files only** (no physical devices, no symlinks, no writes, no filesystem mount, no partition editing or recovery):
+
+~~~sh
+cargo run --locked -p portaweave-partition-inspector -- inspect /path/to/disposable.raw --sector-size 512
+cargo test --locked -p portaweave-partition-inspector
+~~~
+
+GPT requires valid CRC32 header/entry tables; it reports damaged primary/backup as DEGRADED, does not repair anything, and refuses ambiguous hybrid MBR/GPT. MBR extended EBR logical partitions are not yet enumerated. A virtual partitionable block device (.pwdisk), physical device management and resize/clone/recovery are **planned, not implemented**. None of these claims weakens the standard Codex/Git working-volume release gates.
+
 ## Status — 2026-10-25
 
 **M0-N WinFsp granted-file and M0-O laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-M atomic write/metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.

@@ -6,6 +6,19 @@
 
 目标是把 exFAT 上的动态目录容器挂载为 macOS/Windows 的**正常读写开发工作盘**。Codex 本地会话、Git、IDE、依赖安装、编译、测试和程序运行必须直接在卷内工作，不以只读预览、专用导入导出或隐藏的系统盘副本替代。
 
+## Disk Studio（磁盘工作台）｜新增长期功能方向
+
+参考 DiskGenius 的分区管理、镜像、克隆与恢复等**功能分类**，但不会复制其源码/UI；详见 [完整规划](docs/DISK-STUDIO.zh-CN.md)、[ADR 0010](docs/adr/0010-partition-manager-separate-block-plane.md)、[Issue #28](https://github.com/ForceMind/PortaWeave/issues/28)。
+
+**本轮 M0 只实现普通 RAW/IMG 文件上的 GPT/MBR 分区表只读检查器**，不支持物理硬盘读写、分区增删/格式化、VHDX 容器解析或 OS 挂载；不改变原有 .pwvol 容器格式。示例：
+
+~~~sh
+cargo run --locked -p portaweave-partition-inspector -- inspect /path/to/disposable.raw --sector-size 512
+cargo test --locked -p portaweave-partition-inspector
+~~~
+
+支持 512/4096 字节扇区、GPT 主备 CRC 校验和异常报告；MBR 只解析四个主分区，扩展 EBR 链暂不支持。只有一份 GPT 有效时报告 DEGRADED 并且绝不自动修复。后续独立规划逻辑子卷、动态块设备 .pwdisk 和受控真实磁盘管理，**不能用“分区 UI”掩盖当前尚未完成的双端工作盘、Codex/Git 验收**。
+
 ## 当前状态（2026-10-25）
 
 **M0-N WinFsp 授权文件合同与 M0-O 实验性 FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-M 原子写入/元数据核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
