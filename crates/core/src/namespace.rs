@@ -1,8 +1,17 @@
 use crate::{
-    CreateAttributes, Entry, Error, FileId, Kind, ROOT, Result, Timestamp, Volume,
-    catalog::CatalogVersion, metadata, names,
+    CreateAttributes, Entry, Error, FileId, Handle, Kind, ObjectInfo, ROOT, Result, Timestamp,
+    Volume, catalog::CatalogVersion, metadata, names,
 };
 use rusqlite::{OptionalExtension, params};
+
+/// A completed trusted create. Close the administrative pin explicitly.
+#[must_use = "close any returned file handle explicitly"]
+#[derive(Debug)]
+pub struct CreatedNode<T> {
+    pub object: FileId,
+    pub handle: Option<Handle>,
+    pub reply: T,
+}
 
 impl Volume {
     fn lookup_key(&self, parent: FileId, key: &str) -> Result<Option<FileId>> {
@@ -97,6 +106,47 @@ impl Volume {
         kind: i64,
         attributes: Option<CreateAttributes>,
     ) -> Result<FileId> {
+        self.create_node_request(parent, name, kind, attributes, None, |_, _, id| Ok(id))
+    }
+    /// Trusted create with a reserved file pin and pure, pre-commit projection.
+    /// v1/v2 defaults remain unchanged. Not OS caller authentication.
+    pub fn create_node_with_reply<T>(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        kind: Kind,
+        attributes: Option<CreateAttributes>,
+        reply: impl FnOnce(ObjectInfo) -> Result<T>,
+    ) -> Result<CreatedNode<T>> {
+        let handle = if kind == Kind::File {
+            Some(self.reserve_file_handle()?)
+        } else {
+            None
+        };
+        self.create_node_request(
+            parent,
+            name,
+            if kind == Kind::File { 0 } else { 1 },
+            attributes,
+            handle,
+            |db, version, id| {
+                Ok(CreatedNode {
+                    object: id,
+                    handle,
+                    reply: reply(ObjectInfo::at(db, version, id)?)?,
+                })
+            },
+        )
+    }
+    fn create_node_request<T>(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        kind: i64,
+        attributes: Option<CreateAttributes>,
+        handle: Option<Handle>,
+        reply: impl FnOnce(&rusqlite::Connection, CatalogVersion, FileId) -> Result<T>,
+    ) -> Result<T> {
         if let Some(a) = attributes {
             self.require_metadata()?;
             a.validate()?;
@@ -118,6 +168,7 @@ impl Volume {
                 None
             };
             let time = Timestamp::now()?;
+            let before = this.take_fault(1);
             let tx = this.db.transaction()?;
             tx.execute("INSERT INTO objects(kind) VALUES (?1)", [kind])?;
             let id = tx.last_insert_rowid();
@@ -129,8 +180,13 @@ impl Volume {
                 metadata::insert(&tx, FileId(id), a, time)?;
             }
             metadata::touch(&tx, this.catalog_version, parent, time, true, false)?;
+            let result = reply(&tx, this.catalog_version, FileId(id))?;
+            Self::interrupt(before)?;
             tx.commit()?;
-            Ok(FileId(id))
+            if let Some(handle) = handle {
+                this.publish_file_handle(handle, FileId(id));
+            }
+            Ok(result)
         })
     }
     pub fn create_file(&mut self, parent: FileId, name: &str) -> Result<FileId> {

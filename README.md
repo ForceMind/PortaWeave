@@ -21,7 +21,7 @@ GPT requires valid CRC32 header/entry tables; it reports damaged primary/backup 
 
 ## Status — 2026-10-25
 
-**M0-N WinFsp granted-file and M0-O laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-M atomic write/metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-N WinFsp granted-file and M0-P laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-M atomic write/metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -79,6 +79,10 @@ Opaque policy files retain their read/write grants across chmod/chown/rename/unl
 ## M1-L read-authorized range leases
 
 Granted READ files can admit immutable range leases; WRITE-only files cannot. Leases keep original bounds/EOF/content after source close and mutation, share core admission budgets, and keep volume close BUSY until released. Policy/admin C view tokens stay distinct. This is process-local read capability work, not OS mmap or caller authentication. See [M1-L](docs/IMPLEMENTATION-M1L.zh-CN.md).
+
+## M0-P atomic FSKit creation
+
+Laboratory create reserves native handle admission/tokens and prepares its Swift item before namespace mutation. The business transaction returns a projected reply plus an already held administrative file pin; success no longer calls a fallible intern/open. Failed admission leaves no name or consumed fields. Mount/identity gates remain closed. See [M0-P](docs/IMPLEMENTATION-M0P.zh-CN.md) and [ADR 0011](docs/adr/0011-created-node-pins-and-replies.md).
 
 ## M0-O FSKit committed attribute replies
 

@@ -1537,3 +1537,234 @@ fn fskit_v1_size_reply_does_not_invent_metadata_or_accept_nonempty_updates() {
     assert_eq!(pw_file_close(volume, raw), 0);
     assert_eq!(pw_volume_close(volume), 0);
 }
+
+#[test]
+fn atomic_fskit_create_publishes_one_admin_pin_and_keeps_failed_outputs_unchanged() {
+    for v2 in [false, true] {
+        let s = Scratch::new();
+        let mut volume = 0;
+        let a = PwCreateAttributes {
+            uid: 100,
+            gid: 20,
+            mode: 0o750,
+            reserved: 0,
+        };
+        let rc = if v2 {
+            unsafe {
+                pw_volume_create_with_metadata(
+                    s.path().as_ptr(),
+                    s.path().len(),
+                    1 << 20,
+                    &a,
+                    &mut volume,
+                )
+            }
+        } else {
+            unsafe { pw_volume_create(s.path().as_ptr(), s.path().len(), 1 << 20, &mut volume) }
+        };
+        assert_eq!(rc, 0);
+        let mut out = PwFsKitCreated {
+            object: 77,
+            file: 88,
+            ..Default::default()
+        };
+        let sentinel = out;
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create(
+                    volume,
+                    1,
+                    b"null".as_ptr(),
+                    4,
+                    0,
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                )
+            },
+            -1
+        );
+        let mut found = 99;
+        assert_eq!(
+            unsafe { pw_lookup(volume, 1, b"null".as_ptr(), 4, &mut found) },
+            -2
+        );
+        assert_eq!(found, 99);
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create(volume, 1, b"bad".as_ptr(), 3, 2, std::ptr::null(), &mut out)
+            },
+            -1
+        );
+        assert_eq!(out, sentinel);
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create(
+                    volume,
+                    1,
+                    b"../escape".as_ptr(),
+                    9,
+                    0,
+                    std::ptr::null(),
+                    &mut out,
+                )
+            },
+            -1
+        );
+        assert_eq!(out, sentinel);
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create(
+                    volume,
+                    1,
+                    b"file".as_ptr(),
+                    4,
+                    0,
+                    std::ptr::null(),
+                    &mut out,
+                )
+            },
+            0
+        );
+        assert!(out.file > 0);
+        assert_eq!(out.attributes.file_id, out.object as u64 + 1);
+        assert_eq!(
+            (
+                out.attributes.kind,
+                out.attributes.links,
+                out.attributes.metadata_valid
+            ),
+            (0, 1, u32::from(v2))
+        );
+        let file = out;
+        let mut parent_before = PwMetadata::default();
+        if v2 {
+            assert_eq!(unsafe { pw_metadata_get(volume, 1, &mut parent_before) }, 0);
+            assert_eq!(out.attributes.metadata.mode, 0o600);
+        }
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create(
+                    volume,
+                    1,
+                    b"FILE".as_ptr(),
+                    4,
+                    0,
+                    std::ptr::null(),
+                    &mut out,
+                )
+            },
+            -3
+        );
+        assert_eq!(out, file);
+        if v2 {
+            let mut after = PwMetadata::default();
+            assert_eq!(unsafe { pw_metadata_get(volume, 1, &mut after) }, 0);
+            assert_eq!(after, parent_before);
+        }
+        assert_eq!(pw_volume_close(volume), -7);
+        let mut count = 99;
+        assert_eq!(
+            unsafe { pw_file_write(volume, file.file, 0, b"pin".as_ptr(), 3, &mut count) },
+            0
+        );
+        assert_eq!(unsafe { pw_remove(volume, 1, b"file".as_ptr(), 4, 0) }, 0);
+        let mut bytes = [0; 8];
+        assert_eq!(
+            unsafe { pw_posix_file_read(volume, file.file, 0, bytes.as_mut_ptr(), 8, &mut count) },
+            -1
+        );
+        assert_eq!(
+            unsafe { pw_file_read(volume, file.file, 0, bytes.as_mut_ptr(), 8, &mut count) },
+            0
+        );
+        assert_eq!(&bytes[..count], b"pin");
+        assert_eq!(pw_file_close(volume, file.file), 0);
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create(volume, 1, b"dir".as_ptr(), 3, 1, std::ptr::null(), &mut out)
+            },
+            0
+        );
+        assert_eq!((out.file, out.attributes.kind), (0, 1));
+        assert_eq!(pw_volume_close(volume), 0);
+    }
+}
+
+#[test]
+fn fskit_create_file_admission_includes_policy_and_admin_handles_before_namespace_change() {
+    let s = Scratch::new();
+    let (volume, writer, reader, object) = request_volume(&s);
+    let mut handles = Vec::new();
+    for _ in 0..4094 {
+        let mut h = 0;
+        assert_eq!(unsafe { pw_file_open(volume, object, &mut h) }, 0);
+        handles.push(h);
+    }
+    let mut before = PwMetadata::default();
+    assert_eq!(unsafe { pw_metadata_get(volume, 1, &mut before) }, 0);
+    let mut out = PwFsKitCreated {
+        object: 77,
+        file: 88,
+        ..Default::default()
+    };
+    let sentinel = out;
+    assert_eq!(
+        unsafe {
+            pw_fskit_node_create(
+                volume,
+                1,
+                b"absent".as_ptr(),
+                6,
+                0,
+                std::ptr::null(),
+                &mut out,
+            )
+        },
+        -14
+    );
+    assert_eq!(out, sentinel);
+    let mut found = 99;
+    assert_eq!(
+        unsafe { pw_lookup(volume, 1, b"absent".as_ptr(), 6, &mut found) },
+        -2
+    );
+    let mut after = PwMetadata::default();
+    assert_eq!(unsafe { pw_metadata_get(volume, 1, &mut after) }, 0);
+    assert_eq!(before, after);
+    assert_eq!(
+        unsafe {
+            pw_fskit_node_create(
+                volume,
+                1,
+                b"directory".as_ptr(),
+                9,
+                1,
+                std::ptr::null(),
+                &mut out,
+            )
+        },
+        0
+    );
+    assert_eq!(out.file, 0);
+    for h in handles {
+        assert_eq!(pw_file_close(volume, h), 0);
+    }
+    assert_eq!(
+        unsafe {
+            pw_fskit_node_create(
+                volume,
+                1,
+                b"resumed".as_ptr(),
+                7,
+                0,
+                std::ptr::null(),
+                &mut out,
+            )
+        },
+        0
+    );
+    assert_eq!(pw_file_close(volume, out.file), 0);
+    assert_eq!(pw_posix_file_close(volume, writer), 0);
+    assert_eq!(pw_posix_file_close(volume, reader), 0);
+    assert_eq!(pw_volume_close(volume), 0);
+}

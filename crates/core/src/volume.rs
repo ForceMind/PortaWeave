@@ -621,6 +621,15 @@ impl Volume {
         self.handles.insert(handle, id);
         Ok(handle)
     }
+    pub(crate) fn reserve_file_handle(&self) -> Result<Handle> {
+        if self.handles.len() >= crate::MAX_POSIX_FILES {
+            return Err(Error::ResourceLimit);
+        }
+        Ok(Handle(token()?))
+    }
+    pub(crate) fn publish_file_handle(&mut self, handle: Handle, id: FileId) {
+        self.handles.insert(handle, id);
+    }
     pub(crate) fn object(&self, handle: Handle) -> Result<FileId> {
         self.handles
             .get(&handle)

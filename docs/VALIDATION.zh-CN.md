@@ -180,3 +180,11 @@ PR #26 已验收：准确 head `513170fef5bbc16de8d0f1047fdb13bf580a465f` / tree
 Work Linux full default/all-feature workspace、clippy/fmt、真实 C caller/C++17 header 及本地四阶段交接实际通过。新增 attribute_replies 核心 all-feature 4/default 2 项，native ABI 新增 2 项（累计 13），覆盖 v1 元数据缺席、v2/mixed/root、投影拒绝和提交前后故障、完整属性/generation/重开、expected object 和管理/策略 token 隔离。本地交接新增 ATTRIBUTE_REPLY_HANDOVER_OK，仍不冒充其他 OS。
 
 FSKit SDK 合同新增 root/no-op/metadata-only/v1 回执精度与有效位检查。Work Linux 不提供 Swift/FSKit 编译证据；准确 SDK 运行、App/Extension build、Windows 回归及真实跨 OS artifact 返回，以本增量 PR 的 source SHA/CI 为准，不预报 PASS。原生身份/ACL/共享/缓存/Flush、真正挂载/Codex 正常沙盒/越界、物理 exFAT/USB/断电门禁仍未通过。
+
+## 2026-10-25 续研：M0-P 原子创建
+
+重新核验主线已由 #27 推进至 #29 合并 `3c215486c3660259b0ee18b2b69ad678f50b4ee4`，14 项检查全通过、无未合并 PR。保留新 Disk Studio 只读镜像检查器、Cargo/workflow 更新与安全边界，继续 .pwvol 原生主线。
+
+Work Linux full default/all-feature workspace（含 partition-inspector）实际通过；新增 create_replies 为 5/3 项，native ABI 新增 2 项累计 15，覆盖共享 4096 准入、失败输出/名字/父时间不变、提交前后故障、创建后 unlink 与 pin 释放。clippy/fmt、实际 C caller/C++17 header、Python 9 项通过；默认套件初次有故障特性专用 import warning，修正后对应套件与 lint 通过。本地四阶段新增 CREATE_REPLY_HANDOVER_OK，不算其他 OS。
+
+SDK 新预算耗尽合同、完整 App/Extension 构建、MSVC 和真实 artifact 交接必须以本增量准确源码 CI 验证；实现存在不预报 PASS。没有安装/启用驱动、创建系统挂载、操作物理盘或关闭沙盒；所有原生权限/共享/缓存/同步、Codex 真卷和物理介质门禁保留 BLOCKED/NOT_RUN。

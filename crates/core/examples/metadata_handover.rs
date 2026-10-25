@@ -1,8 +1,8 @@
 //! Same opt-in v2 bytes through Linux -> macOS -> Windows -> Linux.
 //! Artifact handover only: no mount, exFAT medium or caller authorization.
 use portaweave_core::{
-    Access, CreateAttributes, Credentials, Error as CoreError, FileAccess, MetadataUpdate, ROOT,
-    Timestamp, Volume, WritePosition,
+    Access, CreateAttributes, Credentials, Error as CoreError, FileAccess, Kind, MetadataUpdate,
+    ROOT, Timestamp, Volume, WritePosition,
 };
 use std::{error::Error, path::Path};
 type TestResult = Result<(), Box<dyn Error>>;
@@ -28,8 +28,10 @@ fn stage_time(stage: u8) -> Timestamp {
 }
 fn seed(path: &Path) -> TestResult {
     let mut v = Volume::create_with_metadata(path, 1 << 24, ROOT_ATTR)?;
-    let id = v.create_file_with_attributes(ROOT, "code", FILE_ATTR)?;
-    let h = v.open_file(id)?;
+    let created = v.create_node_with_reply(ROOT, "code", Kind::File, Some(FILE_ATTR), Ok)?;
+    assert_eq!(created.reply, v.object_info(created.object)?);
+    let id = created.object;
+    let h = created.handle.ok_or("missing creation pin")?;
     v.write(h, 0, b"stage-0")?;
     v.close_file(h)?;
     v.set_metadata(
@@ -74,7 +76,20 @@ fn seed(path: &Path) -> TestResult {
     v.close_file(h)?;
     v.verify()?;
     verify_policy(&mut v)?;
+    verify_creation(&mut v)?;
     println!("METADATA_HANDOVER_SEED_OK {:?}", identity.uuid);
+    Ok(())
+}
+fn verify_creation(v: &mut Volume) -> TestResult {
+    let created = v.create_node_with_reply(ROOT, "temporary-create", Kind::File, None, Ok)?;
+    assert_eq!(created.reply, v.object_info(created.object)?);
+    let h = created.handle.ok_or("missing creation pin")?;
+    v.write(h, 0, b"pinned")?;
+    v.unlink(ROOT, "temporary-create")?;
+    assert_eq!(v.read(h, 0, 6)?, b"pinned");
+    v.close_file(h)?;
+    assert!(matches!(v.stat(created.object), Err(CoreError::NotFound)));
+    println!("CREATE_REPLY_HANDOVER_OK (new process-local pin; no native mount)");
     Ok(())
 }
 fn verify_policy(v: &mut Volume) -> TestResult {
@@ -150,6 +165,7 @@ fn verify_policy(v: &mut Volume) -> TestResult {
 fn handover(path: &Path, expected: u8, next: Option<u8>) -> TestResult {
     let mut v = Volume::open(path)?;
     verify_policy(&mut v)?;
+    verify_creation(&mut v)?;
     let identity = v.volume_identity()?;
     let marker = v.lookup(ROOT, "identity")?;
     let mh = v.open_file(marker)?;

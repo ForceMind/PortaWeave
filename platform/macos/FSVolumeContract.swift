@@ -240,6 +240,50 @@ struct FSVolumeContract {
         print("FSVOLUME_COMMITTED_ATTRIBUTES_CONTRACT_OK (precommit attribute replies; no post-commit query or native authorization)")
         print("FSVOLUME_SETATTR_CONTRACT_OK (atomic v2 callbacks/creation; caller authorization remains closed)")
     }
+    static func creationContract(_ url: URL) throws {
+        var native: UInt64 = 0
+        var rootAttributes = PwCreateAttributes(uid: 501, gid: 20, mode: 0o750, reserved: 0)
+        let path = Data(url.path.utf8)
+        try pwCheck(path.withUnsafeBytes {
+            pw_volume_create_with_metadata($0.bindMemory(to: UInt8.self).baseAddress,
+                                           path.count, 134_217_728, &rootAttributes, &native)
+        })
+        try pwCheck(pw_volume_close(native))
+        let volume = try PortaWeaveVolume(laboratoryContainerURL: url)
+        let source = try create(volume, "source", volume.session.rootItem)
+        try require(source.handle != nil && source.object > 1, "created file lost atomic pin/identity")
+        try require(try lookup(volume, "SOURCE", volume.session.rootItem) === source, "created item was not cached")
+        var handles: [UInt64] = []
+        try volume.session.synchronized {
+            for _ in 0..<4095 {
+                var token: UInt64 = 0
+                try pwCheck(pw_file_open(volume.session.volume, source.object, &token))
+                handles.append(token)
+            }
+        }
+        let request = FSItem.GetAttributesRequest()
+        request.wantedAttributes = [.modifyTime, .changeTime]
+        let before: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: volume.session.rootItem, replyHandler: $0) }
+        let denied = FSItem.SetAttributesRequest()
+        denied.invalidateAllProperties()
+        denied.mode = 0o600
+        try expect(.ENOMEM) { done in
+            volume.createItem(named: FSFileName(string: "absent"), type: .file, inDirectory: volume.session.rootItem,
+                              attributes: denied) { _, _, error in done(error) }
+        }
+        try require(denied.consumedAttributes.isEmpty, "failed admission consumed creation fields")
+        try expect(.ENOENT) { done in volume.lookupItem(named: FSFileName(string: "absent"), inDirectory: volume.session.rootItem) { _, _, error in done(error) } }
+        let after: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: volume.session.rootItem, replyHandler: $0) }
+        try require(before.modifyTime.tv_sec == after.modifyTime.tv_sec && before.modifyTime.tv_nsec == after.modifyTime.tv_nsec && before.changeTime.tv_sec == after.changeTime.tv_sec && before.changeTime.tv_nsec == after.changeTime.tv_nsec, "failed admission changed parent times")
+        let directory = try create(volume, "directory", volume.session.rootItem, type: .directory)
+        try require(directory.handle == nil, "directory creation allocated a file pin")
+        try volume.session.synchronized { for handle in handles { try pwCheck(pw_file_close(volume.session.volume, handle)) } }
+        let resumed = try create(volume, "resumed", volume.session.rootItem)
+        try expect(.EBUSY) { volume.deactivate(options: [], replyHandler: $0) }
+        for item in [source, directory, resumed] { try success { volume.reclaimItem(item, replyHandler: $0) } }
+        try success { volume.deactivate(options: [], replyHandler: $0) }
+        print("FSVOLUME_ATOMIC_CREATE_CONTRACT_OK (reserved grant/cache admission; no OS caller or mount certification)")
+    }
     static func main() throws {
         do {
             try pwCheck(Int32(PW_DENIED))
@@ -429,6 +473,7 @@ struct FSVolumeContract {
         })
         try pwCheck(pw_volume_close(reopened))
         try metadataContract(url.appendingPathExtension("metadata"))
+        try creationContract(url.appendingPathExtension("creation"))
         print("FSVOLUME_CALLBACK_CONTRACT_OK (SDK callbacks/core ABI; no installation or OS mount)")
     }
 }

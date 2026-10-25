@@ -22,6 +22,7 @@ mod volume;
 
 pub use error::{Error, Result};
 pub use metadata::{CreateAttributes, Metadata, MetadataUpdate, Timestamp, VolumeIdentity};
+pub use namespace::CreatedNode;
 pub use permissions::{
     Access, Credentials, FileAccess, FileInfo, FileWriteResult, MAX_POSIX_FILES,
     MAX_SUPPLEMENTARY_GROUPS, PosixFile, PosixReadView, PosixSession,
