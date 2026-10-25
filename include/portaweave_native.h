@@ -18,7 +18,8 @@ enum {
   PW_EXISTS = -3, PW_NOT_DIR = -4, PW_IS_DIR = -5, PW_NOT_EMPTY = -6,
   PW_BUSY = -7, PW_NO_SPACE = -8, PW_QUOTA = -9, PW_READ_ONLY = -10,
   PW_UNSUPPORTED = -11, PW_CORRUPT = -12, PW_IO = -13, PW_RESOURCE = -14,
-  PW_INTERNAL = -15, PW_BUFFER_TOO_SMALL = -16, PW_DENIED = -17
+  PW_INTERNAL = -15, PW_BUFFER_TOO_SMALL = -16, PW_DENIED = -17,
+  PW_STALE = -18 /* checked namespace identity changed; no mutation/protection */
 };
 
 typedef struct PwStat {
@@ -285,6 +286,20 @@ int32_t pw_file_truncate(uint64_t volume, uint64_t file, uint64_t size);
  */
 int32_t pw_file_truncate_with_metadata(uint64_t volume, uint64_t file, uint64_t size, const PwMetadataUpdate *update);
 int32_t pw_remove(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, uint8_t directory);
+/* Trusted ADMIN APIs, not caller authorization. Check cached identities again
+ * within the mutation transaction, rather than lookup then blindly remove or
+ * rename in a second call. Missing/replaced expected entries return STALE.
+ * target=0 requires absence except a case-only same-entry rename; positive
+ * target requires that exact inode. Distinct hard-link aliases stay distinct
+ * entries. Source/positive target identities must be >0; negative is INVALID.
+ * Business success and later maintenance health remain separate. Old raw APIs
+ * keep their original unconditional semantics. No native mount gate is opened.
+ */
+int32_t pw_remove_checked(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len,
+                           uint8_t directory, int64_t expected_object);
+int32_t pw_rename_checked(uint64_t volume, int64_t from_parent, const uint8_t *from, size_t from_len,
+                           int64_t to_parent, const uint8_t *to, size_t to_len,
+                           int64_t expected_source, int64_t expected_target);
 int32_t pw_rename(uint64_t volume, int64_t from_parent, const uint8_t *from_name, size_t from_len,
                   int64_t to_parent, const uint8_t *to_name, size_t to_len, uint8_t replace);
 int32_t pw_hard_link(uint64_t volume, int64_t object, int64_t parent, const uint8_t *name, size_t name_len);

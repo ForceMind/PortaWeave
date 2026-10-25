@@ -67,6 +67,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 43. M1-N descriptor metadata uses CURRENT trusted owner/group authority independently of open-time data rights; do not reopen its path or turn WRITE into chmod/chown permission. M0-R SetBasicInfo leaves DOS attributes unchanged only with INVALID_FILE_ATTRIBUTES, treats zero times as unchanged and rejects unsupported flags/explicit ctime/time-control sentinels before mutation. Keep the pure reply projection before commit, failed outputs unchanged and health separate. Test-only metadata_caller claims are not Windows SID/ACL/WRITE_ATTRIBUTES authentication; NULL must deny and native security/Open/Flush remain closed.
 
+44. M0-S native cached identities must be checked in the same request and rechecked in the mutation transaction, not by a separate lookup before blind remove/rename. STALE refusals leave namespace/metadata/health unchanged. An absent expected target permits same-entry case changes, never a different hard-link alias; matching aliases keep no-op semantics. IDs are not authorization or full ABA generations. Administrative/policy APIs remain separate and no native mount/access/Flush gate is enabled.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

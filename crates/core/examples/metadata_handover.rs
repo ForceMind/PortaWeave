@@ -2,7 +2,7 @@
 //! Artifact handover only: no mount, exFAT medium or caller authorization.
 use portaweave_core::{
     Access, CreateAttributes, Credentials, Error as CoreError, FileAccess, Kind, MetadataUpdate,
-    NodeCreateOptions, ROOT, Timestamp, Volume, WritePosition,
+    NodeCreateOptions, ROOT, RenameExpectation, Timestamp, Volume, WritePosition,
 };
 use std::{error::Error, path::Path};
 type TestResult = Result<(), Box<dyn Error>>;
@@ -107,12 +107,18 @@ fn verify_creation(v: &mut Volume) -> TestResult {
     );
     assert_eq!(v.read(h, 0, 6)?, [0; 6]);
     v.write(h, 0, b"pinned")?;
-    v.unlink(ROOT, "temporary-create")?;
+    assert!(matches!(
+        v.remove_checked(ROOT, "temporary-create", Kind::File, ROOT),
+        Err(CoreError::StaleEntry)
+    ));
+    assert_eq!(v.lookup(ROOT, "temporary-create")?, created.object);
+    v.remove_checked(ROOT, "temporary-create", Kind::File, created.object)?;
     assert_eq!(v.read(h, 0, 6)?, b"pinned");
     v.close_file(h)?;
     assert!(matches!(v.stat(created.object), Err(CoreError::NotFound)));
     println!("CREATE_REPLY_HANDOVER_OK (new process-local pin; no native mount)");
     println!("INITIAL_STATE_HANDOVER_OK (atomic sparse size/times; no physical preallocation)");
+    println!("CHECKED_NAMESPACE_HANDOVER_OK (expected inode guard; no native mount)");
     Ok(())
 }
 fn verify_policy(v: &mut Volume) -> TestResult {
@@ -270,7 +276,16 @@ fn handover(path: &Path, expected: u8, next: Option<u8>) -> TestResult {
             Ok,
         )?;
         assert_eq!(metadata_reply, v.object_info(id)?);
-        v.rename(ROOT, "code", ROOT, "CODE", false)?;
+        v.rename_checked(
+            ROOT,
+            "code",
+            ROOT,
+            "CODE",
+            RenameExpectation {
+                source: id,
+                target: None,
+            },
+        )?;
         let mut data = identity.uuid.to_vec();
         data.push(stage);
         v.write(mh, 0, &data)?;
