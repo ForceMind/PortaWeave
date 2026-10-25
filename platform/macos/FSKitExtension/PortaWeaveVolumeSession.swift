@@ -237,6 +237,28 @@ final class PortaWeaveVolumeSession {
         return result
     }
 
+    // Native projection already checked all counts/time_t conversions before
+    // commit. Supported macOS targets and the native module are 64-bit.
+    func committedAttributes(_ values: PwFsKitAttributes, wireID: FSItem.Identifier) -> FSItem.Attributes {
+        let result = FSItem.Attributes()
+        result.invalidateAllProperties()
+        result.type = values.kind == 0 ? .file : .directory
+        result.size = values.size
+        result.fileID = wireID
+        if values.kind == 0 { result.linkCount = values.links }
+        if values.metadata_valid == 1 {
+            let metadata = values.metadata
+            result.uid = metadata.uid
+            result.gid = metadata.gid
+            result.mode = metadata.mode
+            result.birthTime = timespec(tv_sec: Int(metadata.created.seconds), tv_nsec: Int(metadata.created.nanoseconds))
+            result.accessTime = timespec(tv_sec: Int(metadata.accessed.seconds), tv_nsec: Int(metadata.accessed.nanoseconds))
+            result.modifyTime = timespec(tv_sec: Int(metadata.modified.seconds), tv_nsec: Int(metadata.modified.nanoseconds))
+            result.changeTime = timespec(tv_sec: Int(metadata.changed.seconds), tv_nsec: Int(metadata.changed.nanoseconds))
+        }
+        return result
+    }
+
     // Integer conversion keeps negative seconds and nanoseconds exact.
     private func sdkTime(_ time: PwTimestamp) throws -> timespec {
         guard time.reserved == 0, time.nanoseconds < 1_000_000_000,

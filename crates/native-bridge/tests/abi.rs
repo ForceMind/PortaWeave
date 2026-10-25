@@ -1380,3 +1380,160 @@ fn windows_io_rejects_read_only_admin_stale_and_invalid_requests_before_mutation
     assert_eq!(pw_posix_file_close(volume, reader), 0);
     assert_eq!(pw_volume_close(volume), 0);
 }
+
+#[test]
+fn fskit_admin_setters_capture_attributes_and_reject_policy_tokens_or_wrong_objects() {
+    let s = Scratch::new();
+    let (volume, writer, reader, object) = request_volume(&s);
+    let mut raw = 0;
+    assert_eq!(unsafe { pw_file_open(volume, object, &mut raw) }, 0);
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pw_file_write(volume, raw, 0, b"abcdef".as_ptr(), 6, &mut count) },
+        0
+    );
+    let mut before = PwFileInfo::default();
+    assert_eq!(
+        unsafe { pw_posix_file_info(volume, reader, &mut before) },
+        0
+    );
+    let mut update = PwMetadataUpdate {
+        valid: 4 | 32,
+        mode: 0o6751,
+        modified: PwTimestamp {
+            seconds: -123,
+            nanoseconds: 999_999_999,
+            reserved: 0,
+        },
+        ..Default::default()
+    };
+    let mut reply = PwFsKitAttributes {
+        size: 77,
+        ..Default::default()
+    };
+    let sentinel = reply;
+    assert_eq!(
+        unsafe { pw_fskit_file_set_attributes(volume, writer, object, 0, &update, &mut reply) },
+        -1
+    );
+    assert_eq!(
+        unsafe { pw_fskit_file_set_attributes(volume, raw, object + 1, 0, &update, &mut reply) },
+        -1
+    );
+    assert_eq!(reply, sentinel);
+    let mut after = PwFileInfo::default();
+    assert_eq!(unsafe { pw_posix_file_info(volume, reader, &mut after) }, 0);
+    assert_eq!(after, before);
+    assert_eq!(
+        unsafe {
+            pw_fskit_file_set_attributes(volume, raw, object, 0, &update, std::ptr::null_mut())
+        },
+        -1
+    );
+    assert_eq!(
+        unsafe {
+            pw_fskit_file_set_attributes(volume, raw, object, 0, std::ptr::null(), &mut reply)
+        },
+        -1
+    );
+    assert_eq!(reply, sentinel);
+    assert_eq!(
+        unsafe { pw_fskit_file_set_attributes(volume, raw, object, 3, &update, &mut reply) },
+        0
+    );
+    assert_eq!(
+        (
+            reply.file_id,
+            reply.kind,
+            reply.size,
+            reply.links,
+            reply.metadata_valid,
+            reply.reserved
+        ),
+        (object as u64 + 1, 0, 3, 1, 1, 0)
+    );
+    assert_eq!(reply.metadata.mode, 0o751);
+    assert_eq!(reply.metadata.modified, update.modified);
+    assert_eq!(unsafe { pw_posix_file_info(volume, reader, &mut after) }, 0);
+    assert_eq!(after.stat.generation, before.stat.generation + 1);
+    assert_eq!(reply.metadata, after.metadata);
+    update = PwMetadataUpdate::default();
+    let old_reply = reply;
+    assert_eq!(
+        unsafe { pw_fskit_metadata_set(volume, object, &update, &mut reply) },
+        0
+    );
+    assert_eq!(reply, old_reply);
+    assert_eq!(
+        unsafe { pw_posix_file_info(volume, reader, &mut before) },
+        0
+    );
+    assert_eq!(before, after);
+    update.valid = 4;
+    update.mode = 0o710;
+    assert_eq!(
+        unsafe { pw_fskit_metadata_set(volume, 1, &update, &mut reply) },
+        0
+    );
+    assert_eq!(
+        (reply.file_id, reply.kind, reply.links, reply.metadata.mode),
+        (2, 1, 0, 0o710)
+    );
+    assert_eq!(pw_file_close(volume, raw), 0);
+    assert_eq!(
+        unsafe { pw_fskit_file_set_attributes(volume, raw, object, 0, &update, &mut reply) },
+        -1
+    );
+    assert_eq!(pw_posix_file_close(volume, reader), 0);
+    assert_eq!(pw_posix_file_close(volume, writer), 0);
+    assert_eq!(pw_volume_close(volume), 0);
+}
+
+#[test]
+fn fskit_v1_size_reply_does_not_invent_metadata_or_accept_nonempty_updates() {
+    let s = Scratch::new();
+    let mut volume = 0;
+    let mut object = 0;
+    let mut raw = 0;
+    assert_eq!(
+        unsafe { pw_volume_create(s.path().as_ptr(), s.path().len(), 1024, &mut volume) },
+        0
+    );
+    assert_eq!(
+        unsafe { pw_file_create(volume, 1, b"file".as_ptr(), 4, &mut object) },
+        0
+    );
+    assert_eq!(unsafe { pw_file_open(volume, object, &mut raw) }, 0);
+    let mut update = PwMetadataUpdate::default();
+    let mut reply = PwFsKitAttributes::default();
+    assert_eq!(
+        unsafe { pw_fskit_file_set_attributes(volume, raw, object, 10, &update, &mut reply) },
+        0
+    );
+    assert_eq!(
+        (reply.size, reply.file_id, reply.metadata_valid),
+        (10, object as u64 + 1, 0)
+    );
+    assert_eq!(reply.metadata, PwMetadata::default());
+    let old = reply;
+    update.valid = 4;
+    update.mode = 0o777;
+    assert_eq!(
+        unsafe { pw_fskit_file_set_attributes(volume, raw, object, 0, &update, &mut reply) },
+        -11
+    );
+    assert_eq!(reply, old);
+    assert_eq!(
+        unsafe { pw_fskit_metadata_set(volume, object, &update, &mut reply) },
+        -11
+    );
+    assert_eq!(reply, old);
+    update = PwMetadataUpdate::default();
+    assert_eq!(
+        unsafe { pw_fskit_metadata_set(volume, object, &update, &mut reply) },
+        0
+    );
+    assert_eq!(reply, old);
+    assert_eq!(pw_file_close(volume, raw), 0);
+    assert_eq!(pw_volume_close(volume), 0);
+}

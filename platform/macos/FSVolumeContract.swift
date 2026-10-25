@@ -128,6 +128,13 @@ struct FSVolumeContract {
         try require(volume.session.persistentIdentity == expectedUUID, "v2 UUID lost on SDK bridge")
         try require(volume.supportedVolumeCapabilities.supportsPersistentObjectIDs, "v2 persistent IDs missing")
         try require(!volume.supportedVolumeCapabilities.doesNotSupportSettingFilePermissions, "v2 stored mode setter unavailable")
+        let rootNoop = FSItem.SetAttributesRequest()
+        rootNoop.invalidateAllProperties()
+        let rootGeneration = try volume.session.synchronized { try volume.session.status(volume.session.rootItem).generation }
+        let rootValues: FSItem.Attributes = try waitValue { volume.setAttributes(rootNoop, on: volume.session.rootItem, replyHandler: $0) }
+        try require(rootValues.fileID.rawValue == 2 && rootValues.uid == 501 && rootValues.mode == 0o750, "root no-op lost captured metadata/identity")
+        try require(rootNoop.consumedAttributes.isEmpty && !rootValues.isValid(.linkCount), "root no-op invented consumed fields/link count")
+        try require(try volume.session.synchronized { try volume.session.status(volume.session.rootItem).generation } == rootGeneration, "no-op setter changed generation")
         let item = try lookup(volume, "EXECUTABLE", volume.session.rootItem)
         let request = FSItem.GetAttributesRequest()
         request.wantedAttributes = [.uid, .gid, .mode, .birthTime, .accessTime, .modifyTime, .changeTime]
@@ -165,6 +172,7 @@ struct FSVolumeContract {
         ownership.gid = 81
         let owned: FSItem.Attributes = try waitValue { volume.setAttributes(ownership, on: item, replyHandler: $0) }
         try require(owned.gid == 81 && ownership.wasAttributeConsumed(.gid), "metadata-only setter failed")
+        try require(owned.fileID.rawValue == UInt64(item.object) + 1 && owned.isValid(.birthTime) && owned.birthTime.tv_nsec == 999_999_999, "metadata-only reply lost captured identity/precision")
         try success { volume.openItem(item, modes: [.read, .write], replyHandler: $0) }
         let generation = try volume.session.synchronized { try volume.session.status(item).generation }
         let mixed = FSItem.SetAttributesRequest()
@@ -229,6 +237,7 @@ struct FSVolumeContract {
         try require(reopened.session.identity != volume.session.identity, "session tag incorrectly persisted")
         try success { reopened.deactivate(options: [], replyHandler: $0) }
         print("FSVOLUME_METADATA_CONTRACT_OK (v2 stored attributes/UUID; no OS permission or mount certification)")
+        print("FSVOLUME_COMMITTED_ATTRIBUTES_CONTRACT_OK (precommit attribute replies; no post-commit query or native authorization)")
         print("FSVOLUME_SETATTR_CONTRACT_OK (atomic v2 callbacks/creation; caller authorization remains closed)")
     }
     static func main() throws {
@@ -273,6 +282,7 @@ struct FSVolumeContract {
         size.size = 4
         let resized: FSItem.Attributes = try waitValue { volume.setAttributes(size, on: file, replyHandler: $0) }
         try require(resized.size == 4 && size.wasAttributeConsumed(.size), "size change was not consumed")
+        try require(resized.fileID.rawValue == UInt64(file.object) + 1 && !resized.isValid(.uid), "v1 reply invented metadata or lost identity")
         let mode = FSItem.SetAttributesRequest()
         mode.invalidateAllProperties()
         mode.mode = 0o777

@@ -1,6 +1,6 @@
 //! Opt-in v2 metadata, stored in the SAME SQLite transactions as content/names.
 //! These trusted APIs do not authenticate a caller or implement OS permissions.
-use crate::{Error, FileId, Kind, Result, Volume, catalog::CatalogVersion};
+use crate::{Error, FileId, Kind, ObjectInfo, Result, Volume, catalog::CatalogVersion};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -270,12 +270,31 @@ impl Volume {
     /// Trusted core API only: adapters must authorize ownership/mode/time changes.
     /// No automatic access-time updates yet. Empty updates do not change ctime.
     pub fn set_metadata(&mut self, id: FileId, update: MetadataUpdate) -> Result<()> {
+        self.set_metadata_request(id, update, |_, _, _| Ok(()))
+    }
+    /// Trusted setter with pure, fallible reply construction before commit.
+    pub fn set_metadata_with_reply<T>(
+        &mut self,
+        id: FileId,
+        update: MetadataUpdate,
+        reply: impl FnOnce(ObjectInfo) -> Result<T>,
+    ) -> Result<T> {
+        self.set_metadata_request(id, update, |db, version, id| {
+            reply(ObjectInfo::at(db, version, id)?)
+        })
+    }
+    fn set_metadata_request<T>(
+        &mut self,
+        id: FileId,
+        update: MetadataUpdate,
+        reply: impl FnOnce(&Connection, CatalogVersion, FileId) -> Result<T>,
+    ) -> Result<T> {
         self.require_metadata()?;
         validate_update(update)?;
         self.mutate(|this| {
             let stat = this.stat(id)?;
             if update == MetadataUpdate::default() {
-                return Ok(());
+                return reply(&this.db, this.catalog_version, id);
             }
             let c = Timestamp::now()?;
             let before = this.take_fault(1);
@@ -285,9 +304,10 @@ impl Volume {
                 "UPDATE objects SET generation=generation+1 WHERE id=?1",
                 [id.raw()],
             )?;
+            let result = reply(&tx, this.catalog_version, id)?;
             Self::interrupt(before)?;
             tx.commit()?;
-            Ok(())
+            Ok(result)
         })
     }
 }

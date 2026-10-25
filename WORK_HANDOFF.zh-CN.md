@@ -22,7 +22,9 @@
 
 PR #25（M1-M）已合并 `fe63c2db52308af77cd0ab9602f86f1f82da697b`，准确 head `3ad88cec27e544f003445a4b2de91b2d1c506eaa` / tree `0cae02573dd7427129254e58eeda9b7b720187ec` 17 检查通过。增加单请求追加/EOF 裁剪及事务内信息回执；同一核心写入/截断实现复用，策略 C API 的并发追加/拒绝输出有回归。准确源码 CI/合并状态以对应 PR 为准；WinFsp 回调、身份/ACL/共享/缓存/Flush 和实际挂载仍待接入验收。
 
-M0-N 衔接策略 grant 的 WinFsp GetFileInfo/Write/SetFileSize EOF、Read EOF/Close 状态和提交前 Windows 投影；allocation 请求拒绝，HardLinks 仍按固定 SDK 的未实现约束置零并 BLOCKED。准确 MSVC/回调执行与 source CI 见对应 PR；安全 Open/Flush 不开放。
+PR #26（M0-N）已合并 `832023dab77429432b7035a17ab66fec7468fd50`，准确 head `513170fef5bbc16de8d0f1047fdb13bf580a465f` / tree `ae0e59696a8ad47f013fd6d3e6e450f2f638e0fb` 17 检查通过，主线 14 项也通过；真实 MSVC job 121154954006 输出 WINFSP_GRANTED_IO_CONTRACT_OK。衔接策略 grant 的 WinFsp GetFileInfo/Write/SetFileSize EOF、Read EOF/Close 状态和提交前 Windows 投影；allocation 请求拒绝，HardLinks 仍按固定 SDK 的未实现约束置零并 BLOCKED。准确 MSVC/回调执行与 source CI 见对应 PR；安全 Open/Flush 不开放。
+
+M0-O 修复 FSKit setattr 提交后再次查询回执的错误路径；通过事务内 ObjectInfo/纯投影验证 ID/数量/时间，成功后不再查询或 throws 转换。v1 size 明确没有元数据，管理/策略 token 分离，expected object 错配在提交前回滚；准确 SDK/source CI 见对应 PR，access/load/mount 不开放。
 
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 

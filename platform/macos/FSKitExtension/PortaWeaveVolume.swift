@@ -107,25 +107,27 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
                 guard !unsupported.contains(where: { attributes.isValid($0) }) else {
                     throw POSIXError(.ENOTSUP)
                 }
+                // Validate the SDK identifier before mutation. Native projection
+                // validates all returned counts/times before business commit.
+                let wireID = try item.wireID()
                 var update = try self.session.metadataUpdate(attributes)
+                var committed = PwFsKitAttributes()
                 if attributes.isValid(.size) {
                     let handle = try self.session.fileHandle(item, requiring: .write)
-                    if self.session.persistentIdentity != nil {
-                        try pwCheck(pw_file_truncate_with_metadata(self.session.volume, handle, attributes.size, &update))
-                    } else {
-                        try pwCheck(pw_file_truncate(self.session.volume, handle, attributes.size))
-                    }
-                    attributes.consumedAttributes.insert(.size)
-                } else if update.valid != 0 {
-                    try pwCheck(pw_metadata_set(self.session.volume, item.object, &update))
+                    try pwCheck(pw_fskit_file_set_attributes(
+                        self.session.volume, handle, item.object, attributes.size, &update, &committed))
+                } else {
+                    try pwCheck(pw_fskit_metadata_set(
+                        self.session.volume, item.object, &update, &committed))
                 }
+                // No database read or fallible conversion follows known success.
+                let result = self.session.committedAttributes(committed, wireID: wireID)
+                if attributes.isValid(.size) { attributes.consumedAttributes.insert(.size) }
                 for attribute in [FSItem.Attribute.uid, .gid, .mode, .birthTime, .accessTime, .modifyTime] {
                     if attributes.isValid(attribute) { attributes.consumedAttributes.insert(attribute) }
                 }
                 self.session.noteHealth()
-                let request = FSItem.GetAttributesRequest()
-                request.wantedAttributes = [.type, .size, .fileID]
-                replyHandler(try self.session.attributes(request, of: item), nil)
+                replyHandler(result, nil)
             } catch { replyHandler(nil, error) }
         }
     }

@@ -1,6 +1,6 @@
 use crate::{
-    BLOCK_SIZE, CreateAttributes, Error, MAX_IO, MetadataUpdate, Result, SpacePolicy, SpaceStatus,
-    Timestamp,
+    BLOCK_SIZE, CreateAttributes, Error, MAX_IO, Metadata, MetadataUpdate, Result, SpacePolicy,
+    SpaceStatus, Timestamp,
     catalog::CatalogVersion,
     metadata,
     owner::OwnerLock,
@@ -77,6 +77,25 @@ pub struct Stat {
     pub links: u64,
     pub generation: u64,
 }
+/// Trusted administrative object observation. v1 has no invented metadata.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectInfo {
+    pub stat: Stat,
+    pub metadata: Option<Metadata>,
+}
+impl ObjectInfo {
+    pub(crate) fn at(db: &Connection, version: CatalogVersion, id: FileId) -> Result<Self> {
+        Ok(Self {
+            stat: Volume::stat_at(db, id)?,
+            metadata: if version == CatalogVersion::MetadataV2 {
+                Some(metadata::get(db, id)?)
+            } else {
+                None
+            },
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Entry {
     pub name: String,
@@ -585,6 +604,9 @@ impl Volume {
             generation: generation as u64,
         })
     }
+    pub fn object_info(&self, id: FileId) -> Result<ObjectInfo> {
+        self.observe(ObjectInfo::at(&self.db, self.catalog_version, id))
+    }
     pub(crate) fn directory(&self, id: FileId) -> Result<()> {
         if self.stat(id)?.kind != Kind::Directory {
             return Err(Error::NotDirectory);
@@ -917,6 +939,25 @@ impl Volume {
         self.require_metadata()?;
         metadata::validate_update(update)?;
         self.truncate_internal(handle, size, update)
+    }
+    /// Trusted platform request. Empty metadata permits legacy v1 truncation;
+    /// nonempty metadata still requires v2. Projection must be pure and runs
+    /// before commit, so a refusal cannot follow a known business success.
+    pub fn truncate_with_reply<T>(
+        &mut self,
+        handle: Handle,
+        size: u64,
+        update: MetadataUpdate,
+        reply: impl FnOnce(ObjectInfo) -> Result<T>,
+    ) -> Result<T> {
+        metadata::validate_update(update)?;
+        if update != MetadataUpdate::default() {
+            self.require_metadata()?;
+        }
+        let version = self.catalog_version;
+        self.truncate_request(handle, size, update, |db, id| {
+            reply(ObjectInfo::at(db, version, id)?)
+        })
     }
     fn truncate_internal(
         &mut self,

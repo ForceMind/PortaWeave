@@ -182,7 +182,7 @@ fn handover(path: &Path, expected: u8, next: Option<u8>) -> TestResult {
         }
     );
     if let Some(stage) = next {
-        v.truncate_with_metadata(
+        let atomic_reply = v.truncate_with_reply(
             atomic_handle,
             if stage == 1 { 6 } else { 3 },
             MetadataUpdate {
@@ -191,15 +191,19 @@ fn handover(path: &Path, expected: u8, next: Option<u8>) -> TestResult {
                 modified: Some(stage_time(stage)),
                 ..Default::default()
             },
+            Ok,
         )?;
+        assert_eq!(atomic_reply, v.object_info(atomic)?);
         v.write(h, 0, format!("stage-{stage}").as_bytes())?;
-        v.set_metadata(
+        let metadata_reply = v.set_metadata_with_reply(
             id,
             MetadataUpdate {
                 modified: Some(stage_time(stage)),
                 ..Default::default()
             },
+            Ok,
         )?;
+        assert_eq!(metadata_reply, v.object_info(id)?);
         v.rename(ROOT, "code", ROOT, "CODE", false)?;
         let mut data = identity.uuid.to_vec();
         data.push(stage);
@@ -216,6 +220,9 @@ fn handover(path: &Path, expected: u8, next: Option<u8>) -> TestResult {
         identity.uuid
     );
     println!("ATOMIC_ATTRIBUTES_HANDOVER_OK incoming={expected} outgoing={next:?}");
+    println!(
+        "ATTRIBUTE_REPLY_HANDOVER_OK incoming={expected} outgoing={next:?} (core replies, not OS dispatch)"
+    );
     Ok(())
 }
 fn main() -> TestResult {
