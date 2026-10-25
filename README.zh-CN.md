@@ -21,7 +21,7 @@ cargo test --locked -p portaweave-partition-inspector
 
 ## 当前状态（2026-10-25）
 
-**M0-N WinFsp 授权文件合同与 M0-O 实验性 FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-M 原子写入/元数据核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
+**M0-N WinFsp 授权文件合同与 M0-P 实验性 FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-M 原子写入/元数据核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
 
 实现范围见 [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md)、[M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md)、[M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md)，历史测试见[验证记录](docs/VALIDATION.zh-CN.md)。确切源码版本的测试结果记录在对应 PR；实现文档不是自动的通过声明。云端三系统核心测试不等于真实 exFAT、挂载盘或 Codex 已兼容。
 
@@ -79,6 +79,10 @@ M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提�
 ## M1-L 受限读能力的范围租约
 
 只有 READ 文件能力可申请不可变范围租约，只写能力拒绝。原 FD 关闭或内容变化后仍保留原范围/EOF/字节，共用核心准入预算，释放前 volume_close 保持 BUSY。C 策略/管理 view 分表。这是进程内读能力，不是 OS mmap 或调用者身份认证。见 [M1-L](docs/IMPLEMENTATION-M1L.zh-CN.md)。
+
+## M0-P FSKit 原子创建
+
+实验 create 在修改前检查原生句柄总额、预留 token 并准备 Swift item；同一事务返回预验证属性和已持有的管理文件 pin，成功后不再二次 intern/open。准入失败不留名字、不消费字段；身份与挂载门槛仍关闭。见 [M0-P](docs/IMPLEMENTATION-M0P.zh-CN.md) 和 [ADR 0011](docs/adr/0011-created-node-pins-and-replies.md)。
 
 ## M0-O FSKit 事务内属性回执
 

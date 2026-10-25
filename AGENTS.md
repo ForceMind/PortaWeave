@@ -61,6 +61,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 40. M0-O FSKit setattr replies are projected and object/count/time validated before commit. Successful Swift paths must not re-query attributes or throw a conversion after known commit; consume fields only after success and report health separately. These C setters are administrative, reject policy-token confusion/expected-object mismatch, retain explicit v1 metadata absence, and never supply OS caller authentication or enable load/mount. Pure reply projections must not perform external side effects.
 
+41. M0-P creation admits shared file handles/tokens and prepares the pending SDK item before namespace mutation. Project the reply before commit and publish the core pin before maintenance. Never call a fallible intern/open after known creation success, publish object=0, reuse reserved identifiers or convert administrative pins into policy grants. Directory creation consumes no regular-file pin; logical admission is not exact heap/OOM protection.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

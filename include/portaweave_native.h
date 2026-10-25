@@ -185,6 +185,21 @@ int32_t pw_fskit_metadata_set(uint64_t volume, int64_t object,
 int32_t pw_fskit_file_set_attributes(uint64_t volume, uint64_t file, int64_t object, uint64_t size,
                                    const PwMetadataUpdate *update, PwFsKitAttributes *out_attributes);
 
+/* Atomic laboratory creation: optional attributes=NULL inherits legacy defaults.
+ * Reserve file admission/tokens before namespace mutation. A regular file
+ * returns an ADMINISTRATIVE pin requiring pw_file_close; directories return 0.
+ * Projection and parent metadata commit together; maintenance warnings remain
+ * separate. Failure leaves output unchanged; actual commit may be indeterminate.
+ * This is not caller authorization, exact heap reservation or a mount operation.
+ */
+typedef struct PwFsKitCreated {
+  int64_t object;
+  uint64_t file;
+  PwFsKitAttributes attributes;
+} PwFsKitCreated;
+int32_t pw_fskit_node_create(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len,
+                           uint8_t directory, const PwCreateAttributes *attributes, PwFsKitCreated *out_created);
+
 uint32_t pw_abi_version(void);
 int64_t pw_root_id(void);
 int32_t pw_volume_create(const uint8_t *path, size_t path_len, uint64_t quota, uint64_t *out_volume);

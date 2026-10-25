@@ -5,7 +5,10 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod fskit;
-pub use fskit::{PwFsKitAttributes, pw_fskit_file_set_attributes, pw_fskit_metadata_set};
+pub use fskit::{
+    PwFsKitAttributes, PwFsKitCreated, pw_fskit_file_set_attributes, pw_fskit_metadata_set,
+    pw_fskit_node_create,
+};
 mod windows;
 pub use windows::{
     PwWindowsFileInfo, PwWindowsWriteResult, pw_windows_file_info, pw_windows_file_set_size,

@@ -91,7 +91,12 @@ int main(int argc, char **argv) {
     if (identity.capabilities != 1 || (identity.uuid[6] >> 4) != 4 || (identity.uuid[8] >> 6) != 2) return 22;
     PwVolumeIdentity original_identity = identity;
     attributes.mode = 06751;
-    REQUIRE(pw_node_create_with_metadata(volume, 1, (const uint8_t *)"tool", 4, 0, &attributes, &node));
+    PwFsKitCreated created_node;
+    REQUIRE(pw_fskit_node_create(volume, 1, (const uint8_t *)"tool", 4, 0, &attributes, &created_node));
+    node = created_node.object;
+    if (!created_node.file || created_node.attributes.file_id != (uint64_t)node + 1 || created_node.attributes.metadata.mode != 06751) return 55;
+    if (pw_volume_close(volume) != PW_BUSY) return 56;
+    REQUIRE(pw_file_close(volume, created_node.file));
     REQUIRE(pw_metadata_get(volume, node, &metadata));
     if (metadata.uid != 501 || metadata.gid != 20 || metadata.mode != 06751 || metadata.reserved != 0) return 23;
     PwMetadataUpdate update = {0};

@@ -1,5 +1,8 @@
 //! Pure FSKit laboratory attribute projection. No OS caller authentication.
-use super::{Fault, OK, PwMetadata, PwMetadataUpdate, readable, required, run, with_session};
+use super::{
+    Fault, MAX_HANDLES, OK, PwCreateAttributes, PwMetadata, PwMetadataUpdate, next_token, readable,
+    required, run, text, with_session,
+};
 use portaweave_core::{Error, Kind, MetadataUpdate, ObjectInfo, Result};
 
 #[repr(C)]
@@ -97,6 +100,76 @@ pub unsafe extern "C" fn pw_fskit_file_set_attributes(
                 .truncate_with_reply(file, size, update, |info| project(info, object))
                 .map_err(Fault::from)?;
             unsafe { out.write(result) };
+            Ok(OK)
+        })
+    })
+}
+
+/// Created regular files carry an administrative pin; directories have file=0.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwFsKitCreated {
+    pub object: i64,
+    pub file: u64,
+    pub attributes: PwFsKitAttributes,
+}
+/// Reserve admission/tokens before creation; return pin/projected state together.
+/// # Safety
+/// Name and optional attributes readable/aligned, output writable/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_fskit_node_create(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    directory: u8,
+    attributes: *const PwCreateAttributes,
+    out: *mut PwFsKitCreated,
+) -> i32 {
+    run(|| {
+        required(out)?;
+        if directory > 1 {
+            return Err(Fault::invalid());
+        }
+        let name = unsafe { text(name, name_len)? };
+        let attributes = if attributes.is_null() {
+            None
+        } else {
+            Some(unsafe { attributes.read() }.core()?)
+        };
+        let parent = super::file_id(parent)?;
+        with_session(volume, |s| {
+            if directory == 0 && s.files.len() + s.policy_files.len() >= MAX_HANDLES {
+                return Err(Fault::resource());
+            }
+            let token = if directory == 0 { next_token()? } else { 0 };
+            let result = s
+                .volume
+                .create_node_with_reply(
+                    parent,
+                    name,
+                    if directory == 0 {
+                        Kind::File
+                    } else {
+                        Kind::Directory
+                    },
+                    attributes,
+                    |info| {
+                        let id = info.stat.id.raw();
+                        project(info, id)
+                    },
+                )
+                .map_err(Fault::from)?;
+            if let Some(handle) = result.handle {
+                s.files.insert(token, handle);
+            }
+            unsafe {
+                out.write(PwFsKitCreated {
+                    object: result.object.raw(),
+                    file: token,
+                    attributes: result.reply,
+                })
+            };
             Ok(OK)
         })
     })

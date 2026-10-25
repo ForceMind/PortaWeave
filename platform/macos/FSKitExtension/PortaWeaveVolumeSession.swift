@@ -31,7 +31,7 @@ func pwCheck(_ status: Int32) throws {
 
 final class PortaWeaveItem: FSItem {
     let owner: UUID
-    let object: Int64
+    private(set) var object: Int64
     let kind: UInt32
     var handle: UInt64?
     var modes: FSVolume.OpenModes = []
@@ -42,6 +42,12 @@ final class PortaWeaveItem: FSItem {
         self.kind = kind
         self.handle = handle
         super.init()
+    }
+
+    // Only a private pending creation is rebound, before it enters the cache.
+    func adoptCreated(_ created: PwFsKitCreated) {
+        object = created.object
+        handle = created.file == 0 ? nil : created.file
     }
 
     var itemType: FSItem.ItemType { kind == 0 ? .file : .directory }
@@ -159,6 +165,17 @@ final class PortaWeaveVolumeSession {
 
     func admitItem() throws {
         guard items.count < 4096 else { throw POSIXError(.EMFILE) }
+    }
+
+    func prepareCreation(kind: UInt32) throws -> PortaWeaveItem {
+        try admitItem()
+        items.reserveCapacity(items.count + 1)
+        return PortaWeaveItem(owner: identity, object: 0, kind: kind)
+    }
+
+    func publishCreation(_ item: PortaWeaveItem, created: PwFsKitCreated) {
+        item.adoptCreated(created)
+        items[created.object] = item
     }
 
     func intern(_ object: Int64, kind: UInt32) throws -> PortaWeaveItem {
