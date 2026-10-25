@@ -1,8 +1,18 @@
 use crate::{
-    CreateAttributes, Entry, Error, FileId, Handle, Kind, ObjectInfo, ROOT, Result, Timestamp,
-    Volume, catalog::CatalogVersion, metadata, names,
+    CreateAttributes, Entry, Error, FileId, Handle, Kind, MetadataUpdate, ObjectInfo, ROOT, Result,
+    Timestamp, Volume, catalog::CatalogVersion, metadata, names,
 };
 use rusqlite::{OptionalExtension, params};
+
+/// Trusted initial state. File size is logical/sparse, not reserved bytes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct NodeCreateOptions {
+    pub attributes: Option<CreateAttributes>,
+    pub size: Option<u64>,
+    pub created: Option<Timestamp>,
+    pub accessed: Option<Timestamp>,
+    pub modified: Option<Timestamp>,
+}
 
 /// A completed trusted create. Close the administrative pin explicitly.
 #[must_use = "close any returned file handle explicitly"]
@@ -106,7 +116,17 @@ impl Volume {
         kind: i64,
         attributes: Option<CreateAttributes>,
     ) -> Result<FileId> {
-        self.create_node_request(parent, name, kind, attributes, None, |_, _, id| Ok(id))
+        self.create_node_request(
+            parent,
+            name,
+            kind,
+            NodeCreateOptions {
+                attributes,
+                ..Default::default()
+            },
+            None,
+            |_, _, id| Ok(id),
+        )
     }
     /// Trusted create with a reserved file pin and pure, pre-commit projection.
     /// v1/v2 defaults remain unchanged. Not OS caller authentication.
@@ -118,6 +138,26 @@ impl Volume {
         attributes: Option<CreateAttributes>,
         reply: impl FnOnce(ObjectInfo) -> Result<T>,
     ) -> Result<CreatedNode<T>> {
+        self.create_node_with_options(
+            parent,
+            name,
+            kind,
+            NodeCreateOptions {
+                attributes,
+                ..Default::default()
+            },
+            reply,
+        )
+    }
+    /// Create initial file size and v2 times in the same namespace transaction.
+    pub fn create_node_with_options<T>(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        kind: Kind,
+        options: NodeCreateOptions,
+        reply: impl FnOnce(ObjectInfo) -> Result<T>,
+    ) -> Result<CreatedNode<T>> {
         let handle = if kind == Kind::File {
             Some(self.reserve_file_handle()?)
         } else {
@@ -127,7 +167,7 @@ impl Volume {
             parent,
             name,
             if kind == Kind::File { 0 } else { 1 },
-            attributes,
+            options,
             handle,
             |db, version, id| {
                 Ok(CreatedNode {
@@ -143,23 +183,39 @@ impl Volume {
         parent: FileId,
         name: &str,
         kind: i64,
-        attributes: Option<CreateAttributes>,
+        options: NodeCreateOptions,
         handle: Option<Handle>,
         reply: impl FnOnce(&rusqlite::Connection, CatalogVersion, FileId) -> Result<T>,
     ) -> Result<T> {
-        if let Some(a) = attributes {
+        if kind == 1 && options.size.is_some() {
+            return Err(Error::UnsupportedOperation);
+        }
+        let initial_times = MetadataUpdate {
+            created: options.created,
+            accessed: options.accessed,
+            modified: options.modified,
+            ..Default::default()
+        };
+        metadata::validate_update(initial_times)?;
+        if initial_times != MetadataUpdate::default() {
+            self.require_metadata()?;
+        }
+        if let Some(a) = options.attributes {
             self.require_metadata()?;
             a.validate()?;
         }
         self.mutate(|this| {
             this.directory(parent)?;
             let key = names::key(name)?;
+            if let Some(size) = options.size {
+                this.quota(0, size)?;
+            }
             if this.lookup_key(parent, &key)?.is_some() {
                 return Err(Error::Exists);
             }
             let attributes = if this.catalog_version == CatalogVersion::MetadataV2 {
                 let parent_attrs = this.metadata(parent)?;
-                Some(attributes.unwrap_or(CreateAttributes {
+                Some(options.attributes.unwrap_or(CreateAttributes {
                     uid: parent_attrs.uid,
                     gid: parent_attrs.gid,
                     mode: if kind == 1 { 0o700 } else { 0o600 },
@@ -170,7 +226,10 @@ impl Volume {
             let time = Timestamp::now()?;
             let before = this.take_fault(1);
             let tx = this.db.transaction()?;
-            tx.execute("INSERT INTO objects(kind) VALUES (?1)", [kind])?;
+            tx.execute(
+                "INSERT INTO objects(kind,size) VALUES (?1,?2)",
+                params![kind, options.size.unwrap_or(0) as i64],
+            )?;
             let id = tx.last_insert_rowid();
             tx.execute(
                 "INSERT INTO entries VALUES (?1,?2,?3,?4)",
@@ -178,6 +237,21 @@ impl Volume {
             )?;
             if let Some(a) = attributes {
                 metadata::insert(&tx, FileId(id), a, time)?;
+                if initial_times != MetadataUpdate::default() {
+                    metadata::apply_update(
+                        &tx,
+                        this.catalog_version,
+                        FileId(id),
+                        if kind == 0 {
+                            Kind::File
+                        } else {
+                            Kind::Directory
+                        },
+                        initial_times,
+                        time,
+                        false,
+                    )?;
+                }
             }
             metadata::touch(&tx, this.catalog_version, parent, time, true, false)?;
             let result = reply(&tx, this.catalog_version, FileId(id))?;

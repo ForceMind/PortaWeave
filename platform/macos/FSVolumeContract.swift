@@ -193,6 +193,10 @@ struct FSVolumeContract {
         createAttributes.uid = 503
         createAttributes.gid = 81
         createAttributes.mode = 0o751
+        createAttributes.size = 4
+        createAttributes.birthTime = timespec(tv_sec: -789, tv_nsec: 123_456_789)
+        createAttributes.accessTime = timespec(tv_sec: -788, tv_nsec: 999_999_999)
+        createAttributes.modifyTime = timespec(tv_sec: -787, tv_nsec: 987_654_321)
         let created: FSItem = try waitValue { done in
             volume.createItem(named: FSFileName(string: "created"), type: .file, inDirectory: volume.session.rootItem,
                               attributes: createAttributes) { item, _, error in done(item, error) }
@@ -200,17 +204,31 @@ struct FSVolumeContract {
         let createdValues: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: created, replyHandler: $0) }
         try require(createdValues.uid == 503 && createdValues.gid == 81 && createdValues.mode == 0o751, "creation attributes not stored")
         try require(createAttributes.wasAttributeConsumed(.uid) && createAttributes.wasAttributeConsumed(.gid) && createAttributes.wasAttributeConsumed(.mode), "creation attrs not consumed")
+        try require(createdValues.size == 4 && createdValues.birthTime.tv_sec == -789 && createdValues.birthTime.tv_nsec == 123_456_789 && createdValues.accessTime.tv_sec == -788 && createdValues.modifyTime.tv_nsec == 987_654_321, "initial creation state lost")
+        for attribute in [FSItem.Attribute.size, .birthTime, .accessTime, .modifyTime] {
+            try require(createAttributes.wasAttributeConsumed(attribute), "initial state not consumed")
+        }
+        try success { volume.openItem(created, modes: .read, replyHandler: $0) }
+        try require(try readBack(volume, created) == Data(repeating: 0, count: 4), "initial sparse file not zero")
+        try success { volume.closeItem(created, modes: [], replyHandler: $0) }
         try success { volume.removeItem(created, named: FSFileName(string: "created"), fromDirectory: volume.session.rootItem, replyHandler: $0) }
         try success { volume.reclaimItem(created, replyHandler: $0) }
         let badCreate = FSItem.SetAttributesRequest()
         badCreate.invalidateAllProperties()
         badCreate.mode = 0o751
-        badCreate.birthTime = timespec(tv_sec: 1, tv_nsec: 0)
+        badCreate.changeTime = timespec(tv_sec: 1, tv_nsec: 0)
         try expect(.ENOTSUP) { done in
             volume.createItem(named: FSFileName(string: "absent"), type: .file, inDirectory: volume.session.rootItem,
                               attributes: badCreate) { _, _, error in done(error) }
         }
         try require(badCreate.consumedAttributes.isEmpty, "unsupported create partly consumed")
+        let invalidInitial = FSItem.SetAttributesRequest()
+        invalidInitial.invalidateAllProperties()
+        invalidInitial.size = 4
+        invalidInitial.birthTime = timespec(tv_sec: 1, tv_nsec: 1_000_000_000)
+        try expect(.EINVAL) { done in volume.createItem(named: FSFileName(string: "absent"), type: .file,
+            inDirectory: volume.session.rootItem, attributes: invalidInitial) { _, _, error in done(error) } }
+        try require(invalidInitial.consumedAttributes.isEmpty, "invalid initial time partly consumed")
         try expect(.ENOENT) { done in volume.lookupItem(named: FSFileName(string: "absent"), inDirectory: volume.session.rootItem) { _, _, error in done(error) } }
         try success { done in volume.createLink(to: item, named: FSFileName(string: "alias"), inDirectory: volume.session.rootItem) { _, e in done(e) } }
         let alias = try lookup(volume, "alias", volume.session.rootItem)
@@ -237,6 +255,7 @@ struct FSVolumeContract {
         try require(reopened.session.identity != volume.session.identity, "session tag incorrectly persisted")
         try success { reopened.deactivate(options: [], replyHandler: $0) }
         print("FSVOLUME_METADATA_CONTRACT_OK (v2 stored attributes/UUID; no OS permission or mount certification)")
+        print("FSVOLUME_INITIAL_STATE_CONTRACT_OK (single creation size/times; no OS authorization or mount)")
         print("FSVOLUME_COMMITTED_ATTRIBUTES_CONTRACT_OK (precommit attribute replies; no post-commit query or native authorization)")
         print("FSVOLUME_SETATTR_CONTRACT_OK (atomic v2 callbacks/creation; caller authorization remains closed)")
     }
@@ -282,6 +301,33 @@ struct FSVolumeContract {
         try expect(.EBUSY) { volume.deactivate(options: [], replyHandler: $0) }
         for item in [source, directory, resumed] { try success { volume.reclaimItem(item, replyHandler: $0) } }
         try success { volume.deactivate(options: [], replyHandler: $0) }
+        let legacyURL = url.appendingPathExtension("v1")
+        try makeContainer(legacyURL)
+        let legacy = try PortaWeaveVolume(laboratoryContainerURL: legacyURL)
+        let initial = FSItem.SetAttributesRequest()
+        initial.invalidateAllProperties()
+        initial.size = 5
+        let initialItem: FSItem = try waitValue { done in
+            legacy.createItem(named: FSFileName(string: "initial"), type: .file, inDirectory: legacy.session.rootItem,
+                              attributes: initial) { item, _, error in done(item, error) }
+        }
+        try require(initial.wasAttributeConsumed(.size), "v1 initial size not consumed")
+        try success { legacy.openItem(initialItem, modes: .read, replyHandler: $0) }
+        try require(try readBack(legacy, initialItem) == Data(repeating: 0, count: 5), "v1 initial zeros lost")
+        try success { legacy.closeItem(initialItem, modes: [], replyHandler: $0) }
+        try success { legacy.reclaimItem(initialItem, replyHandler: $0) }
+        let dirSize = FSItem.SetAttributesRequest()
+        dirSize.invalidateAllProperties()
+        dirSize.size = 0
+        try expect(.ENOTSUP) { done in legacy.createItem(named: FSFileName(string: "absent"), type: .directory,
+            inDirectory: legacy.session.rootItem, attributes: dirSize) { _, _, error in done(error) } }
+        try require(dirSize.consumedAttributes.isEmpty, "directory size consumed")
+        let invalidTime = FSItem.SetAttributesRequest()
+        invalidTime.invalidateAllProperties()
+        invalidTime.birthTime = timespec(tv_sec: 1, tv_nsec: 1_000_000_000)
+        try expect(.ENOTSUP) { done in legacy.createItem(named: FSFileName(string: "absent"), type: .file,
+            inDirectory: legacy.session.rootItem, attributes: invalidTime) { _, _, error in done(error) } }
+        try success { legacy.deactivate(options: [], replyHandler: $0) }
         print("FSVOLUME_ATOMIC_CREATE_CONTRACT_OK (reserved grant/cache admission; no OS caller or mount certification)")
     }
     static func main() throws {

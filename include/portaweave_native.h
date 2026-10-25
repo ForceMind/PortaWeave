@@ -200,6 +200,21 @@ typedef struct PwFsKitCreated {
 int32_t pw_fskit_node_create(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len,
                            uint8_t directory, const PwCreateAttributes *attributes, PwFsKitCreated *out_created);
 
+/* Optional initial state, committed WITH the new name. File size is logical
+ * sparse zeros, subject to quota, NOT physical preallocation. v1 accepts size
+ * only; explicit times require v2. Directory size (even zero) is unsupported.
+ * valid bits: 1=size, 2=created, 4=accessed, 8=modified. Unknown bits/reserved
+ * timestamps reject. ctime is engine-controlled; initial mode is preserved.
+ */
+typedef struct PwCreateState {
+  uint64_t valid, size;
+  PwTimestamp created, accessed, modified;
+} PwCreateState;
+enum { PW_CREATE_SIZE=1, PW_CREATE_CREATED=2, PW_CREATE_ACCESSED=4, PW_CREATE_MODIFIED=8 };
+int32_t pw_fskit_node_create_with_state(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len,
+                                      uint8_t directory, const PwCreateAttributes *attributes,
+                                      const PwCreateState *state, PwFsKitCreated *out_created);
+
 uint32_t pw_abi_version(void);
 int64_t pw_root_id(void);
 int32_t pw_volume_create(const uint8_t *path, size_t path_len, uint64_t quota, uint64_t *out_volume);

@@ -307,13 +307,17 @@ final class PortaWeaveVolumeSession {
     // Explicit laboratory creation attributes; no OS caller credential inference.
     func creationAttributes(_ request: FSItem.SetAttributesRequest, parent: PortaWeaveItem,
                             directory: Bool) throws -> PwCreateAttributes? {
-        let supported: FSItem.Attribute = [.uid, .gid, .mode]
+        var supported: FSItem.Attribute = [.uid, .gid, .mode, .birthTime, .accessTime, .modifyTime]
+        if !directory { supported.insert(.size) }
+        let ownership: FSItem.Attribute = [.uid, .gid, .mode]
+        let times: FSItem.Attribute = [.birthTime, .accessTime, .modifyTime]
         var hasAttributes = false
         for bit in 0..<18 {
             let attribute = FSItem.Attribute(rawValue: 1 << bit)
             if request.isValid(attribute) {
                 guard supported.contains(attribute) else { throw POSIXError(.ENOTSUP) }
-                hasAttributes = true
+                if ownership.contains(attribute) { hasAttributes = true }
+                if times.contains(attribute) && persistentIdentity == nil { throw POSIXError(.ENOTSUP) }
             }
         }
         guard persistentIdentity != nil else {
@@ -327,6 +331,15 @@ final class PortaWeaveVolumeSession {
         return PwCreateAttributes(uid: request.isValid(.uid) ? request.uid : inherited.uid,
                                   gid: request.isValid(.gid) ? request.gid : inherited.gid,
                                   mode: mode, reserved: 0)
+    }
+
+    func creationState(_ request: FSItem.SetAttributesRequest) throws -> PwCreateState {
+        var state = PwCreateState()
+        if request.isValid(.size) { state.valid |= UInt64(PW_CREATE_SIZE); state.size = request.size }
+        if request.isValid(.birthTime) { state.valid |= UInt64(PW_CREATE_CREATED); state.created = try nativeTime(request.birthTime) }
+        if request.isValid(.accessTime) { state.valid |= UInt64(PW_CREATE_ACCESSED); state.accessed = try nativeTime(request.accessTime) }
+        if request.isValid(.modifyTime) { state.valid |= UInt64(PW_CREATE_MODIFIED); state.modified = try nativeTime(request.modifyTime) }
+        return state
     }
 
     func invalidateEnumerations() {

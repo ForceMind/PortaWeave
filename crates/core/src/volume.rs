@@ -817,7 +817,7 @@ impl Volume {
         }
         Ok(out)
     }
-    fn quota(&self, old: u64, new: u64) -> Result<()> {
+    pub(crate) fn quota(&self, old: u64, new: u64) -> Result<()> {
         let used: i64 =
             self.db
                 .query_row("SELECT COALESCE(SUM(size),0) FROM objects", [], |r| {

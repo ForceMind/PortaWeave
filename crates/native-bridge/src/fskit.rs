@@ -3,7 +3,9 @@ use super::{
     Fault, MAX_HANDLES, OK, PwCreateAttributes, PwMetadata, PwMetadataUpdate, next_token, readable,
     required, run, text, with_session,
 };
-use portaweave_core::{Error, Kind, MetadataUpdate, ObjectInfo, Result};
+use portaweave_core::{
+    Error, Kind, MetadataUpdate, NodeCreateOptions, ObjectInfo, Result, Timestamp,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -105,6 +107,44 @@ pub unsafe extern "C" fn pw_fskit_file_set_attributes(
     })
 }
 
+/// Explicit initial fields. Unset values do not override creation defaults.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwCreateState {
+    pub valid: u64,
+    pub size: u64,
+    pub created: super::PwTimestamp,
+    pub accessed: super::PwTimestamp,
+    pub modified: super::PwTimestamp,
+}
+impl PwCreateState {
+    fn core(
+        self,
+        attributes: Option<portaweave_core::CreateAttributes>,
+    ) -> super::FResult<NodeCreateOptions> {
+        if self.valid & !15 != 0
+            || [self.created, self.accessed, self.modified]
+                .iter()
+                .any(|t| t.reserved != 0)
+        {
+            return Err(Fault::invalid());
+        }
+        let time = |flag, t: super::PwTimestamp| {
+            (self.valid & flag != 0).then_some(Timestamp {
+                seconds: t.seconds,
+                nanoseconds: t.nanoseconds,
+            })
+        };
+        Ok(NodeCreateOptions {
+            attributes,
+            size: (self.valid & 1 != 0).then_some(self.size),
+            created: time(2, self.created),
+            accessed: time(4, self.accessed),
+            modified: time(8, self.modified),
+        })
+    }
+}
+
 /// Created regular files carry an administrative pin; directories have file=0.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -126,6 +166,33 @@ pub unsafe extern "C" fn pw_fskit_node_create(
     attributes: *const PwCreateAttributes,
     out: *mut PwFsKitCreated,
 ) -> i32 {
+    unsafe {
+        pw_fskit_node_create_with_state(
+            volume,
+            parent,
+            name,
+            name_len,
+            directory,
+            attributes,
+            &PwCreateState::default(),
+            out,
+        )
+    }
+}
+/// Atomic initial logical size and v2 times. Directory size is unsupported.
+/// # Safety
+/// Name/attributes/state readable/aligned, output writable/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_fskit_node_create_with_state(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    directory: u8,
+    attributes: *const PwCreateAttributes,
+    state: *const PwCreateState,
+    out: *mut PwFsKitCreated,
+) -> i32 {
     run(|| {
         required(out)?;
         if directory > 1 {
@@ -137,6 +204,8 @@ pub unsafe extern "C" fn pw_fskit_node_create(
         } else {
             Some(unsafe { attributes.read() }.core()?)
         };
+        readable(state, 1)?;
+        let options = unsafe { state.read() }.core(attributes)?;
         let parent = super::file_id(parent)?;
         with_session(volume, |s| {
             if directory == 0 && s.files.len() + s.policy_files.len() >= MAX_HANDLES {
@@ -145,7 +214,7 @@ pub unsafe extern "C" fn pw_fskit_node_create(
             let token = if directory == 0 { next_token()? } else { 0 };
             let result = s
                 .volume
-                .create_node_with_reply(
+                .create_node_with_options(
                     parent,
                     name,
                     if directory == 0 {
@@ -153,7 +222,7 @@ pub unsafe extern "C" fn pw_fskit_node_create(
                     } else {
                         Kind::Directory
                     },
-                    attributes,
+                    options,
                     |info| {
                         let id = info.stat.id.raw();
                         project(info, id)

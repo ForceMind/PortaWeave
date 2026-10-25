@@ -6,7 +6,7 @@
 
 `pw_fskit_node_create` 在核心创建前检查管理+策略句柄总额 4096 并预留原生 token。返回对象、已持有的管理文件 pin 与预验证属性，目录 file=0；失败不写输出。Swift 在修改前分配 pending FSItem/准备 Dictionary 容量，成功后只绑定新 ID/pin、发布 cache 和消费支持字段；不会二次 intern/open。未发布的 object=0 不会交给 FSKit，已发布对象身份不再更改。此处是有界逻辑准入，不是精确堆字节预留；进程 OOM/abort 或 indeterminate commit 仍需依靠原有恢复。
 
-新 API 是可信管理操作，不能把返回 pin 当作 POSIX READ/WRITE grant 或 OS 身份认证。仍不支持创建时 size/time、符号链接/xattr；access/probe/load/activate/mount 不开放。目录 pin/原生生命周期完整语义和真实挂载必须另测。
+新 API 是可信管理操作，不能把返回 pin 当作 POSIX READ/WRITE grant 或 OS 身份认证。本阶段未支持的创建时 size/v2 time 后续由 M0-Q 接入；符号链接/xattr 仍未完成；access/probe/load/activate/mount 不开放。目录 pin/原生生命周期完整语义和真实挂载必须另测。
 
 新增核心 5/3 项（all-feature/default）：v1/v2、目录无文件 pin、创建后 unlink 保留内容、拒绝/冲突/非法名字无项与父元数据变化、4096 核心总预算、BeforeCommit 回滚无 pin、AfterCommit 维护失败完整回执/可关闭 pin/重开。native 新增 2 项（累计 15），包括管理/策略总预算不足时名字和父属性不变、目录不占文件额度、空输出与 token 类型隔离。真实 C caller 调用原子创建并验证 BUSY/显式关闭；交接程序每进程重新创建临时 pin，unlink 后读回再释放，新增 CREATE_REPLY_HANDOVER_OK。
 
