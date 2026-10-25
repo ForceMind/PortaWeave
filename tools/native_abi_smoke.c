@@ -184,6 +184,24 @@ int main(int argc, char **argv) {
     if (windows_write.offset != 6 || windows_write.written != 1 || windows_write.info.file_size != 7) return 51;
     REQUIRE(pw_windows_file_set_size(volume, writer, 6, &windows_info));
     if (windows_info.file_size != 6 || pw_windows_file_write(volume, writer, 0, (const uint8_t *)"bad", 3, 0, NULL) != PW_INVALID) return 52;
+    PwWindowsBasicInfo basic = {UINT32_MAX, 0, 1, UINT64_C(116444736000000007), UINT64_C(116444735999999999), 0};
+    REQUIRE(pw_windows_file_set_basic_info(volume, reader, &owner, &basic, &windows_info));
+    if (windows_info.creation_time != 1 || windows_info.last_access_time != UINT64_C(116444736000000007) ||
+        windows_info.last_write_time != UINT64_C(116444735999999999) || windows_info.file_size != 6) return 58;
+    REQUIRE(pw_metadata_get(volume, protected_node, &metadata));
+    if (metadata.created.seconds != -INT64_C(11644473600) || metadata.created.nanoseconds != 100 ||
+        metadata.accessed.seconds != 0 || metadata.accessed.nanoseconds != 700 ||
+        metadata.modified.seconds != -1 || metadata.modified.nanoseconds != 999999900) return 59;
+    if (pw_windows_file_set_basic_info(volume, writer, &other, &basic, &windows_info) != PW_DENIED) return 60;
+    basic.file_attributes = 0x80; /* No persistent DOS flags; cannot accept NORMAL as a fake no-op. */
+    if (pw_windows_file_set_basic_info(volume, writer, &owner, &basic, &windows_info) != PW_UNSUPPORTED ||
+        windows_info.creation_time != 1) return 61;
+    update.valid = PW_META_MODIFIED;
+    update.modified.seconds = -123;
+    update.modified.nanoseconds = 987654321;
+    REQUIRE(pw_posix_file_set_metadata_info(volume, reader, &owner, &update, &request_info));
+    if (request_info.object != protected_node || request_info.stat.size != 6 ||
+        request_info.metadata.modified.nanoseconds != 987654321) return 62;
     if (pw_posix_file_write_request(volume, writer, 0, (const uint8_t *)"bad", 3, 0, NULL) != PW_INVALID ||
         pw_posix_file_write_request(volume, reader, 0, NULL, 0, PW_WRITE_APPEND, &request_result) != PW_DENIED) return 49;
     count = 99;

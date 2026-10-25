@@ -196,3 +196,13 @@ PR #30 已验收：准确 head `1c123ced61b17a294f01ee91a44aa0fa40e77ae8` / tree
 Work Linux full default/all-feature workspace（含 Disk Studio）实际通过，新 create_state 核心 4/2 项、native ABI 新增 1 项累计 16；clippy/fmt、真实 C caller/C++17 header 和本地四阶段 INITIAL_STATE_HANDOVER_OK 通过。初次构建遇到 quota 私有访问和示例缺 import，修正后再检查，未放宽 lint 或测试。
 
 实际 SDK 初始大小/时间/消费位/零读、v1 限制、非法字段与目录 size 拒绝，完整 App/Extension、MSVC、同一 artifact 往返及恢复，以本增量 PR 的准确源码 CI 为准。未安装或启用任何驱动，原生身份/ACL/共享/缓存/完整同步、真实挂载/Codex 正常沙盒及物理介质继续未通过。
+
+PR #31 最终源码 `529e1bb4188c52338e934b5183f127496a04ee41` / tree `3069c956240e6cff0e15d3f312f046963e3d2c4e` 全部 17 项通过，合并 `4df50732072fed346f458d66112bfd0f7b16f0a0`。2026-10-26 再次通过 GitHub 连接读取该 main 的 14 项全部 completed/success，无未合并 PR。此次核验没有改变既有挂载/安全限制。
+
+## 2026-10-26 续研：M1-N / M0-R 文件属性授权与 Windows 基本时间
+
+Work 云端 Linux 实际 full default/all-feature workspace（包含 Disk Studio）、clippy `-D warnings`、fmt、真实 C caller、C++17 公共头及布局检查、Python 9 项通过。新增核心 descriptor_metadata all-feature 5/default 4 项、native ABI 4 项（原 ABI 16 项另行保留，总计 20 项）和 FILETIME 单元 1 项。覆盖当前 owner/组/setid、只读数据 grant、换主拒绝、活 unlinked inode、投影拒绝、提交前后故障、输出哨兵、所有时间/属性拒绝、token 与重开。初次测试引用了不存在的 C 函数旧名称，改为现有 pw_node_create_with_metadata 后通过；没有放宽 lint。
+
+真实 C caller 输出 NATIVE_C_ABI_OK。一次附加检查误把 C 测试源按 C++ 的 missing-field-initializers 规则编译而失败；公共头随后用独立 C++17 translation unit、同样的 `-Wall -Wextra -Werror` 与结构布局断言验证通过，C 测试继续作为 C11 编译，没有抑制警告或改写既有测试初始化。Work 本地四阶段 descriptor metadata artifact 例程通过，阶段名不计作其他 OS 证据。
+
+Windows 实际 MSVC 回调/Dispatcher、macOS SDK/App/Extension 回归与真实跨 OS artifact 返回必须核验本增量准确源码 CI。标记 WINFSP_BASIC_INFO_CONTRACT_OK 只证明直接回调合同，DESCRIPTOR_METADATA_HANDOVER_OK 只证明各进程重新授权的核心交接。安全 Open/权限/Flush 继续关闭；没有 runtime/驱动/签名/实际挂载的项目继续 BLOCKED/NOT_RUN，Codex 正常沙盒/越界和物理 exFAT/USB/断电不提升为通过。对应 PR 记录准确 source/tree、Actions、失败和合并核验。

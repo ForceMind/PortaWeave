@@ -30,6 +30,8 @@ PR #27（M0-O）已合并 `98675503ba6e80a765b697842f546eb459ace12d`，准确 he
 
 M0-Q 衔接同事务初始逻辑大小（稀疏零读）和 v2 birth/access/modify time；v1 仅 size，目录 size 明确不支持。generation=0、配额/格式/时间拒绝、提交前后故障和 pin 保持均有回归；准确 source/SDK/build/交接 CI 见对应 PR。不改 schema、不开放 OS 权限/load/mount。
 
+M1-N / M0-R（2026-10-26）继续当前主线：活策略文件的当前属性授权与提交前回执，C 通用 metadata-info API，以及固定 WinFsp SetBasicInfo 创建/访问/修改时间合同。只读数据 grant 不妨碍当前 owner 修改属性，旧 WRITE 不绕过 chown；DOS flags/显式 ctime/控制时间值在修改前拒绝。测试 metadata_caller 必须显式且 NULL 拒绝，不是 SID/ACL/WRITE_ATTRIBUTES；原生安全/Open/Flush 继续关闭。准确 source/tree/三平台 CI、MSVC 与 artifact 返回以对应 PR 为准。
+
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 
 ## 不可降低的目标

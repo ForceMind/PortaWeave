@@ -18,3 +18,5 @@ Primary review references: POSIX open/descriptor access and ownership restrictio
 - https://pubs.opengroup.org/onlinepubs/9699919799.2013edition/functions/chown.html
 
 Native Windows ACLs/SIDs, FSKit caller/kernel delegation, protected backing access, symlinks, locks, notifications, range-lease policy and real mounted testing remain separate work.
+
+M1-N (2026-10-26) adds a metadata-only request on an existing live policy file. Current owner/group rules still apply independently of data rights, while a new pathname/ancestor lookup would incorrectly revoke already-open inode access after unlink or directory changes. The same metadata transaction builds FileInfo and runs any pure fallible platform projection before commit. Empty requests preserve generation/ctime. The additive C info API returns that completed result; the Windows bridge uses a separate projection. This is not native WRITE_ATTRIBUTES or SID/ACL authorization and opens no native gate.

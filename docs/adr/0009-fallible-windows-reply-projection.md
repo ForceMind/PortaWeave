@@ -16,3 +16,5 @@ Primary sources reviewed 2026-10-25:
 - Pinned callback and FILE_INFO declarations: https://github.com/winfsp/winfsp/blob/ddca7bd5481857a65ba552f643b8776fd070836f/inc/winfsp/winfsp.h and https://github.com/winfsp/winfsp/blob/ddca7bd5481857a65ba552f643b8776fd070836f/inc/winfsp/fsctl.h
 - FILETIME epoch/units: https://learn.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-filetime
 - Selected conversion range: https://learn.microsoft.com/en-us/windows/win32/api/timezoneapi/nf-timezoneapi-filetimetosystemtime
+
+M0-R (2026-10-26) extends the same pre-commit projection to ordinary-file SetBasicInfo. Zero time arguments mean unchanged, so setters accept nonzero ticks in [1, INT64_MAX]; input conversion preserves exact 100 ns units. DOS attributes must be INVALID_FILE_ATTRIBUTES (unchanged); explicit change time and unsupported per-handle time-control sentinels refuse before mutation. ctime remains core-maintained. Laboratory contexts require explicit current trusted metadata claims; a missing claim denies, and a data WRITE grant never implies current metadata authority. No SID/ACL mapping, native Open/security/Flush or mount gate is enabled.

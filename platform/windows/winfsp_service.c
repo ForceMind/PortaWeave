@@ -89,7 +89,8 @@ static int PwSelfTest(void)
         callbacks.GetSecurityByName!=PwGetSecurityByName ||
         callbacks.Flush!=PwFlush || callbacks.Create!=NULL ||
         callbacks.Write!=PwWrite || callbacks.GetFileInfo!=PwGetFileInfo ||
-        callbacks.SetFileSize!=PwSetFileSize || callbacks.ReadDirectory!=NULL ||
+        callbacks.SetFileSize!=PwSetFileSize || callbacks.SetBasicInfo!=PwSetBasicInfo ||
+        callbacks.ReadDirectory!=NULL ||
         callbacks.GetSecurityByName(&mock,L"\\",NULL,NULL,NULL)!=STATUS_ACCESS_DENIED ||
         callbacks.Open(&mock,L"\\",0,0,NULL,&dummy)!=STATUS_ACCESS_DENIED ||
         callbacks.Flush(&mock,NULL,NULL)!=STATUS_NOT_SUPPORTED) {

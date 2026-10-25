@@ -11,8 +11,8 @@ pub use fskit::{
 };
 mod windows;
 pub use windows::{
-    PwWindowsFileInfo, PwWindowsWriteResult, pw_windows_file_info, pw_windows_file_set_size,
-    pw_windows_file_write,
+    PwWindowsBasicInfo, PwWindowsFileInfo, PwWindowsWriteResult, pw_windows_file_info,
+    pw_windows_file_set_basic_info, pw_windows_file_set_size, pw_windows_file_write,
 };
 
 use portaweave_core::{
@@ -834,6 +834,36 @@ pub unsafe extern "C" fn pw_posix_metadata_set(
                 .map_err(Fault::from)?
                 .set_metadata(file_id(parent)?, name, update)
                 .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
+/// Current metadata authority on a live policy file, without a path lookup.
+/// Reply is captured in the business transaction before commit/maintenance.
+/// # Safety
+/// Caller/groups/update readable, output writable/aligned/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_file_set_metadata_info(
+    volume: u64,
+    file: u64,
+    caller: *const PwCredentials,
+    update: *const PwMetadataUpdate,
+    out_info: *mut PwFileInfo,
+) -> i32 {
+    run(|| {
+        required(out_info)?;
+        let caller = unsafe { credentials(caller)? };
+        readable(update, 1)?;
+        let update = unsafe { update.read() }.core()?;
+        with_session(volume, |s| {
+            let file = *s.policy_files.get(&file).ok_or_else(Fault::invalid)?;
+            let info = s
+                .volume
+                .posix(caller)
+                .map_err(Fault::from)?
+                .set_file_metadata_request(file, update)
+                .map_err(Fault::from)?;
+            unsafe { out_info.write(info.into()) };
             Ok(OK)
         })
     })
