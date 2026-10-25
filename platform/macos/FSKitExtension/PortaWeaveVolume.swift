@@ -158,23 +158,24 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
                 let parent = try self.session.item(directory)
                 guard type == .file || type == .directory else { throw POSIXError(.ENOTSUP) }
                 let creation = try self.session.creationAttributes(attributes, parent: parent, directory: type == .directory)
+                var state = try self.session.creationState(attributes)
                 let pending = try self.session.prepareCreation(kind: type == .file ? 0 : 1)
                 let data = try self.session.data(name)
                 var created = PwFsKitCreated()
                 let status = data.withUnsafeBytes { bytes in
                     let pointer = bytes.bindMemory(to: UInt8.self).baseAddress
                     if var values = creation {
-                        return pw_fskit_node_create(self.session.volume, parent.object, pointer,
-                                                   data.count, type == .directory ? 1 : 0, &values, &created)
+                        return pw_fskit_node_create_with_state(self.session.volume, parent.object, pointer,
+                                                              data.count, type == .directory ? 1 : 0, &values, &state, &created)
                     }
-                    return pw_fskit_node_create(self.session.volume, parent.object, pointer,
-                                               data.count, type == .directory ? 1 : 0, nil, &created)
+                    return pw_fskit_node_create_with_state(self.session.volume, parent.object, pointer,
+                                                          data.count, type == .directory ? 1 : 0, nil, &state, &created)
                 }
                 try pwCheck(status)
                 // Native token/admission/projection completed before commit.
                 // Publish the already allocated item without a second open/query.
                 self.session.publishCreation(pending, created: created)
-                for attribute in [FSItem.Attribute.uid, .gid, .mode] {
+                for attribute in [FSItem.Attribute.uid, .gid, .mode, .size, .birthTime, .accessTime, .modifyTime] {
                     if attributes.isValid(attribute) { attributes.consumedAttributes.insert(attribute) }
                 }
                 self.session.noteHealth()

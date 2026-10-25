@@ -1768,3 +1768,252 @@ fn fskit_create_file_admission_includes_policy_and_admin_handles_before_namespac
     assert_eq!(pw_posix_file_close(volume, reader), 0);
     assert_eq!(pw_volume_close(volume), 0);
 }
+
+#[test]
+fn initial_creation_state_abi_validates_before_mutation_and_preserves_v1_v2_semantics() {
+    for v2 in [false, true] {
+        let s = Scratch::new();
+        let mut volume = 0;
+        let root = PwCreateAttributes {
+            uid: 100,
+            gid: 20,
+            mode: 0o750,
+            reserved: 0,
+        };
+        let rc = if v2 {
+            unsafe {
+                pw_volume_create_with_metadata(
+                    s.path().as_ptr(),
+                    s.path().len(),
+                    1 << 20,
+                    &root,
+                    &mut volume,
+                )
+            }
+        } else {
+            unsafe { pw_volume_create(s.path().as_ptr(), s.path().len(), 1 << 20, &mut volume) }
+        };
+        assert_eq!(rc, 0);
+        let mut out = PwFsKitCreated {
+            object: 77,
+            file: 88,
+            ..Default::default()
+        };
+        let sentinel = out;
+        let t = PwTimestamp {
+            seconds: -123,
+            nanoseconds: 999_999_999,
+            reserved: 0,
+        };
+        let mut state = PwCreateState {
+            valid: if v2 { 15 } else { 1 },
+            size: 7,
+            created: t,
+            accessed: t,
+            modified: t,
+        };
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create_with_state(
+                    volume,
+                    1,
+                    b"absent".as_ptr(),
+                    6,
+                    0,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    &mut out,
+                )
+            },
+            -1
+        );
+        assert_eq!(out, sentinel);
+        let mut bad = state;
+        bad.valid = 16;
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create_with_state(
+                    volume,
+                    1,
+                    b"absent".as_ptr(),
+                    6,
+                    0,
+                    std::ptr::null(),
+                    &bad,
+                    &mut out,
+                )
+            },
+            -1
+        );
+        assert_eq!(out, sentinel);
+        bad = state;
+        bad.created.reserved = 1;
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create_with_state(
+                    volume,
+                    1,
+                    b"absent".as_ptr(),
+                    6,
+                    0,
+                    std::ptr::null(),
+                    &bad,
+                    &mut out,
+                )
+            },
+            -1
+        );
+        assert_eq!(out, sentinel);
+        bad = PwCreateState {
+            valid: 1,
+            size: 1 << 21,
+            ..Default::default()
+        };
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create_with_state(
+                    volume,
+                    1,
+                    b"absent".as_ptr(),
+                    6,
+                    0,
+                    std::ptr::null(),
+                    &bad,
+                    &mut out,
+                )
+            },
+            -9
+        );
+        assert_eq!(out, sentinel);
+        bad = PwCreateState {
+            valid: 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create_with_state(
+                    volume,
+                    1,
+                    b"absent".as_ptr(),
+                    6,
+                    1,
+                    std::ptr::null(),
+                    &bad,
+                    &mut out,
+                )
+            },
+            -11
+        );
+        assert_eq!(out, sentinel);
+        let mut found = 99;
+        assert_eq!(
+            unsafe { pw_lookup(volume, 1, b"absent".as_ptr(), 6, &mut found) },
+            -2
+        );
+        assert_eq!(found, 99);
+        if !v2 {
+            bad = PwCreateState {
+                valid: 2,
+                created: t,
+                ..Default::default()
+            };
+            assert_eq!(
+                unsafe {
+                    pw_fskit_node_create_with_state(
+                        volume,
+                        1,
+                        b"absent".as_ptr(),
+                        6,
+                        0,
+                        std::ptr::null(),
+                        &bad,
+                        &mut out,
+                    )
+                },
+                -11
+            );
+            assert_eq!(out, sentinel);
+        } else {
+            bad = state;
+            bad.created.nanoseconds = 1_000_000_000;
+            assert_eq!(
+                unsafe {
+                    pw_fskit_node_create_with_state(
+                        volume,
+                        1,
+                        b"absent".as_ptr(),
+                        6,
+                        0,
+                        std::ptr::null(),
+                        &bad,
+                        &mut out,
+                    )
+                },
+                -1
+            );
+            assert_eq!(out, sentinel);
+        }
+        assert_eq!(
+            unsafe {
+                pw_fskit_node_create_with_state(
+                    volume,
+                    1,
+                    b"file".as_ptr(),
+                    4,
+                    0,
+                    std::ptr::null(),
+                    &state,
+                    &mut out,
+                )
+            },
+            0
+        );
+        assert_eq!(
+            (out.attributes.size, out.attributes.metadata_valid),
+            (7, u32::from(v2))
+        );
+        if v2 {
+            assert_eq!(
+                (
+                    out.attributes.metadata.created,
+                    out.attributes.metadata.accessed,
+                    out.attributes.metadata.modified
+                ),
+                (t, t, t)
+            );
+        }
+        let mut stat = PwStat::default();
+        assert_eq!(unsafe { pw_stat(volume, out.object, &mut stat) }, 0);
+        assert_eq!(stat.generation, 0);
+        let mut data = [9; 8];
+        let mut count = 99;
+        assert_eq!(
+            unsafe { pw_file_read(volume, out.file, 0, data.as_mut_ptr(), 8, &mut count) },
+            0
+        );
+        assert_eq!(count, 7);
+        assert_eq!(&data[..7], &[0; 7]);
+        assert_eq!(pw_file_close(volume, out.file), 0);
+        if v2 {
+            state.valid = 2;
+            assert_eq!(
+                unsafe {
+                    pw_fskit_node_create_with_state(
+                        volume,
+                        1,
+                        b"dir".as_ptr(),
+                        3,
+                        1,
+                        std::ptr::null(),
+                        &state,
+                        &mut out,
+                    )
+                },
+                0
+            );
+            assert_eq!(out.file, 0);
+            assert_eq!(out.attributes.metadata.created, t);
+        }
+        assert_eq!(pw_volume_close(volume), 0);
+    }
+}

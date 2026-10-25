@@ -2,7 +2,7 @@
 //! Artifact handover only: no mount, exFAT medium or caller authorization.
 use portaweave_core::{
     Access, CreateAttributes, Credentials, Error as CoreError, FileAccess, Kind, MetadataUpdate,
-    ROOT, Timestamp, Volume, WritePosition,
+    NodeCreateOptions, ROOT, Timestamp, Volume, WritePosition,
 };
 use std::{error::Error, path::Path};
 type TestResult = Result<(), Box<dyn Error>>;
@@ -81,15 +81,38 @@ fn seed(path: &Path) -> TestResult {
     Ok(())
 }
 fn verify_creation(v: &mut Volume) -> TestResult {
-    let created = v.create_node_with_reply(ROOT, "temporary-create", Kind::File, None, Ok)?;
+    let created = v.create_node_with_options(
+        ROOT,
+        "temporary-create",
+        Kind::File,
+        NodeCreateOptions {
+            size: Some(6),
+            created: Some(OLD),
+            accessed: Some(OLD),
+            modified: Some(OLD),
+            ..Default::default()
+        },
+        Ok,
+    )?;
     assert_eq!(created.reply, v.object_info(created.object)?);
     let h = created.handle.ok_or("missing creation pin")?;
+    assert_eq!(created.reply.stat.generation, 0);
+    assert_eq!(
+        created
+            .reply
+            .metadata
+            .ok_or("missing initial metadata")?
+            .modified,
+        OLD
+    );
+    assert_eq!(v.read(h, 0, 6)?, [0; 6]);
     v.write(h, 0, b"pinned")?;
     v.unlink(ROOT, "temporary-create")?;
     assert_eq!(v.read(h, 0, 6)?, b"pinned");
     v.close_file(h)?;
     assert!(matches!(v.stat(created.object), Err(CoreError::NotFound)));
     println!("CREATE_REPLY_HANDOVER_OK (new process-local pin; no native mount)");
+    println!("INITIAL_STATE_HANDOVER_OK (atomic sparse size/times; no physical preallocation)");
     Ok(())
 }
 fn verify_policy(v: &mut Volume) -> TestResult {

@@ -92,7 +92,13 @@ int main(int argc, char **argv) {
     PwVolumeIdentity original_identity = identity;
     attributes.mode = 06751;
     PwFsKitCreated created_node;
-    REQUIRE(pw_fskit_node_create(volume, 1, (const uint8_t *)"tool", 4, 0, &attributes, &created_node));
+    PwCreateState initial_state = {0};
+    initial_state.valid = PW_CREATE_SIZE | PW_CREATE_CREATED;
+    initial_state.size = 4;
+    initial_state.created.seconds = -321;
+    initial_state.created.nanoseconds = 111111111;
+    REQUIRE(pw_fskit_node_create_with_state(volume, 1, (const uint8_t *)"tool", 4, 0, &attributes, &initial_state, &created_node));
+    if (created_node.attributes.size != 4 || created_node.attributes.metadata.created.seconds != -321 || created_node.attributes.metadata.created.nanoseconds != 111111111) return 57;
     node = created_node.object;
     if (!created_node.file || created_node.attributes.file_id != (uint64_t)node + 1 || created_node.attributes.metadata.mode != 06751) return 55;
     if (pw_volume_close(volume) != PW_BUSY) return 56;

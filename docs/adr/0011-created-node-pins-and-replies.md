@@ -11,3 +11,5 @@ Projection refusal/BeforeCommit failure publishes neither name nor handle. Reser
 The new handles are administrative, not authenticated OS capabilities. Do not accept them as policy tokens or serialize them across owners/systems. Default v1, explicit v2 and the exact schema gate stay unchanged. FSKit access/load/mount and WinFsp security/Open/Flush remain closed. Disk Studio's separate read-only block-plane boundary is unaffected.
 
 Tests exercise genuine shared-budget exhaustion, failed output/name/parent preservation, old unlinked file lifetime, before/after-commit faults, SDK pending-item publication and native BUSY/close behavior. SDK/C/artifact success does not certify a mounted development disk or Codex sandbox.
+
+M0-Q extends the same creation transaction with optional sparse logical size and v2 initial times. Quota, format/time/range validation precedes mutation; no follow-up truncate or metadata commit is allowed. v1 size is representable without schema changes, but explicit times require v2; directory size requests reject. Initial generation remains zero and metadata does not imply native execution/permission enforcement.

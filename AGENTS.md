@@ -63,6 +63,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 41. M0-P creation admits shared file handles/tokens and prepares the pending SDK item before namespace mutation. Project the reply before commit and publish the core pin before maintenance. Never call a fallible intern/open after known creation success, publish object=0, reuse reserved identifiers or convert administrative pins into policy grants. Directory creation consumes no regular-file pin; logical admission is not exact heap/OOM protection.
 
+42. M0-Q initial file size is quota-checked sparse zero space, never physical reservation. Initialize size and supported v2 times in the creation transaction, without follow-up truncate/setattr or fake v1 metadata. Directory size is unsupported even when zero; validate times/flags before mutation. Initial mode is trusted creation state, not verified privileged execution. Native permission/load/mount gates remain closed.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

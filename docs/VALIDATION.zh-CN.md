@@ -188,3 +188,11 @@ FSKit SDK 合同新增 root/no-op/metadata-only/v1 回执精度与有效位检�
 Work Linux full default/all-feature workspace（含 partition-inspector）实际通过；新增 create_replies 为 5/3 项，native ABI 新增 2 项累计 15，覆盖共享 4096 准入、失败输出/名字/父时间不变、提交前后故障、创建后 unlink 与 pin 释放。clippy/fmt、实际 C caller/C++17 header、Python 9 项通过；默认套件初次有故障特性专用 import warning，修正后对应套件与 lint 通过。本地四阶段新增 CREATE_REPLY_HANDOVER_OK，不算其他 OS。
 
 SDK 新预算耗尽合同、完整 App/Extension 构建、MSVC 和真实 artifact 交接必须以本增量准确源码 CI 验证；实现存在不预报 PASS。没有安装/启用驱动、创建系统挂载、操作物理盘或关闭沙盒；所有原生权限/共享/缓存/同步、Codex 真卷和物理介质门禁保留 BLOCKED/NOT_RUN。
+
+PR #30 已验收：准确 head `1c123ced61b17a294f01ee91a44aa0fa40e77ae8` / tree `03d322e531c1ca3278b833eb742faed19d6ba81b` 全部 17 项 completed/success，core 40195824302、native 40195824357、bundle 40195824323、handover 40195824250、host 40195824339 / 40195821384。实际 SDK job 121176312211 输出 FSVOLUME_ATOMIC_CREATE_CONTRACT_OK；返回 job 121176775946 输出 CREATE_REPLY_HANDOVER_OK 与 v2 恢复/原件 SHA-256 保全。无未解决评审/冲突，候选与源码 tree 一致，合并 `a3df83046093b505097d0cb02954c2add3fbded7`；主线 14 项全成功（core 40196119984、native 40196120020、bundle 40196119987、handover 40196120027、host 40196119997）。
+
+## 2026-10-25 续研：M0-Q 初始创建状态
+
+Work Linux full default/all-feature workspace（含 Disk Studio）实际通过，新 create_state 核心 4/2 项、native ABI 新增 1 项累计 16；clippy/fmt、真实 C caller/C++17 header 和本地四阶段 INITIAL_STATE_HANDOVER_OK 通过。初次构建遇到 quota 私有访问和示例缺 import，修正后再检查，未放宽 lint 或测试。
+
+实际 SDK 初始大小/时间/消费位/零读、v1 限制、非法字段与目录 size 拒绝，完整 App/Extension、MSVC、同一 artifact 往返及恢复，以本增量 PR 的准确源码 CI 为准。未安装或启用任何驱动，原生身份/ACL/共享/缓存/完整同步、真实挂载/Codex 正常沙盒及物理介质继续未通过。

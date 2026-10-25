@@ -26,7 +26,9 @@ PR #26（M0-N）已合并 `832023dab77429432b7035a17ab66fec7468fd50`，准确 he
 
 PR #27（M0-O）已合并 `98675503ba6e80a765b697842f546eb459ace12d`，准确 head `3c54f674a3bfba2c11932aa6c45e8d3637bbd2f4` / tree `72f3e1cbe65751666b80ac3b4e964bd3b58097d3` 17 检查通过，主线 14 项也通过。修复 FSKit setattr 提交后再次查询回执的错误路径；通过事务内 ObjectInfo/纯投影验证 ID/数量/时间，成功后不再查询或 throws 转换。v1 size 明确没有元数据，管理/策略 token 分离，expected object 错配在提交前回滚；准确 SDK/source CI 见对应 PR，access/load/mount 不开放。
 
-最新接管基线已推进至 PR #29 合并 `3c215486c3660259b0ee18b2b69ad678f50b4ee4`，14 项主线检查通过；Disk Studio 只读检查器与 ADR 0010 保持独立范围。M0-P 继续原文件卷主线，修复 create 成功后再 intern/open 的错误路径，新增原子创建+管理 pin/回执、SDK 预分配和共享句柄准入，准确 CI/合并状态见对应 PR。
+最新接管基线已推进至 PR #29 合并 `3c215486c3660259b0ee18b2b69ad678f50b4ee4`，14 项主线检查通过；Disk Studio 只读检查器与 ADR 0010 保持独立范围。PR #30（M0-P）已合并 `a3df83046093b505097d0cb02954c2add3fbded7`，准确 head `1c123ced61b17a294f01ee91a44aa0fa40e77ae8` / tree `03d322e531c1ca3278b833eb742faed19d6ba81b` 17 检查通过、主线 14 项也通过；SDK job 121176312211 实际通过 4096 准入合同。继续原文件卷主线，修复 create 成功后再 intern/open 的错误路径，新增原子创建+管理 pin/回执、SDK 预分配和共享句柄准入，准确 CI/合并状态见对应 PR。
+
+M0-Q 衔接同事务初始逻辑大小（稀疏零读）和 v2 birth/access/modify time；v1 仅 size，目录 size 明确不支持。generation=0、配额/格式/时间拒绝、提交前后故障和 pin 保持均有回归；准确 source/SDK/build/交接 CI 见对应 PR。不改 schema、不开放 OS 权限/load/mount。
 
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 
@@ -38,7 +40,7 @@ Recovery 保全原始文件并在独立副本恢复 SQLite/WAL；普通 Volume::
 
 ## 下一阶段
 
-1. 继续原生 caller/内核权限委托，再衔接 FSKit 策略、security-scoped resource、符号链接/xattr 和真实缓存/同步。受信任目录/数据/属性/租约策略已有，但原生 callback 未绑定可信身份，不能开放；创建 size/time 仍未支持。签名及系统授权需合适的已授权环境，不把直接 SDK 调用或打包当真挂载。
+1. 继续原生 caller/内核权限委托，再衔接 FSKit 策略、security-scoped resource、符号链接/xattr 和真实缓存/同步。受信任目录/数据/属性/租约策略已有，但原生 callback 未绑定可信身份，不能开放；创建时普通文件 size 与 v2 初始时间已接入实验合同；仍缺原生 caller/完整文件元数据。签名及系统授权需合适的已授权环境，不把直接 SDK 调用或打包当真挂载。
 2. 推进 WinFsp ACL/共享/删除/缓存/同步及缺失回调；硬链接接口缺口仍 BLOCKED，需要上游或替代后端方案，不能用核心硬链接关闭。
 3. 继续核心空间预约、应急预留、SQLite VFS 故障矩阵、有界空闲维护、名称版本、明确迁移工具与完整解析器资源预算；不得静默把 v1 升成 v2。
 4. 真挂载后完成 Git/npm/pnpm/Python/Cargo/IDE/SQLite 与实际 Codex 正常沙盒的正向和越界拒绝测试，原始 backing 目录也纳入权限边界。
