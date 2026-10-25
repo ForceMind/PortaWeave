@@ -14,6 +14,8 @@ pub use windows::{
     PwWindowsBasicInfo, PwWindowsFileInfo, PwWindowsWriteResult, pw_windows_file_info,
     pw_windows_file_set_basic_info, pw_windows_file_set_size, pw_windows_file_write,
 };
+mod namespace_ops;
+pub use namespace_ops::{pw_remove_checked, pw_rename_checked};
 
 use portaweave_core::{
     Access, CreateAttributes, Credentials, Entry, Error, FileAccess, FileId, FileInfo, Handle,
@@ -50,6 +52,7 @@ const RESOURCE: i32 = -14;
 const INTERNAL: i32 = -15;
 const BUFFER_TOO_SMALL: i32 = -16;
 const DENIED: i32 = -17;
+const STALE: i32 = -18;
 
 const MAX_STRING: usize = 32 * 1024;
 const MAX_SESSIONS: usize = 16;
@@ -73,6 +76,7 @@ impl From<Error> for Fault {
             Error::HostSpace { .. } => NO_SPACE,
             Error::WriteProtected => READ_ONLY,
             Error::PermissionDenied => DENIED,
+            Error::StaleEntry => STALE,
             Error::UnsupportedFormat | Error::UnsupportedOperation => UNSUPPORTED,
             Error::Corrupt(_) => CORRUPT,
             Error::ResourceLimit | Error::RecoveryLimit => RESOURCE,

@@ -96,8 +96,109 @@ func makeContainer(_ url: URL) throws {
     try pwCheck(pw_volume_close(volume))
 }
 
+// Model another legitimate owner request after an SDK item was cached. Raw
+// backing-file modification is NOT part of this test or the owner contract.
+func replaceNativeName(_ volume: PortaWeaveVolume, _ from: String, _ to: String) throws {
+    let a = Data(from.utf8)
+    let b = Data(to.utf8)
+    try volume.session.synchronized {
+        try pwCheck(a.withUnsafeBytes { old in b.withUnsafeBytes { new in
+            pw_rename(volume.session.volume, 1, old.bindMemory(to: UInt8.self).baseAddress, a.count,
+                      1, new.bindMemory(to: UInt8.self).baseAddress, b.count, 1)
+        } })
+    }
+}
+
 @main
 struct FSVolumeContract {
+    static func checkedNamespaceContract(_ base: URL) throws {
+        for v2 in [false, true] {
+            let url = base.appendingPathExtension(v2 ? "v2" : "v1")
+            if v2 {
+                let path = Data(url.path.utf8)
+                var native: UInt64 = 0
+                var attributes = PwCreateAttributes(uid: 501, gid: 20, mode: 0o700, reserved: 0)
+                try pwCheck(path.withUnsafeBytes {
+                    pw_volume_create_with_metadata($0.bindMemory(to: UInt8.self).baseAddress,
+                                                   path.count, 134_217_728, &attributes, &native)
+                })
+                try pwCheck(pw_volume_close(native))
+            } else { try makeContainer(url) }
+            let volume = try PortaWeaveVolume(laboratoryContainerURL: url)
+            let root = volume.session.rootItem
+            let source = try create(volume, "source", root)
+            let target = try create(volume, "target", root)
+            let replacement = try create(volume, "incoming", root)
+            for item in [source, target, replacement] {
+                try success { volume.openItem(item, modes: [.read, .write], replyHandler: $0) }
+            }
+            try write(volume, source, "source bytes")
+            try write(volume, target, "old target")
+            try write(volume, replacement, "new target")
+            try replaceNativeName(volume, "incoming", "target")
+            try expect(.ESTALE) {
+                volume.removeItem(target, named: FSFileName(string: "target"), fromDirectory: root, replyHandler: $0)
+            }
+            try expect(.ESTALE) { done in
+                volume.renameItem(source, inDirectory: root, named: FSFileName(string: "source"),
+                                  to: FSFileName(string: "target"), inDirectory: root, overItem: target) { _, error in done(error) }
+            }
+            try expect(.ESTALE) { done in
+                volume.renameItem(target, inDirectory: root, named: FSFileName(string: "target"),
+                                  to: FSFileName(string: "absent"), inDirectory: root, overItem: nil) { _, error in done(error) }
+            }
+            try expect(.ESTALE) { done in
+                volume.renameItem(source, inDirectory: root, named: FSFileName(string: "source"),
+                                  to: FSFileName(string: "target"), inDirectory: root, overItem: nil) { _, error in done(error) }
+            }
+            try expect(.ESTALE) { done in
+                volume.renameItem(source, inDirectory: root, named: FSFileName(string: "source"),
+                                  to: FSFileName(string: "absent"), inDirectory: root, overItem: replacement) { _, error in done(error) }
+            }
+            try require(try lookup(volume, "target", root) === replacement, "stale request replaced the new target")
+            try require(try readBack(volume, target) == Data("old target".utf8), "stale target lost its open pin")
+            try require(try readBack(volume, source) == Data("source bytes".utf8), "stale rename changed source")
+            let spelling: FSFileName = try waitValue {
+                volume.renameItem(source, inDirectory: root, named: FSFileName(string: "source"),
+                                  to: FSFileName(string: "SOURCE"), inDirectory: root, overItem: nil, replyHandler: $0)
+            }
+            try require(spelling.string == "SOURCE", "case-only checked rename failed")
+            let _: FSFileName = try waitValue {
+                volume.createLink(to: source, named: FSFileName(string: "alias"), inDirectory: root, replyHandler: $0)
+            }
+            try expect(.ESTALE) { done in
+                volume.renameItem(source, inDirectory: root, named: FSFileName(string: "SOURCE"),
+                                  to: FSFileName(string: "alias"), inDirectory: root, overItem: nil) { _, error in done(error) }
+            }
+            let _: FSFileName = try waitValue {
+                volume.renameItem(source, inDirectory: root, named: FSFileName(string: "SOURCE"),
+                                  to: FSFileName(string: "alias"), inDirectory: root, overItem: source, replyHandler: $0)
+            }
+            try require(try lookup(volume, "SOURCE", root) === source, "two-link rename ceased to be a no-op")
+            let _: FSFileName = try waitValue {
+                volume.renameItem(source, inDirectory: root, named: FSFileName(string: "SOURCE"),
+                                  to: FSFileName(string: "target"), inDirectory: root, overItem: replacement, replyHandler: $0)
+            }
+            try require(try lookup(volume, "target", root) === source, "matching checked replacement failed")
+            try require(try readBack(volume, replacement) == Data("new target".utf8), "replacement destroyed its old open inode")
+            for item in [source, target, replacement] {
+                try success { volume.closeItem(item, modes: [], replyHandler: $0) }
+                try success { volume.reclaimItem(item, replyHandler: $0) }
+            }
+            let oldDirectory = try create(volume, "directory", root, type: .directory)
+            let newDirectory = try create(volume, "new-directory", root, type: .directory)
+            try replaceNativeName(volume, "new-directory", "directory")
+            try expect(.ESTALE) {
+                volume.removeItem(oldDirectory, named: FSFileName(string: "directory"), fromDirectory: root, replyHandler: $0)
+            }
+            try require(try lookup(volume, "directory", root) === newDirectory, "stale rmdir removed the new directory")
+            try success { volume.reclaimItem(oldDirectory, replyHandler: $0) }
+            try success { volume.removeItem(newDirectory, named: FSFileName(string: "directory"), fromDirectory: root, replyHandler: $0) }
+            try success { volume.reclaimItem(newDirectory, replyHandler: $0) }
+            try success { volume.deactivate(options: [], replyHandler: $0) }
+        }
+        print("FSVOLUME_CHECKED_NAMESPACE_CONTRACT_OK (transactional expected identities; no OS mount)")
+    }
     static func metadataContract(_ url: URL) throws {
         var native: UInt64 = 0
         var attributes = PwCreateAttributes(uid: 501, gid: 20, mode: 0o750, reserved: 0)
@@ -520,6 +621,7 @@ struct FSVolumeContract {
         try pwCheck(pw_volume_close(reopened))
         try metadataContract(url.appendingPathExtension("metadata"))
         try creationContract(url.appendingPathExtension("creation"))
+        try checkedNamespaceContract(url.appendingPathExtension("checked"))
         print("FSVOLUME_CALLBACK_CONTRACT_OK (SDK callbacks/core ABI; no installation or OS mount)")
     }
 }

@@ -24,6 +24,7 @@ func pwCheck(_ status: Int32) throws {
     case PW_RESOURCE: code = .ENOMEM
     case PW_BUFFER_TOO_SMALL: code = .EOVERFLOW
     case PW_INVALID: code = .EINVAL
+    case PW_STALE: code = .ESTALE
     default: code = .EIO
     }
     throw POSIXError(code)

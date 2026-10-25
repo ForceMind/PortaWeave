@@ -11,6 +11,8 @@ pub enum Error {
     NotEmpty,
     InvalidName,
     InvalidHandle,
+    /// A checked namespace request no longer names the expected inode/target.
+    StaleEntry,
     InvalidRange,
     /// Policy refusal, distinct from storage write protection or an I/O error.
     PermissionDenied,

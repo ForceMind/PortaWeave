@@ -43,8 +43,8 @@ int main(int argc, char **argv) {
     REQUIRE(pw_file_write(volume, handle, 0, (const uint8_t *)"HELLO", 5, &count));
     if (pw_volume_close(volume) != PW_BUSY) return 6;
     REQUIRE(pw_file_close(volume, handle));
-    REQUIRE(pw_rename(volume, 1, (const uint8_t *)"native.txt", 10,
-                      1, (const uint8_t *)"renamed.txt", 11, 0));
+    REQUIRE(pw_rename_checked(volume, 1, (const uint8_t *)"native.txt", 10,
+                              1, (const uint8_t *)"renamed.txt", 11, node, 0));
     REQUIRE(pw_read_view_read(volume, view, 1, buffer, 3, &count));
     if (count != 3 || memcmp(buffer, "ell", 3) != 0) return 12;
     PwStorageSync sync = {99, 98, 97};
@@ -80,7 +80,8 @@ int main(int argc, char **argv) {
     PwStat stat = {0};
     REQUIRE(pw_stat(volume, found, &stat));
     if (stat.kind != 0 || stat.size != 5 || stat.links != 1) return 8;
-    REQUIRE(pw_remove(volume, 1, (const uint8_t *)"renamed.txt", 11, 0));
+    if (pw_remove_checked(volume, 1, (const uint8_t *)"renamed.txt", 11, 0, node + 1000) != PW_STALE) return 63;
+    REQUIRE(pw_remove_checked(volume, 1, (const uint8_t *)"renamed.txt", 11, 0, node));
     REQUIRE(pw_volume_close(volume));
     char metadata_path[32768];
     int path_size = snprintf(metadata_path, sizeof(metadata_path), "%s-metadata", path);

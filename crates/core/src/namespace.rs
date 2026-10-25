@@ -23,10 +23,42 @@ pub struct CreatedNode<T> {
     pub reply: T,
 }
 
+/// Trusted cached identities, not authorization. None requires an absent
+/// destination, except a case-only rename of the very same directory entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RenameExpectation {
+    pub source: FileId,
+    pub target: Option<FileId>,
+}
+
+fn check_rename(
+    source: Option<FileId>,
+    target: Option<FileId>,
+    same_entry: bool,
+    expected: RenameExpectation,
+) -> Result<()> {
+    if source != Some(expected.source)
+        || if same_entry {
+            expected.target.is_some_and(|id| id != expected.source)
+        } else {
+            target != expected.target
+        }
+    {
+        return Err(Error::StaleEntry);
+    }
+    Ok(())
+}
+
 impl Volume {
     fn lookup_key(&self, parent: FileId, key: &str) -> Result<Option<FileId>> {
-        Ok(self
-            .db
+        Self::lookup_key_at(&self.db, parent, key)
+    }
+    fn lookup_key_at(
+        db: &rusqlite::Connection,
+        parent: FileId,
+        key: &str,
+    ) -> Result<Option<FileId>> {
+        Ok(db
             .query_row(
                 "SELECT object FROM entries WHERE parent=?1 AND name_key=?2",
                 params![parent.0, key],
@@ -311,38 +343,65 @@ impl Volume {
         })
     }
     pub fn unlink(&mut self, parent: FileId, name: &str) -> Result<()> {
-        self.mutate(|this| {
-            let id = this.lookup(parent, name)?;
-            if this.stat(id)?.kind != Kind::File {
-                return Err(Error::IsDirectory);
-            }
-            let time = Timestamp::now()?;
-            let tx = this.db.transaction()?;
-            tx.execute(
-                "DELETE FROM entries WHERE parent=?1 AND name_key=?2",
-                params![parent.0, names::key(name)?],
-            )?;
-            metadata::touch(&tx, this.catalog_version, parent, time, true, false)?;
-            metadata::touch(&tx, this.catalog_version, id, time, false, false)?;
-            tx.commit()?;
-            Ok(())
-        })
+        self.remove_request(parent, name, Kind::File, None)
     }
     pub fn rmdir(&mut self, parent: FileId, name: &str) -> Result<()> {
+        self.remove_request(parent, name, Kind::Directory, None)
+    }
+    /// Trusted removal, checking the cached inode in the same owner request
+    /// and again in the SQL transaction. Does not authenticate the caller.
+    pub fn remove_checked(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        kind: Kind,
+        expected: FileId,
+    ) -> Result<()> {
+        self.remove_request(parent, name, kind, Some(expected))
+    }
+    fn remove_request(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        kind: Kind,
+        expected: Option<FileId>,
+    ) -> Result<()> {
         self.mutate(|this| {
-            let id = this.lookup(parent, name)?;
-            this.directory(id)?;
-            if !this.list(id)?.is_empty() {
+            this.directory(parent)?;
+            let key = names::key(name)?;
+            let found = this.lookup_key(parent, &key)?;
+            if expected.is_some() && found != expected {
+                return Err(Error::StaleEntry);
+            }
+            let id = found.ok_or(Error::NotFound)?;
+            let actual = this.stat(id)?.kind;
+            if actual != kind {
+                return Err(if actual == Kind::Directory {
+                    Error::IsDirectory
+                } else {
+                    Error::NotDirectory
+                });
+            }
+            if kind == Kind::Directory && !this.list(id)?.is_empty() {
                 return Err(Error::NotEmpty);
             }
             let time = Timestamp::now()?;
+            let before = this.take_fault(1);
             let tx = this.db.transaction()?;
+            if expected.is_some() && Self::lookup_key_at(&tx, parent, &key)? != expected {
+                return Err(Error::StaleEntry);
+            }
             tx.execute(
                 "DELETE FROM entries WHERE parent=?1 AND name_key=?2",
-                params![parent.0, names::key(name)?],
+                params![parent.0, key],
             )?;
-            tx.execute("DELETE FROM objects WHERE id=?1", [id.0])?;
+            if kind == Kind::Directory {
+                tx.execute("DELETE FROM objects WHERE id=?1", [id.0])?;
+            } else {
+                metadata::touch(&tx, this.catalog_version, id, time, false, false)?;
+            }
             metadata::touch(&tx, this.catalog_version, parent, time, true, false)?;
+            Self::interrupt(before)?;
             tx.commit()?;
             Ok(())
         })
@@ -358,20 +417,60 @@ impl Volume {
         to: &str,
         replace: bool,
     ) -> Result<()> {
+        self.rename_request(from_parent, from, to_parent, to, replace, None)
+    }
+    /// Compare source and destination identities before replacing either name.
+    /// Expected target None requires absence; case-only same-entry rename is
+    /// allowed. A distinct hard-link alias is still a distinct directory entry.
+    pub fn rename_checked(
+        &mut self,
+        from_parent: FileId,
+        from: &str,
+        to_parent: FileId,
+        to: &str,
+        expected: RenameExpectation,
+    ) -> Result<()> {
+        self.rename_request(
+            from_parent,
+            from,
+            to_parent,
+            to,
+            expected.target.is_some(),
+            Some(expected),
+        )
+    }
+    fn rename_request(
+        &mut self,
+        from_parent: FileId,
+        from: &str,
+        to_parent: FileId,
+        to: &str,
+        replace: bool,
+        expected: Option<RenameExpectation>,
+    ) -> Result<()> {
         self.mutate(|this| {
             this.directory(from_parent)?;
             this.directory(to_parent)?;
             let old_key = names::key(from)?;
             let new_key = names::key(to)?;
-            let source = this.lookup_key(from_parent, &old_key)?.ok_or(Error::NotFound)?;
+            let source = this.lookup_key(from_parent, &old_key)?;
             let target = this.lookup_key(to_parent, &new_key)?;
             let same_entry = from_parent == to_parent && old_key == new_key;
+            if let Some(expected) = expected {
+                check_rename(source, target, same_entry, expected)?;
+            }
+            let source = source.ok_or(Error::NotFound)?;
             if same_entry {
                 let time = Timestamp::now()?;
+                let before = this.take_fault(1);
                 let tx = this.db.transaction()?;
+                if let Some(expected) = expected {
+                    check_rename(Self::lookup_key_at(&tx, from_parent, &old_key)?, Self::lookup_key_at(&tx, to_parent, &new_key)?, true, expected)?;
+                }
                 tx.execute("UPDATE entries SET display_name=?1 WHERE parent=?2 AND name_key=?3", params![to, from_parent.0, old_key])?;
                 metadata::touch(&tx, this.catalog_version, from_parent, time, true, false)?;
                 metadata::touch(&tx, this.catalog_version, source, time, false, false)?;
+                Self::interrupt(before)?;
                 tx.commit()?;
                 return Ok(());
             }
@@ -397,7 +496,11 @@ impl Volume {
                 if kind == Kind::Directory && !this.list(id)?.is_empty() { return Err(Error::NotEmpty); }
             }
             let time = Timestamp::now()?;
+            let before = this.take_fault(1);
             let tx = this.db.transaction()?;
+            if let Some(expected) = expected {
+                check_rename(Self::lookup_key_at(&tx, from_parent, &old_key)?, Self::lookup_key_at(&tx, to_parent, &new_key)?, false, expected)?;
+            }
             if let Some(id) = target {
                 tx.execute("DELETE FROM entries WHERE parent=?1 AND name_key=?2", params![to_parent.0, new_key])?;
                 if source_kind == Kind::Directory { tx.execute("DELETE FROM objects WHERE id=?1", [id.0])?; }
@@ -409,6 +512,7 @@ impl Volume {
             metadata::touch(&tx, this.catalog_version, from_parent, time, true, false)?;
             if from_parent != to_parent { metadata::touch(&tx, this.catalog_version, to_parent, time, true, false)?; }
             metadata::touch(&tx, this.catalog_version, source, time, false, false)?;
+            Self::interrupt(before)?;
             tx.commit()?;
             Ok(())
         })

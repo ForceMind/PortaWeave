@@ -206,3 +206,11 @@ Work 云端 Linux 实际 full default/all-feature workspace（包含 Disk Studio
 真实 C caller 输出 NATIVE_C_ABI_OK。一次附加检查误把 C 测试源按 C++ 的 missing-field-initializers 规则编译而失败；公共头随后用独立 C++17 translation unit、同样的 `-Wall -Wextra -Werror` 与结构布局断言验证通过，C 测试继续作为 C11 编译，没有抑制警告或改写既有测试初始化。Work 本地四阶段 descriptor metadata artifact 例程通过，阶段名不计作其他 OS 证据。
 
 Windows 实际 MSVC 回调/Dispatcher、macOS SDK/App/Extension 回归与真实跨 OS artifact 返回必须核验本增量准确源码 CI。标记 WINFSP_BASIC_INFO_CONTRACT_OK 只证明直接回调合同，DESCRIPTOR_METADATA_HANDOVER_OK 只证明各进程重新授权的核心交接。安全 Open/权限/Flush 继续关闭；没有 runtime/驱动/签名/实际挂载的项目继续 BLOCKED/NOT_RUN，Codex 正常沙盒/越界和物理 exFAT/USB/断电不提升为通过。对应 PR 记录准确 source/tree、Actions、失败和合并核验。
+
+PR #32 已验收：准确 head `ff74f2d03bb17f3f139d04aafcab781c1d156a9b` / tree `78d97780eac6132805d4fb63d3846a647810c207` 全部 17 项 completed/success。core 40220203996、native 40220203883、bundle 40220203831、handover 40220203880、host 40220203892 / 40220182438；Windows MSVC job 121249928170 实际输出 WINFSP_BASIC_INFO_CONTRACT_OK 和既有 I/O/服务标记；SDK job 121249927928 保持所有合同通过，return job 121250455799 输出 DESCRIPTOR_METADATA_HANDOVER_OK 与返回 v1/v2 原件 SHA-256 保全。候选 `4d65811bb64b968d542616a20732aab07958bc2e` 和实际合并 `f2dedd02632bb43d8fd923980e296c5782382a45` 树一致，合并前无冲突/未解决评审；主线 14 项全部 success（core 40220655217、native 40220655235、bundle 40220655216、handover 40220655314、host 40220655296）。
+
+## 2026-10-26 续研：M0-S 名字操作身份校验
+
+Work Linux full default/all-feature workspace（含 Disk Studio）、clippy/fmt、真实 C caller/C++17 公共头及 Python 9 项通过。新增核心 checked_namespace 6/4 项（all-feature/default）、ABI 3 项，总计 native ABI 23 项。核心验证 v1/v2 身份不匹配不改名字/内容/元数据/健康、case/Unicode/alias、目录/环路、前后提交故障及旧打开 inode；C 两个真实线程经 Barrier 受控替换后，使用旧身份删除/rename 返回 STALE，保护替换文件。原有未 checked 接口与名字规则保持，新增语义不冒充原生授权。
+
+C caller 输出 NATIVE_C_ABI_OK，本地四阶段例程输出 CHECKED_NAMESPACE_HANDOVER_OK。真实 macOS SDK 新合同、App/Extension 完整构建、MSVC 回归和同一 artifact 的实际跨 OS 交接需由此增量准确源码 CI 验证，精确记录在对应 PR；不从 Linux 预报平台通过，也不以 SDK/返回容器证明真实挂载。原生 caller/ACL/共享/缓存/同步/安全卸载、Codex 沙盒/越界与物理介质门禁继续 BLOCKED/NOT_RUN。

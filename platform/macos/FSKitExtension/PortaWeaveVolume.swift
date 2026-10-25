@@ -212,13 +212,11 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
             do {
                 let item = try self.session.item(raw)
                 let parent = try self.session.item(directory)
-                let (actual, _) = try self.session.lookup(name, in: parent)
-                guard actual === item else { throw POSIXError(.ESTALE) }
                 if item.kind == 1 && !item.modes.isEmpty { throw POSIXError(.EBUSY) }
                 let bytes = try self.session.data(name)
                 let status = bytes.withUnsafeBytes {
-                    pw_remove(self.session.volume, parent.object, $0.bindMemory(to: UInt8.self).baseAddress,
-                              bytes.count, item.kind == 1 ? 1 : 0)
+                    pw_remove_checked(self.session.volume, parent.object, $0.bindMemory(to: UInt8.self).baseAddress,
+                                      bytes.count, item.kind == 1 ? 1 : 0, item.object)
                 }
                 try pwCheck(status)
                 self.session.noteHealth()
@@ -237,20 +235,18 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
                 let item = try self.session.item(raw)
                 let source = try self.session.item(sourceDirectory)
                 let destination = try self.session.item(destinationDirectory)
-                let (found, _) = try self.session.lookup(sourceName, in: source)
-                guard found === item else { throw POSIXError(.ESTALE) }
+                var expectedTarget: Int64 = 0
                 if let overItem = overItem {
                     let expected = try self.session.item(overItem)
                     if expected.kind == 1 && !expected.modes.isEmpty { throw POSIXError(.EBUSY) }
-                    let (actual, _) = try self.session.lookup(destinationName, in: destination)
-                    guard expected === actual else { throw POSIXError(.ESTALE) }
+                    expectedTarget = expected.object
                 }
                 let a = try self.session.data(sourceName)
                 let b = try self.session.data(destinationName)
                 let status = a.withUnsafeBytes { old in b.withUnsafeBytes { new in
-                    pw_rename(self.session.volume, source.object, old.bindMemory(to: UInt8.self).baseAddress,
-                              a.count, destination.object, new.bindMemory(to: UInt8.self).baseAddress,
-                              b.count, overItem == nil ? 0 : 1)
+                    pw_rename_checked(self.session.volume, source.object, old.bindMemory(to: UInt8.self).baseAddress,
+                                      a.count, destination.object, new.bindMemory(to: UInt8.self).baseAddress,
+                                      b.count, item.object, expectedTarget)
                 } }
                 try pwCheck(status)
                 self.session.noteHealth()
