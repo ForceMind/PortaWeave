@@ -2,7 +2,7 @@
 //! Artifact handover only: no mount, exFAT medium or caller authorization.
 use portaweave_core::{
     Access, CreateAttributes, Credentials, Error as CoreError, FileAccess, MetadataUpdate, ROOT,
-    Timestamp, Volume,
+    Timestamp, Volume, WritePosition,
 };
 use std::{error::Error, path::Path};
 type TestResult = Result<(), Box<dyn Error>>;
@@ -117,6 +117,20 @@ fn verify_policy(v: &mut Volume) -> TestResult {
     writer.write(v, 0, b"POLICY")?;
     assert_eq!(lease.read(v, 1, 3)?, b"oli");
     writer.write(v, 0, b"policy")?;
+    let appended = writer.write_request(v, WritePosition::EndOfFile, b"!", false)?;
+    assert_eq!(
+        (appended.offset, appended.written, appended.info.stat.size),
+        (6, 1, 7)
+    );
+    assert_eq!(appended.info, writer.info(v)?);
+    let clipped = writer.write_request(v, WritePosition::Offset(6), b"XYZ", true)?;
+    assert_eq!((clipped.written, clipped.info.stat.size), (1, 7));
+    assert_eq!(writer.read(v, 0, 10)?, b"policyX");
+    let restored = writer.truncate_request(v, 6)?;
+    assert_eq!(restored, writer.info(v)?);
+    let no_change = writer.write_request(v, WritePosition::EndOfFile, b"blocked", true)?;
+    assert_eq!(no_change.written, 0);
+    assert_eq!(no_change.info, restored);
     writer.close(v)?;
     assert_eq!(lease.read(v, 1, 3)?, b"oli");
     lease.close(v)?;
@@ -125,6 +139,7 @@ fn verify_policy(v: &mut Volume) -> TestResult {
         v.lookup(ROOT, "forbidden"),
         Err(CoreError::NotFound)
     ));
+    println!("WRITE_REQUEST_HANDOVER_OK (atomic append/constrained/truncate replies; no OS mount)");
     println!("POSIX_POLICY_HANDOVER_OK (trusted claims, not native authorization)");
     println!("POSIX_DESCRIPTOR_HANDOVER_OK (read grants and current metadata privileges)");
     println!(

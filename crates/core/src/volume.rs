@@ -36,6 +36,13 @@ impl FileId {
     }
 }
 
+/// The end position is resolved while holding the exclusive owner borrow.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WritePosition {
+    Offset(u64),
+    EndOfFile,
+}
+
 pub const ROOT: FileId = FileId(1);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
@@ -555,15 +562,28 @@ impl Volume {
     }
 
     pub fn stat(&self, id: FileId) -> Result<Stat> {
-        self.observe((|| {
-            let row: Option<(i64, i64, i64, i64)> = self.db.query_row(
+        self.observe(Self::stat_at(&self.db, id))
+    }
+    pub(crate) fn stat_at(db: &Connection, id: FileId) -> Result<Stat> {
+        let row: Option<(i64, i64, i64, i64)> = db.query_row(
                 "SELECT kind,size,generation,(SELECT COUNT(*) FROM entries WHERE object=objects.id) FROM objects WHERE id=?1", [id.0],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).optional()?;
-            let (kind, size, generation, links) = row.ok_or(Error::NotFound)?;
-            if size < 0 || generation < 0 || links < 0 { return Err(Error::Corrupt("invalid object metadata".into())); }
-            let kind = match kind { 0 => Kind::File, 1 => Kind::Directory, _ => return Err(Error::Corrupt("invalid kind".into())) };
-            Ok(Stat { id, kind, size: size as u64, links: links as u64, generation: generation as u64 })
-        })())
+        let (kind, size, generation, links) = row.ok_or(Error::NotFound)?;
+        if size < 0 || generation < 0 || links < 0 {
+            return Err(Error::Corrupt("invalid object metadata".into()));
+        }
+        let kind = match kind {
+            0 => Kind::File,
+            1 => Kind::Directory,
+            _ => return Err(Error::Corrupt("invalid kind".into())),
+        };
+        Ok(Stat {
+            id,
+            kind,
+            size: size as u64,
+            links: links as u64,
+            generation: generation as u64,
+        })
     }
     pub(crate) fn directory(&self, id: FileId) -> Result<()> {
         if self.stat(id)?.kind != Kind::Directory {
@@ -808,19 +828,46 @@ impl Volume {
         Ok(())
     }
     pub fn write(&mut self, handle: Handle, offset: u64, data: &[u8]) -> Result<usize> {
+        self.write_request(
+            handle,
+            WritePosition::Offset(offset),
+            data,
+            false,
+            |_, _, count, _| Ok(count),
+        )
+    }
+    /// Resolve position, clip a constrained request and capture its reply under
+    /// one owner borrow. Reply construction occurs BEFORE commit, not after GC.
+    pub(crate) fn write_request<T>(
+        &mut self,
+        handle: Handle,
+        position: WritePosition,
+        data: &[u8],
+        constrained: bool,
+        reply: impl FnOnce(&Connection, FileId, usize, u64) -> Result<T>,
+    ) -> Result<T> {
         self.mutate(|this| {
             let id = this.object(handle)?;
+            let old = this.stat(id)?.size;
+            let offset = match position {
+                WritePosition::Offset(offset) => offset,
+                WritePosition::EndOfFile => old,
+            };
             if data.len() > MAX_IO || offset > i64::MAX as u64 {
                 return Err(Error::InvalidRange);
             }
+            let data = if constrained {
+                &data[..old.saturating_sub(offset).min(data.len() as u64) as usize]
+            } else {
+                data
+            };
             if data.is_empty() {
-                return Ok(0);
+                return reply(&this.db, id, 0, offset);
             }
             let end = offset
                 .checked_add(data.len() as u64)
                 .filter(|e| *e <= i64::MAX as u64)
                 .ok_or(Error::InvalidRange)?;
-            let old = this.stat(id)?.size;
             let new = old.max(end);
             this.quota(old, new)?;
             let first = offset / BLOCK_SIZE as u64;
@@ -850,9 +897,10 @@ impl Volume {
                 params![new as i64, id.0],
             )?;
             metadata::touch(&tx, this.catalog_version, id, time, true, true)?;
+            let result = reply(&tx, id, data.len(), offset)?;
             Self::interrupt(before)?;
             tx.commit()?;
-            Ok(data.len())
+            Ok(result)
         })
     }
     pub fn truncate(&mut self, handle: Handle, size: u64) -> Result<()> {
@@ -876,6 +924,15 @@ impl Volume {
         size: u64,
         update: MetadataUpdate,
     ) -> Result<()> {
+        self.truncate_request(handle, size, update, |_, _| Ok(()))
+    }
+    pub(crate) fn truncate_request<T>(
+        &mut self,
+        handle: Handle,
+        size: u64,
+        update: MetadataUpdate,
+        reply: impl FnOnce(&Connection, FileId) -> Result<T>,
+    ) -> Result<T> {
         self.mutate(|this| {
             let id = this.object(handle)?;
             let old = this.stat(id)?.size;
@@ -911,9 +968,10 @@ impl Volume {
                 time,
                 true,
             )?;
+            let result = reply(&tx, id)?;
             Self::interrupt(before)?;
             tx.commit()?;
-            Ok(())
+            Ok(result)
         })
     }
 

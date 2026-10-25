@@ -5,9 +5,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use portaweave_core::{
-    Access, CreateAttributes, Credentials, Entry, Error, FileAccess, FileId, Handle, Kind, MAX_IO,
-    MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, MetadataUpdate, PosixFile, PosixReadView, ROOT,
-    ReadView, Timestamp, Volume,
+    Access, CreateAttributes, Credentials, Entry, Error, FileAccess, FileId, FileInfo, Handle,
+    Kind, MAX_IO, MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, MetadataUpdate, PosixFile,
+    PosixReadView, ROOT, ReadView, Timestamp, Volume, WritePosition,
 };
 use std::{
     collections::BTreeMap,
@@ -404,6 +404,49 @@ pub struct PwMetadata {
     pub modified: PwTimestamp,
     pub changed: PwTimestamp,
 }
+/// Serialized granted-file information. Not a persistent snapshot or OS cache.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwFileInfo {
+    pub object: i64,
+    pub stat: PwStat,
+    pub metadata: PwMetadata,
+}
+impl From<FileInfo> for PwFileInfo {
+    fn from(info: FileInfo) -> Self {
+        let m = info.metadata;
+        Self {
+            object: info.stat.id.raw(),
+            stat: PwStat {
+                kind: match info.stat.kind {
+                    Kind::File => 0,
+                    Kind::Directory => 1,
+                },
+                size: info.stat.size,
+                links: info.stat.links,
+                generation: info.stat.generation,
+            },
+            metadata: PwMetadata {
+                uid: m.uid,
+                gid: m.gid,
+                mode: u32::from(m.mode),
+                reserved: 0,
+                created: m.created.into(),
+                accessed: m.accessed.into(),
+                modified: m.modified.into(),
+                changed: m.changed.into(),
+            },
+        }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwWriteResult {
+    pub written: usize,
+    pub offset: u64,
+    pub info: PwFileInfo,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PwMetadataUpdate {
@@ -626,6 +669,91 @@ pub unsafe extern "C" fn pw_posix_file_write(
                 .write(&mut s.volume, offset, data)
                 .map_err(Fault::from)?;
             unsafe { out_written.write(count) };
+            Ok(OK)
+        })
+    })
+}
+/// # Safety
+/// Output must be writable/aligned/nonaliasing for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_file_info(
+    volume: u64,
+    file: u64,
+    out_info: *mut PwFileInfo,
+) -> i32 {
+    run(|| {
+        required(out_info)?;
+        with_session(volume, |s| {
+            let file = *s.policy_files.get(&file).ok_or_else(Fault::invalid)?;
+            let info = file.info(&s.volume).map_err(Fault::from)?;
+            unsafe { out_info.write(info.into()) };
+            Ok(OK)
+        })
+    })
+}
+/// Atomic offset/append/constrained write with transaction-captured information.
+/// # Safety
+/// Data readable for length bytes, result writable/aligned/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_file_write_request(
+    volume: u64,
+    file: u64,
+    offset: u64,
+    data: *const u8,
+    length: usize,
+    flags: u32,
+    out_result: *mut PwWriteResult,
+) -> i32 {
+    run(|| {
+        required(out_result)?;
+        readable(data, length)?;
+        if length > MAX_IO || flags & !3 != 0 {
+            return Err(Fault::invalid());
+        }
+        let position = if flags & 1 != 0 {
+            WritePosition::EndOfFile
+        } else {
+            WritePosition::Offset(offset)
+        };
+        with_session(volume, |s| {
+            let file = *s.policy_files.get(&file).ok_or_else(Fault::invalid)?;
+            let data = if length == 0 {
+                &[]
+            } else {
+                unsafe { slice::from_raw_parts(data, length) }
+            };
+            let result = file
+                .write_request(&mut s.volume, position, data, flags & 2 != 0)
+                .map_err(Fault::from)?;
+            unsafe {
+                out_result.write(PwWriteResult {
+                    written: result.written,
+                    offset: result.offset,
+                    info: result.info.into(),
+                })
+            };
+            Ok(OK)
+        })
+    })
+}
+/// Capture new file information before truncate commits, not in a second query.
+/// # Safety
+/// Output must be writable/aligned/nonaliasing for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_posix_file_truncate_info(
+    volume: u64,
+    file: u64,
+    size: u64,
+    out_info: *mut PwFileInfo,
+) -> i32 {
+    run(|| {
+        required(out_info)?;
+        with_session(volume, |s| {
+            let file = *s.policy_files.get(&file).ok_or_else(Fault::invalid)?;
+            let info = file
+                .truncate_request(&mut s.volume, size)
+                .map_err(Fault::from)?;
+            unsafe { out_info.write(info.into()) };
             Ok(OK)
         })
     })

@@ -18,7 +18,9 @@
 - PR #21（M0-M）已合并 `3a5cd787519ecfba468addc5c96f9b776343c8cc`，准确 head `75a1a19d0e977d16028f216f3589ca0f8f403d5e` / tree `bb8ac4acbdd299bdd466885a0d8aaf4379bb2e9e` 17 检查通过，合并后 main 14 项也通过。FSKit v2 混合 setattr 和 uid/gid/mode 创建在实际 SDK 合同运行；access/load/mount 继续关闭。
 - PR #22（M1-J）已合并 `7ac870cd2dd98d0d2f42783a32c99addfca700ff`，准确 head `65251b0414aa71c7b0d0e8c656bc8e881504a8c7` / tree `96efea5d77f7bb4812a108fbc7ec7da66b1c63be` 17 项检查通过。`PosixSession` 实施受信任 caller 的选定目录权限、全部祖先搜索、sticky 两端替换、umask/setgid 继承，独立 PW_DENIED 映射；合成凭据不等于 OS 身份认证。
 - PR #23（M1-K）已合并 `3b89b92783bb1e7c94d2662a84071ee47e437e2f`，准确 head `0077e1660727391416b47830348830acf3ea934e` / tree `71c01f76b9e593a184179d2878173957b17c7a53` 17 项检查通过。不透明 PosixFile 数据能力、当前属性授权、两表共同 4096 限额/BUSY、旧 FD 权限及混合事务均有回归，真实交接含 descriptor 检查。
-- M1-L 为 READ grant 接入不可变范围租约，策略/管理 view 分表，保留原范围/EOF/字节并共享准入，源 FD 关闭后仍 BUSY 至释放。进程内能力不会序列化跨系统传递；每阶段重新授权测试。准确 CI/head/合并状态见对应 PR。
+- PR #24（M1-L）已合并 `8334bc538396743edf16e204e18c66d64a54b8de`，准确 head `d458f8f0123e517356f1dc1c513a79cbef703261` / tree `b57feef2397d92a9818b3add59532440ea2ef962` 17 项检查通过，主线 14 项也通过。为 READ grant 接入不可变范围租约，策略/管理 view 分表，保留原范围/EOF/字节并共享准入，源 FD 关闭后仍 BUSY 至释放。进程内能力不会序列化跨系统传递；每阶段重新授权测试。准确 CI/head/合并状态见对应 PR。
+
+M1-M 增加单请求追加/EOF 裁剪及事务内信息回执；同一核心写入/截断实现复用，策略 C API 的并发追加/拒绝输出有回归。准确源码 CI/合并状态以对应 PR 为准；WinFsp 回调、身份/ACL/共享/缓存/Flush 和实际挂载仍待接入验收。
 
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 

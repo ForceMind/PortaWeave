@@ -946,3 +946,236 @@ fn invalid_inputs_do_not_create_files_and_session_tokens_are_not_reused() {
     assert_ne!(volume, second);
     assert_eq!(pw_volume_close(second), 0);
 }
+
+fn request_volume(s: &Scratch) -> (u64, u64, u64, i64) {
+    let mut volume = 0;
+    let mut object = 0;
+    let mut writer = 0;
+    let mut reader = 0;
+    let attrs = PwCreateAttributes {
+        uid: 100,
+        gid: 20,
+        mode: 0o777,
+        reserved: 0,
+    };
+    let c = PwCredentials {
+        uid: 100,
+        gid: 20,
+        groups: std::ptr::null(),
+        group_count: 0,
+        reserved: 0,
+    };
+    unsafe {
+        assert_eq!(
+            pw_volume_create_with_metadata(
+                s.path().as_ptr(),
+                s.path().len(),
+                1 << 24,
+                &attrs,
+                &mut volume
+            ),
+            0
+        );
+        assert_eq!(
+            pw_posix_create(volume, 1, b"file".as_ptr(), 4, 0, 0o600, 0, &c, &mut object),
+            0
+        );
+        assert_eq!(
+            pw_posix_file_open(volume, 1, b"file".as_ptr(), 4, 6, &c, &mut writer),
+            0
+        );
+        assert_eq!(
+            pw_posix_file_open(volume, 1, b"file".as_ptr(), 4, 4, &c, &mut reader),
+            0
+        );
+    }
+    (volume, writer, reader, object)
+}
+
+#[test]
+fn atomic_write_request_abi_has_typed_tokens_preflight_and_unchanged_error_outputs() {
+    let s = Scratch::new();
+    let (volume, writer, reader, object) = request_volume(&s);
+    let mut info = PwFileInfo::default();
+    assert_eq!(unsafe { pw_posix_file_info(volume, reader, &mut info) }, 0);
+    assert_eq!(info.object, object);
+    assert_eq!(info.metadata.uid, 100);
+    let old = info;
+    let mut result = PwWriteResult {
+        written: 55,
+        offset: 77,
+        info: old,
+    };
+    let sentinel = result;
+    for (file, flags, pointer, length, out, expected) in [
+        (reader, 1, b"".as_ptr(), 0, &mut result as *mut _, -17),
+        (writer, 4, b"x".as_ptr(), 1, &mut result as *mut _, -1),
+        (writer, 0, std::ptr::null(), 1, &mut result as *mut _, -1),
+        (writer, 0, b"x".as_ptr(), 1, std::ptr::null_mut(), -1),
+        (
+            writer,
+            3,
+            b"x".as_ptr(),
+            16 * 1024 * 1024 + 1,
+            &mut result as *mut _,
+            -1,
+        ),
+    ] {
+        assert_eq!(
+            unsafe { pw_posix_file_write_request(volume, file, 0, pointer, length, flags, out) },
+            expected
+        );
+        assert_eq!(result, sentinel);
+    }
+    assert_eq!(unsafe { pw_posix_file_info(volume, writer, &mut info) }, 0);
+    assert_eq!(info, old);
+    assert_eq!(
+        unsafe { pw_posix_file_truncate_info(volume, reader, 0, &mut info) },
+        -17
+    );
+    assert_eq!(info, old);
+    assert_eq!(
+        unsafe { pw_posix_file_truncate_info(volume, writer, 10, std::ptr::null_mut()) },
+        -1
+    );
+    let mut raw = 0;
+    assert_eq!(unsafe { pw_file_open(volume, object, &mut raw) }, 0);
+    assert_eq!(unsafe { pw_posix_file_info(volume, raw, &mut info) }, -1);
+    assert_eq!(info, old);
+    assert_eq!(
+        unsafe { pw_posix_file_write_request(volume, raw, 0, b"x".as_ptr(), 1, 0, &mut result) },
+        -1
+    );
+    assert_eq!(result, sentinel);
+    assert_eq!(pw_file_close(volume, raw), 0);
+    assert_eq!(
+        unsafe {
+            pw_posix_file_write_request(
+                volume,
+                writer,
+                u64::MAX,
+                b"abcdef".as_ptr(),
+                6,
+                1,
+                &mut result,
+            )
+        },
+        0
+    );
+    assert_eq!(
+        (result.offset, result.written, result.info.stat.size),
+        (0, 6, 6)
+    );
+    assert_eq!(unsafe { pw_posix_file_info(volume, reader, &mut info) }, 0);
+    assert_eq!(result.info, info);
+    assert_eq!(
+        unsafe {
+            pw_posix_file_write_request(volume, writer, u64::MAX, b"no".as_ptr(), 2, 3, &mut result)
+        },
+        0
+    );
+    assert_eq!((result.offset, result.written), (6, 0));
+    assert_eq!(result.info, info);
+    assert_eq!(
+        unsafe {
+            pw_posix_file_write_request(volume, writer, 5, b"XY".as_ptr(), 2, 2, &mut result)
+        },
+        0
+    );
+    assert_eq!((result.written, result.info.stat.size), (1, 6));
+    assert_eq!(
+        unsafe { pw_posix_file_truncate_info(volume, writer, 3, &mut info) },
+        0
+    );
+    assert_eq!(info.stat.size, 3);
+    assert_eq!(info.stat.generation, result.info.stat.generation + 1);
+    assert_eq!(
+        unsafe { pw_posix_file_info(volume, writer, &mut result.info) },
+        0
+    );
+    assert_eq!(result.info, info);
+    assert_eq!(
+        unsafe {
+            pw_posix_file_write_request(volume, writer, 0, std::ptr::null(), 0, 1, &mut result)
+        },
+        0
+    );
+    assert_eq!((result.offset, result.written), (3, 0));
+    assert_eq!(result.info, info);
+    assert_eq!(pw_posix_file_close(volume, writer), 0);
+    assert_eq!(unsafe { pw_posix_file_info(volume, writer, &mut info) }, -1);
+    assert_eq!(info, result.info);
+    assert_eq!(pw_posix_file_close(volume, reader), 0);
+    assert_eq!(pw_volume_close(volume), 0);
+}
+
+#[test]
+fn concurrent_native_append_resolves_eof_inside_the_serialized_owner() {
+    let s = Scratch::new();
+    let (volume, writer, reader, _) = request_volume(&s);
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(6));
+    let threads: Vec<_> = (0_u64..6)
+        .map(|worker| {
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                let mut positions = Vec::new();
+                for record in 0_u64..16 {
+                    let bytes = (worker * 16 + record).to_le_bytes();
+                    let mut result = PwWriteResult::default();
+                    assert_eq!(
+                        unsafe {
+                            pw_posix_file_write_request(
+                                volume,
+                                writer,
+                                u64::MAX,
+                                bytes.as_ptr(),
+                                bytes.len(),
+                                1,
+                                &mut result,
+                            )
+                        },
+                        0
+                    );
+                    assert_eq!(result.written, 8);
+                    assert_eq!(result.info.stat.size, result.offset + 8);
+                    positions.push(result.offset);
+                }
+                positions
+            })
+        })
+        .collect();
+    let mut positions = Vec::new();
+    for thread in threads {
+        positions.extend(thread.join().unwrap());
+    }
+    positions.sort_unstable();
+    assert_eq!(positions, (0_u64..96).map(|n| n * 8).collect::<Vec<_>>());
+    let mut bytes = vec![0_u8; 768];
+    let mut count = 0;
+    assert_eq!(
+        unsafe {
+            pw_posix_file_read(
+                volume,
+                reader,
+                0,
+                bytes.as_mut_ptr(),
+                bytes.len(),
+                &mut count,
+            )
+        },
+        0
+    );
+    assert_eq!(count, 768);
+    let mut records: Vec<u64> = bytes
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|b| u64::from_le_bytes(*b))
+        .collect();
+    records.sort_unstable();
+    assert_eq!(records, (0..96).collect::<Vec<_>>());
+    assert_eq!(pw_posix_file_close(volume, writer), 0);
+    assert_eq!(pw_posix_file_close(volume, reader), 0);
+    assert_eq!(pw_volume_close(volume), 0);
+}
