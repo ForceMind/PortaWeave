@@ -57,9 +57,11 @@ fn mbr_image() -> Vec<u8> {
     image
 }
 fn build_header(
-    image: &mut [u8], lba: usize, blocksize: usize, current: u64,
-    other: u64, first: u64, last: u64, array_lba: u64, table_crc: u32
+    image: &mut [u8], lba: usize, blocksize: usize,
+    positions: (u64, u64), usable: (u64, u64), array_lba: u64, table_crc: u32
 ) {
+    let (current, other) = positions;
+    let (first, last) = usable;
     let h=&mut image[lba*blocksize..(lba+1)*blocksize];
     h[..8].copy_from_slice(b"EFI PART");
     put32(h,8,0x0001_0000);
@@ -108,10 +110,10 @@ fn gpt_image(blocksize: usize) -> Vec<u8> {
     image[2*blocksize..2*blocksize+entries].copy_from_slice(&arr);
     let backup_lba=last-blocks;
     image[backup_lba*blocksize..backup_lba*blocksize+entries].copy_from_slice(&arr);
-    build_header(&mut image,1,blocksize,1,last as u64,
-        first_usable as u64,last_usable as u64,2,crc);
-    build_header(&mut image,last,blocksize,last as u64,1,
-        first_usable as u64,last_usable as u64,backup_lba as u64,crc);
+    build_header(&mut image,1,blocksize,(1,last as u64),
+        (first_usable as u64,last_usable as u64),2,crc);
+    build_header(&mut image,last,blocksize,(last as u64,1),
+        (first_usable as u64,last_usable as u64),backup_lba as u64,crc);
     image
 }
 #[test]
