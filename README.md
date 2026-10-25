@@ -8,7 +8,7 @@ PortaWeave targets an exFAT-backed, dynamically growing directory container moun
 
 ## Status — 2026-10-25
 
-**M0-M laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-I atomic metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-M laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-M atomic write/metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -66,6 +66,10 @@ Opaque policy files retain their read/write grants across chmod/chown/rename/unl
 ## M1-L read-authorized range leases
 
 Granted READ files can admit immutable range leases; WRITE-only files cannot. Leases keep original bounds/EOF/content after source close and mutation, share core admission budgets, and keep volume close BUSY until released. Policy/admin C view tokens stay distinct. This is process-local read capability work, not OS mmap or caller authentication. See [M1-L](docs/IMPLEMENTATION-M1L.zh-CN.md).
+
+## M1-M atomic write requests
+
+Granted files resolve append/offset and EOF-constrained writes inside one owner request. Write/truncate replies capture identity, size, generation and metadata before commit, preserving known business success across later maintenance errors. Native ABI tests include real concurrent append callers. This does not enable WinFsp access or certify native caches/flush/mounts. See [M1-M](docs/IMPLEMENTATION-M1M.zh-CN.md) and [ADR 0008](docs/adr/0008-transaction-captured-io-replies.md).
 
 ## Run the storage lab
 

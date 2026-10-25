@@ -82,6 +82,31 @@ enum {
   PW_META_UID = 1, PW_META_GID = 2, PW_META_MODE = 4,
   PW_META_CREATED = 8, PW_META_ACCESSED = 16, PW_META_MODIFIED = 32
 };
+/* One serialized observation of a granted v2 file; no OS cache promise. */
+typedef struct PwFileInfo {
+  int64_t object;
+  PwStat stat;
+  PwMetadata metadata;
+} PwFileInfo;
+typedef struct PwWriteResult {
+  size_t written;
+  uint64_t offset; /* resolved EOF for append */
+  PwFileInfo info;
+} PwWriteResult;
+enum { PW_WRITE_APPEND = 1, PW_WRITE_CONSTRAINED = 2 };
+/* Policy tokens only. Reply information is captured before commit; successful
+ * business results survive later maintenance errors (query pw_health).
+ * APPEND ignores offset and resolves EOF under the owner lock. CONSTRAINED
+ * clips to current EOF; APPEND|CONSTRAINED writes zero bytes. Empty/clipped
+ * writes preserve generation/times. Unknown flags/invalid outputs reject first.
+ * length <= 16 MiB before clipping. Zero length permits a NULL data pointer.
+ * All failed outputs remain unchanged; actual commit failure may be indeterminate.
+ */
+int32_t pw_posix_file_info(uint64_t volume, uint64_t file, PwFileInfo *out_info);
+int32_t pw_posix_file_write_request(uint64_t volume, uint64_t file, uint64_t offset,
+                                  const uint8_t *data, size_t length, uint32_t flags, PwWriteResult *out_result);
+int32_t pw_posix_file_truncate_info(uint64_t volume, uint64_t file, uint64_t size, PwFileInfo *out_info);
+
 typedef struct PwMetadataUpdate {
   uint64_t valid; /* only bits above; change time is maintained by the core */
   uint32_t uid, gid, mode, reserved;

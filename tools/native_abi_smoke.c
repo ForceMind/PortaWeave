@@ -148,6 +148,20 @@ int main(int argc, char **argv) {
     REQUIRE(pw_posix_file_open(volume, 1, (const uint8_t *)"cap", 3, PW_ACCESS_READ | PW_ACCESS_WRITE, &owner, &writer));
     if (pw_volume_close(volume) != PW_BUSY) return 35;
     REQUIRE(pw_posix_file_write(volume, writer, 0, (const uint8_t *)"abcdef", 6, &count));
+    PwFileInfo request_info;
+    PwWriteResult request_result;
+    REQUIRE(pw_posix_file_info(volume, reader, &request_info));
+    if (request_info.object != protected_node || request_info.stat.size != 6) return 44;
+    REQUIRE(pw_posix_file_write_request(volume, writer, UINT64_MAX, (const uint8_t *)"gh", 2, PW_WRITE_APPEND, &request_result));
+    if (request_result.offset != 6 || request_result.written != 2 || request_result.info.stat.size != 8) return 45;
+    REQUIRE(pw_posix_file_write_request(volume, writer, 7, (const uint8_t *)"XYZ", 3, PW_WRITE_CONSTRAINED, &request_result));
+    if (request_result.written != 1 || request_result.info.stat.size != 8) return 46;
+    REQUIRE(pw_posix_file_truncate_info(volume, writer, 6, &request_info));
+    if (request_info.stat.size != 6 || request_info.metadata.uid != owner.uid) return 47;
+    REQUIRE(pw_posix_file_write_request(volume, writer, UINT64_MAX, NULL, 0, PW_WRITE_APPEND, &request_result));
+    if (request_result.written != 0 || request_result.offset != 6 || request_result.info.stat.generation != request_info.stat.generation) return 48;
+    if (pw_posix_file_write_request(volume, writer, 0, (const uint8_t *)"bad", 3, 0, NULL) != PW_INVALID ||
+        pw_posix_file_write_request(volume, reader, 0, NULL, 0, PW_WRITE_APPEND, &request_result) != PW_DENIED) return 49;
     count = 99;
     if (pw_posix_file_write(volume, reader, 0, (const uint8_t *)"bad", 3, &count) != PW_DENIED || count != 99 ||
         pw_file_read(volume, reader, 0, buffer, sizeof(buffer), &count) != PW_INVALID || count != 99) return 36;

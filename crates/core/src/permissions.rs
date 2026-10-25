@@ -2,7 +2,7 @@
 //! not authentication of an OS caller. Raw Volume APIs remain administrative.
 use crate::{
     CreateAttributes, Entry, Error, FileId, Handle, Kind, MaintenanceStatus, Metadata,
-    MetadataUpdate, ROOT, ReadView, Result, Stat, Volume, metadata,
+    MetadataUpdate, ROOT, ReadView, Result, Stat, Volume, WritePosition, metadata,
 };
 use std::collections::BTreeSet;
 
@@ -82,6 +82,29 @@ impl FileAccess {
     }
 }
 
+/// One serialized observation of a granted v2 file; not an OS cache promise.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FileInfo {
+    pub stat: Stat,
+    pub metadata: Metadata,
+}
+impl FileInfo {
+    fn at(db: &rusqlite::Connection, id: FileId) -> Result<Self> {
+        Ok(Self {
+            stat: Volume::stat_at(db, id)?,
+            metadata: metadata::get(db, id)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FileWriteResult {
+    pub written: usize,
+    /// Resolved absolute position, including for append and zero-byte results.
+    pub offset: u64,
+    pub info: FileInfo,
+}
+
 /// Granted descriptor capability, not a path or an authenticated caller token.
 /// Explicit close is required; copies become invalid together after close.
 #[must_use = "close the granted file explicitly to release its open-object reference"]
@@ -106,6 +129,38 @@ impl PosixFile {
     pub fn write(self, volume: &mut Volume, offset: u64, data: &[u8]) -> Result<usize> {
         self.object(volume, Access::WRITE)?;
         volume.write(self.handle, offset, data)
+    }
+    /// Atomic append/offset/constrained data request. The committed reply is
+    /// assembled in the business transaction, before its commit/maintenance.
+    pub fn write_request(
+        self,
+        volume: &mut Volume,
+        position: WritePosition,
+        data: &[u8],
+        constrained: bool,
+    ) -> Result<FileWriteResult> {
+        self.object(volume, Access::WRITE)?;
+        volume.write_request(
+            self.handle,
+            position,
+            data,
+            constrained,
+            |db, id, written, offset| {
+                Ok(FileWriteResult {
+                    written,
+                    offset,
+                    info: FileInfo::at(db, id)?,
+                })
+            },
+        )
+    }
+    pub fn info(self, volume: &Volume) -> Result<FileInfo> {
+        let id = self.object(volume, Access::EXISTS)?;
+        volume.observe(FileInfo::at(&volume.db, id))
+    }
+    pub fn truncate_request(self, volume: &mut Volume, size: u64) -> Result<FileInfo> {
+        self.object(volume, Access::WRITE)?;
+        volume.truncate_request(self.handle, size, MetadataUpdate::default(), FileInfo::at)
     }
     pub fn truncate(self, volume: &mut Volume, size: u64) -> Result<()> {
         self.object(volume, Access::WRITE)?;

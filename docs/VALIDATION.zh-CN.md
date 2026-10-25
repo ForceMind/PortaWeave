@@ -154,3 +154,11 @@ M1-K 增加 all-feature 9/default 7 项 granted-file/metadata 授权回归、1 �
 PR #23 已验收：准确 head `0077e1660727391416b47830348830acf3ea934e` / tree `71c01f76b9e593a184179d2878173957b17c7a53` 17 检查 success，core 40174370270、native 40174370286、bundle 40174370319、handover 40174370274、host 40174370299 / 40174368052。返回 job 121112127994 实际输出 POSIX_DESCRIPTOR_HANDOVER_OK 及 v2 恢复/原件哈希保全成功。合并 `3b89b92783bb1e7c94d2662a84071ee47e437e2f`，源码/候选树一致，远端 main 已核验，无未解决评审。
 
 M1-L 增加 all-feature 6/default 5 项核心视图权限/生命周期回归、1 项 ABI 回归、实际 C 调用及 C++ header 检查。Work Linux 完整 default/all-feature workspace、clippy/fmt、C caller 与四阶段程序实际执行；只写不能通过空租约读取，非法范围/混用 token 无输出，源 FD 关闭/覆盖后旧范围与最后释放均验证。三平台准确 source/CI 看本增量 PR；范围租约不是 metadata snapshot、OS mmap 或原生认证。所有真实系统挂载/Codex/物理介质门禁仍未通过。
+
+PR #24 验收补记：准确 head `d458f8f0123e517356f1dc1c513a79cbef703261` / tree `b57feef2397d92a9818b3add59532440ea2ef962` 17 检查 success；合并 main `8334bc538396743edf16e204e18c66d64a54b8de` 的 14 项全部 success（core 40175426933、native 40175426952、bundle 40175426942、handover 40175426951、host 40175426945）。返回 job 121114324592 输出 POSIX_LEASE_HANDOVER_OK 和原件保全通过。该主线 Windows 清单 artifact 12591079962 的 SHA-256 `813393faa2ecec2253cee1212772b3f2b25e9df450813067f633bd9cad186542` 已下载核验，runtime/driver 均为空、mount NOT_RUN、无安装/服务修改。
+
+## 2026-10-25 续研：M1-M 原子写请求
+
+从重新核验的 `8334bc538396743edf16e204e18c66d64a54b8de` 主线继续。Work Linux 实际 default/all-feature workspace 全套通过；新增 write_requests 为 all-feature 7/default 5 项，含 384 步模型及提交前后故障；native ABI 累计 9 项通过，其中新增 2 项覆盖错误输出、原始/策略 token 拒绝和 6 线程 96 记录追加。真实 C caller 输出 NATIVE_C_ABI_OK，C++17 公共头检查通过，Python 9 项通过；本地四阶段均输出 WRITE_REQUEST_HANDOVER_OK，仍只是 Linux 流程验证。
+
+首次 clippy 因固定长度 chunks_exact 要求改用 as_chunks 失败；修复测试解码写法后 clippy/fmt 和 native 套件重新通过，没有放宽规则。准确三平台、MSVC、SDK/bundle、artifact 往返结果以本增量 PR 的 source SHA 为准；未在这里预报远端结果。真实挂载、原生身份/ACL/共享/缓存/Flush、Codex 正常沙盒与越界负向、物理 exFAT/USB/断电仍未通过。
