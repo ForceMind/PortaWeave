@@ -393,3 +393,43 @@ fn after_commit_returns_complete_reply_and_separate_protection_warning() {
         f.close(&mut v).unwrap();
     }
 }
+
+#[test]
+fn platform_reply_rejection_rolls_back_before_commit_without_poisoning_owner() {
+    let s = Scratch::new();
+    let mut v = s.volume(1 << 24);
+    let f = file(&mut v);
+    f.write(&mut v, 0, b"original").unwrap();
+    let old = f.info(&v).unwrap();
+    let view = f.acquire_range_view(&mut v, 0, 8).unwrap();
+    let result: portaweave_core::Result<()> = f.write_request_with_reply(
+        &mut v,
+        WritePosition::EndOfFile,
+        b"changed",
+        false,
+        |reply| {
+            assert_eq!(reply.info.stat.size, 15);
+            Err(Error::UnsupportedOperation)
+        },
+    );
+    assert!(matches!(result, Err(Error::UnsupportedOperation)));
+    let result: portaweave_core::Result<()> = f.truncate_request_with_reply(&mut v, 3, |reply| {
+        assert_eq!(reply.stat.size, 3);
+        Err(Error::UnsupportedOperation)
+    });
+    assert!(matches!(result, Err(Error::UnsupportedOperation)));
+    assert_eq!(f.info(&v).unwrap(), old);
+    assert_eq!(f.read(&v, 0, 100).unwrap(), b"original");
+    assert_eq!(view.read(&v, 0, 8).unwrap(), b"original");
+    assert!(!v.is_write_protected());
+    let committed = f
+        .write_request_with_reply(&mut v, WritePosition::EndOfFile, b"!", false, |reply| {
+            Ok((reply.written, reply.offset, reply.info))
+        })
+        .unwrap();
+    assert_eq!((committed.0, committed.1), (1, 8));
+    assert_eq!(committed.2.stat.generation, old.stat.generation + 1);
+    assert_eq!(committed.2, f.info(&v).unwrap());
+    view.close(&mut v).unwrap();
+    f.close(&mut v).unwrap();
+}

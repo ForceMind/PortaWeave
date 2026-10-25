@@ -4,6 +4,12 @@
 //! Raw callers must respect the ownership and buffer requirements in the header.
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod windows;
+pub use windows::{
+    PwWindowsFileInfo, PwWindowsWriteResult, pw_windows_file_info, pw_windows_file_set_size,
+    pw_windows_file_write,
+};
+
 use portaweave_core::{
     Access, CreateAttributes, Credentials, Entry, Error, FileAccess, FileId, FileInfo, Handle,
     Kind, MAX_IO, MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, MetadataUpdate, PosixFile,

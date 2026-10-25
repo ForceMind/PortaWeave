@@ -107,6 +107,28 @@ int32_t pw_posix_file_write_request(uint64_t volume, uint64_t file, uint64_t off
                                   const uint8_t *data, size_t length, uint32_t flags, PwWriteResult *out_result);
 int32_t pw_posix_file_truncate_info(uint64_t volume, uint64_t file, uint64_t size, PwFileInfo *out_info);
 
+/* Windows laboratory projection of a granted regular file. FILETIME ticks
+ * are floored to 100 ns; values outside [0, INT64_MAX] refuse before commit.
+ * allocation_size rounds logical EOF to 4096 bytes; it is NOT host physical
+ * usage or a reservation. Windows allocation/preallocation remains unsupported.
+ * No SID/ACL/readonly-attribute mapping or OS cache/driver access is implied.
+ * Only policy tokens are accepted; failed outputs remain unchanged.
+ */
+typedef struct PwWindowsFileInfo {
+  uint64_t file_size, allocation_size;
+  uint64_t creation_time, last_access_time, last_write_time, change_time;
+  uint64_t index_number;
+} PwWindowsFileInfo;
+typedef struct PwWindowsWriteResult {
+  size_t written;
+  uint64_t offset;
+  PwWindowsFileInfo info;
+} PwWindowsWriteResult;
+int32_t pw_windows_file_info(uint64_t volume, uint64_t file, PwWindowsFileInfo *out_info);
+int32_t pw_windows_file_write(uint64_t volume, uint64_t file, uint64_t offset,
+                            const uint8_t *data, size_t length, uint32_t flags, PwWindowsWriteResult *out_result);
+int32_t pw_windows_file_set_size(uint64_t volume, uint64_t file, uint64_t size, PwWindowsFileInfo *out_info);
+
 typedef struct PwMetadataUpdate {
   uint64_t valid; /* only bits above; change time is maintained by the core */
   uint32_t uid, gid, mode, reserved;
