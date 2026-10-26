@@ -147,6 +147,31 @@ typedef struct PwWindowsBasicInfo {
 int32_t pw_windows_file_set_basic_info(uint64_t volume, uint64_t file, const PwCredentials *caller,
                                      const PwWindowsBasicInfo *request, PwWindowsFileInfo *out_info);
 
+/* Immutable v2 directory metadata snapshot after trusted READ+SEARCH/all-
+ * ancestor checks. Not OS caller authentication, a live directory grant or
+ * kernel cache refresh. All times/sizes/UTF-16 names project BEFORE admission.
+ * Non-root snapshots include . and ..; root includes neither. No data blocks
+ * or live inode are retained. Changes/chmod/deletion do not alter the snapshot;
+ * close and begin a new authorized snapshot to see current entries.
+ * Windows/admin cursor tables share 64 cursors and 100000 retained entries
+ * per owner, including synthetic dots. This is not an exact heap/OOM budget.
+ * Tokens are process-local, typed, volume-scoped and block volume close.
+ */
+int32_t pw_windows_directory_begin(uint64_t volume, int64_t directory, const PwCredentials *caller, uint64_t *out_cursor);
+/* Pinned WinFsp 2.1 FSP_FSCTL_DIR_INFO wire bytes: 104-byte header, UTF-16LE
+ * non-NUL name, 8-byte record alignment/zero padding, uint16 zero EOF marker.
+ * Requires DirectoryMarkerAsNextOffset=1; NextOffset is the next ordinal.
+ * offset 0 restarts the SAME snapshot. >count is INVALID, ==count can return
+ * EOF. capacity <=16 MiB; NULL buffer allowed only with zero capacity.
+ * A small buffer returns OK/zero, no partial record; the caller retries using
+ * the same cookie. All failed outputs remain unchanged. Encoding and close
+ * serialize under the owner mutex. Does not implement native pattern filtering
+ * (WinFsp FSD performs it), fresh restart policy, ACL, directory GFI or mounting.
+ */
+int32_t pw_windows_directory_read(uint64_t volume, uint64_t cursor, uint64_t next_offset,
+                                 uint8_t *buffer, size_t capacity, size_t *out_read);
+int32_t pw_windows_directory_close(uint64_t volume, uint64_t cursor);
+
 typedef struct PwMetadataUpdate {
   uint64_t valid; /* only bits above; change time is maintained by the core */
   uint32_t uid, gid, mode, reserved;
@@ -303,6 +328,8 @@ int32_t pw_rename_checked(uint64_t volume, int64_t from_parent, const uint8_t *f
 int32_t pw_rename(uint64_t volume, int64_t from_parent, const uint8_t *from_name, size_t from_len,
                   int64_t to_parent, const uint8_t *to_name, size_t to_len, uint8_t replace);
 int32_t pw_hard_link(uint64_t volume, int64_t object, int64_t parent, const uint8_t *name, size_t name_len);
+/* Administrative name snapshot; shares 64 cursors/100000 retained entries
+ * with Windows metadata snapshots. Refusal publishes no token. */
 int32_t pw_dir_begin(uint64_t volume, int64_t parent, uint64_t *out_cursor);
 int32_t pw_dir_next(uint64_t volume, uint64_t cursor, uint8_t *name_buf, size_t capacity, size_t *out_name_len, int64_t *out_object);
 int32_t pw_dir_close(uint64_t volume, uint64_t cursor);

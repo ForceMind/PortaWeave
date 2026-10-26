@@ -85,7 +85,7 @@ fn file_time(t: Timestamp) -> Result<u64> {
     }
     Ok(ticks as u64)
 }
-fn project(info: FileInfo) -> Result<PwWindowsFileInfo> {
+pub(super) fn project(info: FileInfo) -> Result<PwWindowsFileInfo> {
     let allocation_size = info.stat.size.div_ceil(ALLOCATION_UNIT) * ALLOCATION_UNIT;
     if allocation_size > i64::MAX as u64 {
         return Err(Error::UnsupportedOperation);

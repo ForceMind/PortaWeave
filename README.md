@@ -21,7 +21,7 @@ GPT requires valid CRC32 header/entry tables; it reports damaged primary/backup 
 
 ## Status — 2026-10-26
 
-**M0-R WinFsp granted-file and M0-S laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-N descriptor metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-T WinFsp directory/granted-file and M0-S laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-N descriptor metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -93,6 +93,10 @@ Laboratory create reserves native handle admission/tokens and prepares its Swift
 ## M0-O FSKit committed attribute replies
 
 Laboratory setattr now consumes a pre-commit projected reply for size, mixed and metadata-only changes. It no longer queries the catalog after known success; failed projections roll back before commit, and later maintenance warnings remain separate. v1 size replies explicitly lack metadata. These are administrative callbacks with native identity/load/mount still closed. See [M0-O](docs/IMPLEMENTATION-M0O.zh-CN.md).
+
+## M0-T bounded directory enumeration
+
+WinFsp ReadDirectory now consumes a trusted, immutable metadata snapshot and emits pinned SDK directory records with UTF-16 names, ordinal cookies, complete pages and EOF. Windows/admin snapshots share cursor/entry admission; FSKit can reclaim only its own old LRU snapshots under pressure. Directory Open/current GFI/refresh, OS identity/ACL and real mount validation remain unfinished. See [M0-T](docs/IMPLEMENTATION-M0T.zh-CN.md) and [ADR 0013](docs/adr/0013-directory-snapshot-wire-and-admission.md).
 
 ## M0-S checked namespace identities
 

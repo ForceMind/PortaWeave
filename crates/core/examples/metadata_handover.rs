@@ -123,6 +123,15 @@ fn verify_creation(v: &mut Volume) -> TestResult {
 }
 fn verify_policy(v: &mut Volume) -> TestResult {
     let before = v.metadata(ROOT)?;
+    let snapshot = v
+        .posix(Credentials::new(501, 50, &[])?)?
+        .directory_snapshot(ROOT, 16)?;
+    assert_eq!(snapshot.directory.stat.id, ROOT);
+    assert_eq!(snapshot.directory, snapshot.parent);
+    for entry in &snapshot.entries {
+        assert_eq!(entry.info.stat, v.stat(entry.info.stat.id)?);
+        assert_eq!(entry.info.metadata, v.metadata(entry.info.stat.id)?);
+    }
     let mut p = v.posix(Credentials::new(502, 20, &[50])?)?;
     p.check_access(ROOT, "policy", Access::READ)?;
     assert!(matches!(
@@ -208,6 +217,9 @@ fn verify_policy(v: &mut Volume) -> TestResult {
         Err(CoreError::NotFound)
     ));
     println!("WRITE_REQUEST_HANDOVER_OK (atomic append/constrained/truncate replies; no OS mount)");
+    println!(
+        "DIRECTORY_SNAPSHOT_HANDOVER_OK (authorized immutable names/metadata; no native directory grant)"
+    );
     println!(
         "DESCRIPTOR_METADATA_HANDOVER_OK (current trusted owner; pre-commit reply, no OS ACL claim)"
     );

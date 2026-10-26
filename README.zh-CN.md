@@ -21,7 +21,7 @@ cargo test --locked -p portaweave-partition-inspector
 
 ## 当前状态（2026-10-26）
 
-**M0-R WinFsp 授权文件合同与 M0-S 实验性 FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-N 文件句柄属性核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
+**M0-T WinFsp 目录/授权文件合同与 M0-S 实验性 FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-N 文件句柄属性核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
 
 实现范围见 [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md)、[M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md)、[M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md)，历史测试见[验证记录](docs/VALIDATION.zh-CN.md)。确切源码版本的测试结果记录在对应 PR；实现文档不是自动的通过声明。云端三系统核心测试不等于真实 exFAT、挂载盘或 Codex 已兼容。
 
@@ -93,6 +93,10 @@ M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提�
 ## M0-O FSKit 事务内属性回执
 
 实验 setattr 的大小、混合和 metadata-only 请求统一使用提交前完成投影的属性回执，消除已成功修改后再次查询失败而误报业务失败的路径；v1 大小回执明确不含元数据，后续维护告警单独报告。仍是管理回调，原生 caller/load/mount 不开放。见 [M0-O](docs/IMPLEMENTATION-M0O.zh-CN.md)。
+
+## M0-T 有界目录枚举
+
+WinFsp ReadDirectory 现使用经可信权限检查的不可变元数据快照，输出固定 SDK 的 UTF-16 名称、ordinal cookie、完整分页及 EOF。Windows/管理快照共享 cursor/条目额度；FSKit 压力下仅回收自己的旧 LRU。目录 Open/当前 GFI/刷新、OS 身份/ACL 和真实挂载仍未完成。见 [M0-T](docs/IMPLEMENTATION-M0T.zh-CN.md) 与 [ADR 0013](docs/adr/0013-directory-snapshot-wire-and-admission.md)。
 
 ## M0-S 名字操作身份校验
 

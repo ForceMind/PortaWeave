@@ -71,6 +71,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 45. Every regular-file handle admission, including raw Rust Volume::open_file, must use the shared core reservation gate. Native/policy preflight is not a substitute for enforcing the core-wide 4096 budget. Refusal does not poison writes or run maintenance; freeing a handle admits a fresh identifier. Never silently evict live pins to satisfy the limit.
 
+46. M0-T directory snapshots capture authorized names/attributes before token publication and retain no live inode/data/path grant. Windows/admin cursor tables share 64 cursors and 100000 retained entries, including dots; keep them typed and in BUSY. WinFsp wire bytes must match pinned SDK static assertions, zero padding, ordinal 8-byte markers and EOF rules. Do not turn snapshot replay into a fresh listing or fake current directory GFI. FSKit may evict only its own LRU metadata snapshots, with ESTALE, never foreign cursors or file pins. Native caller/ACL/Open/Flush/mount gates remain closed; counts are not heap budgets.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

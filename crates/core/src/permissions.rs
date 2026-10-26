@@ -88,6 +88,18 @@ pub struct FileInfo {
     pub stat: Stat,
     pub metadata: Metadata,
 }
+/// Immutable names and attributes, not data leases or native directory handles.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DirectoryEntryInfo {
+    pub name: String,
+    pub info: FileInfo,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DirectorySnapshot {
+    pub directory: FileInfo,
+    pub parent: FileInfo,
+    pub entries: Vec<DirectoryEntryInfo>,
+}
 impl FileInfo {
     fn at(db: &rusqlite::Connection, id: FileId) -> Result<Self> {
         Ok(Self {
@@ -330,6 +342,33 @@ impl PosixSession<'_> {
     pub fn list_bounded(&self, parent: FileId, maximum: usize) -> Result<Vec<Entry>> {
         self.directory_access(parent, Access::READ | Access::EXECUTE)?;
         self.volume.list_bounded(parent, maximum)
+    }
+    /// One serialized observation after READ+SEARCH and all-ancestor checks.
+    /// Child metadata needs no data grant; the snapshot retains no live inode,
+    /// blocks or future path authority. v1 is refused by Volume::posix.
+    pub fn directory_snapshot(
+        &self,
+        directory: FileId,
+        maximum: usize,
+    ) -> Result<DirectorySnapshot> {
+        self.directory_access(directory, Access::READ | Access::EXECUTE)?;
+        let entries = self.volume.list_bounded(directory, maximum)?;
+        self.volume.observe((|| {
+            let parent = self.volume.parent_directory(directory)?;
+            Ok(DirectorySnapshot {
+                directory: FileInfo::at(&self.volume.db, directory)?,
+                parent: FileInfo::at(&self.volume.db, parent)?,
+                entries: entries
+                    .into_iter()
+                    .map(|entry| {
+                        Ok(DirectoryEntryInfo {
+                            name: entry.name,
+                            info: FileInfo::at(&self.volume.db, entry.id)?,
+                        })
+                    })
+                    .collect::<Result<_>>()?,
+            })
+        })())
     }
     pub fn open_file(
         &mut self,
