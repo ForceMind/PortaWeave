@@ -420,7 +420,17 @@ final class PortaWeaveVolumeSession {
                     // An evicted verifier explicitly returns ESTALE on resume.
                 }
                 var cursor: UInt64 = 0
-                try pwCheck(pw_dir_begin(volume, directory.object, &cursor))
+                var status = pw_dir_begin(volume, directory.object, &cursor)
+                // Native Windows/admin snapshots now share cursor/entry admission.
+                // Evict only this session's existing LRU snapshots and retry;
+                // foreign typed snapshots and live file pins are never evicted.
+                while status == PW_RESOURCE, let oldest = cursorOrder.first, let old = cursors[oldest] {
+                    try pwCheck(pw_dir_close(volume, old.cursor))
+                    cursors.removeValue(forKey: oldest)
+                    cursorOrder.removeFirst()
+                    status = pw_dir_begin(volume, directory.object, &cursor)
+                }
+                try pwCheck(status)
                 token = cursor
                 cursors[token] = (directory.object, cursor)
             }

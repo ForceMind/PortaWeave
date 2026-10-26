@@ -19,3 +19,5 @@ Work Linux 实际 full default/all-feature workspace、clippy/fmt、真实 C cal
 Windows CI 的 MSVC `/WX` 将实际编译并执行回调 fixture，断言普通读写、追加、裁剪、零写、文件身份、时间/逻辑 allocation、只读拒绝、非法输出、allocation 拒绝、截断/增长读零、EOF、旧 inode、转换失败回滚、关闭失效及安全 Open/Flush 不开放；实际通过以对应 PR 准确 SHA 日志中的 WINFSP_GRANTED_IO_CONTRACT_OK 为准，Work Linux 不预报 Windows 回调结果。Dispatcher `--self-test` 同时验证新增函数表和仍然关闭的入口；手动 `--lab-mount` 的既有新建 v1 scratch 路径不因此开放任何文件。
 
 真实 Windows token/ACL/继承、共享访问、缓存、Flush、驱动挂载、执行/映射/通知，以及 macOS 真实挂载、Codex 正常沙盒/越界负向、物理 exFAT/USB/断电仍 NOT_RUN/BLOCKED。没有安装驱动、修改用户机器或降低沙盒。本增量是原生代码与真实 SDK 签名验证，尚不可用作工作盘。
+
+后续 M0-T 增加经可信权限检查的不可变目录快照及 ReadDirectory wire/callback 合同。目录 Open/当前 GFI/刷新、原生身份/ACL/共享/Flush/挂载仍未完成；M0-N 上述未接入列表为历史阶段范围，当前准确状态见 M0-T/对应 PR。

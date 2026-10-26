@@ -16,6 +16,10 @@ pub use windows::{
 };
 mod namespace_ops;
 pub use namespace_ops::{pw_remove_checked, pw_rename_checked};
+mod windows_directory;
+pub use windows_directory::{
+    pw_windows_directory_begin, pw_windows_directory_close, pw_windows_directory_read,
+};
 
 use portaweave_core::{
     Access, CreateAttributes, Credentials, Entry, Error, FileAccess, FileId, FileInfo, Handle,
@@ -118,7 +122,23 @@ struct Session {
     policy_files: BTreeMap<u64, PosixFile>,
     policy_views: BTreeMap<u64, PosixReadView>,
     dirs: BTreeMap<u64, Cursor>,
+    windows_dirs: BTreeMap<u64, windows_directory::DirectoryCursor>,
+    #[cfg(test)]
+    directory_entry_ceiling: Option<usize>,
     views: BTreeMap<u64, ReadView>,
+}
+impl Session {
+    fn directory_admission(&self) -> FResult<usize> {
+        if self.dirs.len() + self.windows_dirs.len() >= MAX_CURSORS {
+            return Err(Fault::resource());
+        }
+        let limit = MAX_DIRECTORY_ENTRIES;
+        #[cfg(test)]
+        let limit = self.directory_entry_ceiling.unwrap_or(limit).min(limit);
+        let used = self.dirs.values().map(|c| c.entries.len()).sum::<usize>()
+            + self.windows_dirs.values().map(|c| c.len()).sum::<usize>();
+        limit.checked_sub(used).ok_or_else(Fault::resource)
+    }
 }
 static TABLE: OnceLock<Mutex<BTreeMap<u64, Session>>> = OnceLock::new();
 static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -928,6 +948,9 @@ pub unsafe extern "C" fn pw_volume_create(
                     policy_files: BTreeMap::new(),
                     policy_views: BTreeMap::new(),
                     dirs: BTreeMap::new(),
+                    windows_dirs: BTreeMap::new(),
+                    #[cfg(test)]
+                    directory_entry_ceiling: None,
                     views: BTreeMap::new(),
                 },
             );
@@ -970,6 +993,9 @@ pub unsafe extern "C" fn pw_volume_create_with_metadata(
                     policy_files: BTreeMap::new(),
                     policy_views: BTreeMap::new(),
                     dirs: BTreeMap::new(),
+                    windows_dirs: BTreeMap::new(),
+                    #[cfg(test)]
+                    directory_entry_ceiling: None,
                     views: BTreeMap::new(),
                 },
             );
@@ -1109,6 +1135,9 @@ pub unsafe extern "C" fn pw_volume_open(
                     policy_files: BTreeMap::new(),
                     policy_views: BTreeMap::new(),
                     dirs: BTreeMap::new(),
+                    windows_dirs: BTreeMap::new(),
+                    #[cfg(test)]
+                    directory_entry_ceiling: None,
                     views: BTreeMap::new(),
                 },
             );
@@ -1129,6 +1158,7 @@ pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
                 || !session.policy_files.is_empty()
                 || !session.policy_views.is_empty()
                 || !session.dirs.is_empty()
+                || !session.windows_dirs.is_empty()
                 || !session.views.is_empty()
             {
                 return Err(Fault::busy());
@@ -1596,12 +1626,10 @@ pub unsafe extern "C" fn pw_dir_begin(volume: u64, parent: i64, out_cursor: *mut
     run(|| {
         required(out_cursor)?;
         with_session(volume, |s| {
-            if s.dirs.len() >= MAX_CURSORS {
-                return Err(Fault::resource());
-            }
+            let remaining = s.directory_admission()?;
             let entries = s
                 .volume
-                .list_bounded(file_id(parent)?, MAX_DIRECTORY_ENTRIES)
+                .list_bounded(file_id(parent)?, remaining)
                 .map_err(Fault::from)?;
             let token = next_token()?;
             s.dirs.insert(

@@ -79,18 +79,21 @@ static int PwSelfTest(void)
     FSP_FILE_SYSTEM mock;
     FSP_FSCTL_FILE_INFO dummy;
     PW_PROBE_VOLUME owner;
+    FSP_FSCTL_VOLUME_PARAMS params;
     ZeroMemory(&mock,sizeof(mock));
     ZeroMemory(&dummy,sizeof(dummy));
     ZeroMemory(&owner,sizeof(owner));
     mock.UserContext=&owner;
     PwInterfaceInit(&callbacks);
+    PwVolumeParamsInit(&params);
     if (pw_abi_version()!=1 || callbacks.GetVolumeInfo!=PwGetVolumeInfo ||
         callbacks.Read!=PwRead || callbacks.Open!=PwOpen ||
         callbacks.GetSecurityByName!=PwGetSecurityByName ||
         callbacks.Flush!=PwFlush || callbacks.Create!=NULL ||
         callbacks.Write!=PwWrite || callbacks.GetFileInfo!=PwGetFileInfo ||
         callbacks.SetFileSize!=PwSetFileSize || callbacks.SetBasicInfo!=PwSetBasicInfo ||
-        callbacks.ReadDirectory!=NULL ||
+        callbacks.ReadDirectory!=PwReadDirectory || !params.DirectoryMarkerAsNextOffset ||
+        params.PersistentAcls || params.HardLinks ||
         callbacks.GetSecurityByName(&mock,L"\\",NULL,NULL,NULL)!=STATUS_ACCESS_DENIED ||
         callbacks.Open(&mock,L"\\",0,0,NULL,&dummy)!=STATUS_ACCESS_DENIED ||
         callbacks.Flush(&mock,NULL,NULL)!=STATUS_NOT_SUPPORTED) {
@@ -144,16 +147,7 @@ static int PwLab(WCHAR *letter)
         goto end;
     }
     PwInterfaceInit(&callbacks);
-    ZeroMemory(&options,sizeof(options));
-    options.SectorSize=4096;
-    options.SectorsPerAllocationUnit=1;
-    options.FileInfoTimeout=1000;
-    options.CaseSensitiveSearch=0;
-    options.CasePreservedNames=1;
-    options.UnicodeOnDisk=1;
-    options.PersistentAcls=0; /* still fail-closed */
-    (void)StringCchCopyW(options.FileSystemName,
-        ARRAYSIZE(options.FileSystemName),L"PortaWeaveLab");
+    PwVolumeParamsInit(&options);
     status=api.create(L"" FSP_FSCTL_DISK_DEVICE_NAME,&options,&callbacks,&fs);
     if (!NT_SUCCESS(status)) {
         fwprintf(stderr,L"FspCreate NTSTATUS 0x%08lX\n",(ULONG)status);

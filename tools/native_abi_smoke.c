@@ -237,6 +237,15 @@ int main(int argc, char **argv) {
     if (count != 3 || memcmp(buffer, "bcd", 3) != 0) return 44;
     REQUIRE(pw_posix_read_view_close(volume, policy_view));
     if (pw_posix_read_view_close(volume, policy_view) != PW_INVALID) return 45;
+    uint64_t directory_snapshot = 0;
+    uint8_t directory_bytes[1024];
+    REQUIRE(pw_windows_directory_begin(volume, 1, &owner, &directory_snapshot));
+    if (pw_volume_close(volume) != PW_BUSY) return 64;
+    REQUIRE(pw_windows_directory_read(volume, directory_snapshot, 0, directory_bytes, sizeof(directory_bytes), &count));
+    if (count != 114 || directory_bytes[0] != 112 || directory_bytes[1] != 0 ||
+        directory_bytes[104] != 't' || directory_bytes[105] != 0 || directory_bytes[112] != 0 ||
+        directory_bytes[113] != 0 || pw_dir_seek(volume, directory_snapshot, 0) != PW_INVALID) return 65;
+    REQUIRE(pw_windows_directory_close(volume, directory_snapshot));
     REQUIRE(pw_volume_close(volume));
     puts("NATIVE_C_ABI_OK");
     return 0;

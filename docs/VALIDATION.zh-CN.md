@@ -222,3 +222,13 @@ PR #33 已验收：准确 head `68152a9f0f6982b10132eb25bb59a70c50d516fc` / tree
 实际复现：强化已有 create_replies 的 4096 额度测试后，未修复代码仍允许 `Volume::open_file` 额外打开，断言返回 ResourceLimit 失败（记录 pin-admission-before.log；属于预期的修复前失败）。修复将管理 open 路由到既有 core reserve/publish；另强化混合 policy/admin 满额用例，以及释放一个后重新准入、不复用 ID 和目录不占普通文件 pin。
 
 修复后 Work Linux full default/all-feature workspace（各 30 个 test/doc-test suite，含 Disk Studio）、clippy `-D warnings` 和 fmt 实际通过，两个既有预算回归均保留；没有把强化断言计算为新增独立测试。无格式/schema/ABI/依赖/工作流变更，也未改变管理接口权限或 native mount gates。精确 source/tree、三平台/native/SDK/bundle/artifact 与最终 main 核验见对应 PR。
+
+## 2026-10-26 续研：M0-T 目录快照/ReadDirectory
+
+通过 GitHub 连接重新读取 main `3198ac57df8a5b54762adc05868b68c0a0a411ee` / tree `d3ee3c6687b82a5ffa74ff24d1d0882dc8900ded`，14 项 completed/success、无未合并 PR，#1/#3/#28 保持开放。Work 工作区由仓库恢复，离线工具链 ZIP/两个内层 tar 的既有 SHA-256 再核验后使用；没有操作用户本机。
+
+Work Linux full default/all-feature workspace 各 32 suites、clippy `-D warnings`、fmt、实际 C11 caller/C++17 公共头和 Python 9 项通过；新增核心 directory_snapshots 4/3 项、ABI windows_directory 8 项（累计 31）、native 累计条目预算单元 1 项。真实 C caller 输出 NATIVE_C_ABI_OK；本地四阶段目录元数据例程输出 DIRECTORY_SNAPSHOT_HANDOVER_OK，阶段名不计作其他 OS 已运行。
+
+覆盖全部祖先及 R+X/v1/预算拒绝、原名/父目录/不可读子项属性、无 inode/data pin、保护下只读观察、UTF-16 surrogate/255-unit/对齐/零 padding/完整分页及 EOF、投影拒绝无 cursor、错误输出哨兵、跨 owner/管理 token 混用、64 个真实混合 cursor 和关闭后的准入。4 个真实读线程与 close 竞争，只允许完整快照或不改输出的 invalid。累计 100000-entry 逻辑预算以 unit 中降低至 3 的真实卷/两类 cursor 验证，不冒称 100000 个真实名字的性能压力、精确堆界限或完整解析器预算。首次 clippy 的 is_multiple_of/as_chunks 两个 decoder lint 已修正，未降低 lint。
+
+固定 WinFsp 2.1 头、fsop.c 和 dirctl.c 已重读核对 104-byte/8-byte/EOF/ordinal marker。新 MSVC SDK 类型解析/ReadDirectory 回调、共享 volume 参数和 self-test，macOS SDK 64-cursor 压力下自有 LRU/外部 snapshot 保留及完整 App/Extension、真实跨 OS artifact 回传，必须按本增量 PR 的准确 source/tree/日志验收，当前文档不预报结果。Marker 重放是同一快照，目录 Open/当前 GFI/刷新及 ACL/共享/Flush 仍未完成；真正挂载/Codex 正常沙盒/越界与物理 exFAT/USB/断电保持 BLOCKED/NOT_RUN。

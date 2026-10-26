@@ -111,6 +111,57 @@ func replaceNativeName(_ volume: PortaWeaveVolume, _ from: String, _ to: String)
 
 @main
 struct FSVolumeContract {
+    static func cursorPressureContract(_ url: URL) throws {
+        let path = Data(url.path.utf8)
+        var native: UInt64 = 0
+        var attributes = PwCreateAttributes(uid: 501, gid: 20, mode: 0o700, reserved: 0)
+        try pwCheck(path.withUnsafeBytes {
+            pw_volume_create_with_metadata($0.bindMemory(to: UInt8.self).baseAddress,
+                                           path.count, 134_217_728, &attributes, &native)
+        })
+        try pwCheck(pw_volume_close(native))
+        let volume = try PortaWeaveVolume(laboratoryContainerURL: url)
+        let cached = try create(volume, "cached", volume.session.rootItem, type: .directory)
+        let fresh = try create(volume, "fresh", volume.session.rootItem, type: .directory)
+        let old = try volume.session.synchronized {
+            try volume.session.enumerate(cached, cookie: 0, verifier: 0, attributes: nil) {
+                _, _, _, _, _ in throw ContractFailure(message: "empty cached directory changed")
+            }
+        }
+        var caller = PwCredentials(uid: 501, gid: 20, groups: nil, group_count: 0, reserved: 0)
+        var external: [UInt64] = []
+        var administrative: UInt64 = 0
+        try volume.session.synchronized {
+            for _ in 0..<62 {
+                var token: UInt64 = 0
+                try pwCheck(pw_windows_directory_begin(volume.session.volume, cached.object, &caller, &token))
+                external.append(token)
+            }
+            try pwCheck(pw_dir_begin(volume.session.volume, cached.object, &administrative))
+        }
+        let current = try volume.session.synchronized {
+            try volume.session.enumerate(fresh, cookie: 0, verifier: 0, attributes: nil) {
+                _, _, _, _, _ in throw ContractFailure(message: "empty fresh directory changed")
+            }
+        }
+        try require(current != old, "new snapshot reused an evicted token")
+        do {
+            _ = try volume.session.synchronized {
+                try volume.session.enumerate(cached, cookie: 0, verifier: old, attributes: nil) { _, _, _, _, _ in true }
+            }
+            throw ContractFailure(message: "pressure-evicted verifier accepted")
+        } catch let error as POSIXError { try require(error.code == .ESTALE, "wrong pressure eviction error") }
+        try volume.session.synchronized {
+            var bytes = [UInt8](repeating: 0, count: 512)
+            var count = 0
+            try pwCheck(pw_windows_directory_read(volume.session.volume, external[0], 0, &bytes, bytes.count, &count))
+            try require(count == 226, "Swift evicted or altered an external Windows snapshot")
+            for token in external { try pwCheck(pw_windows_directory_close(volume.session.volume, token)) }
+            try pwCheck(pw_dir_close(volume.session.volume, administrative))
+        }
+        try success { volume.deactivate(options: [], replyHandler: $0) }
+        print("FSVOLUME_CURSOR_PRESSURE_CONTRACT_OK (own LRU eviction; external snapshots preserved; no OS mount)")
+    }
     static func checkedNamespaceContract(_ base: URL) throws {
         for v2 in [false, true] {
             let url = base.appendingPathExtension(v2 ? "v2" : "v1")
@@ -622,6 +673,7 @@ struct FSVolumeContract {
         try metadataContract(url.appendingPathExtension("metadata"))
         try creationContract(url.appendingPathExtension("creation"))
         try checkedNamespaceContract(url.appendingPathExtension("checked"))
+        try cursorPressureContract(url.appendingPathExtension("cursor-pressure"))
         print("FSVOLUME_CALLBACK_CONTRACT_OK (SDK callbacks/core ABI; no installation or OS mount)")
     }
 }

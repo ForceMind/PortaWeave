@@ -36,6 +36,8 @@ M0-S（2026-10-26）接续删除/改名的同请求、事务内 expected source/
 
 2026-10-26 句柄准入补正：原始 Rust open_file 现复用统一 reserve/publish；修复可绕过 4096 总额度的管理入口。现有 admin-only 与混合 policy/admin 测试强化，保留修复前失败证据；逻辑预算不是精确堆/OOM 保护。详见 M0-P/ADR0011 和对应 PR。
 
+M0-T（2026-10-26）增加权限检查后的不可变目录元数据、typed Windows snapshot 与 ReadDirectory 固定格式、UTF-16/cookie/EOF；Windows/admin 共用 64 cursor/100000 条目，FSKit 只回收自己的旧 LRU。不是活目录 grant/current GFI/刷新，原生 Open/security/Flush/挂载继续关闭；准确 source/MSVC/SDK/bundle/artifact 见对应 PR 与 ADR0013。
+
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 
 ## 不可降低的目标

@@ -9,18 +9,44 @@
 #include <stdio.h>
 #include <limits.h>
 #include <string.h>
+#include <stddef.h>
+#include <wchar.h>
+
+/* Native bridge emits the pinned SDK's wire layout, not a Rust C struct.
+ * SDK drift must fail compilation instead of silently corrupting directory I/O. */
+FSP_FSCTL_STATIC_ASSERT(sizeof(WCHAR) == 2, "UTF-16 units must be 2 bytes");
+FSP_FSCTL_STATIC_ASSERT(sizeof(FSP_FSCTL_DIR_INFO) == 104, "directory header changed");
+FSP_FSCTL_STATIC_ASSERT(offsetof(FSP_FSCTL_DIR_INFO, FileInfo) == 8, "file info offset changed");
+FSP_FSCTL_STATIC_ASSERT(offsetof(FSP_FSCTL_DIR_INFO, NextOffset) == 80, "cookie offset changed");
+FSP_FSCTL_STATIC_ASSERT(offsetof(FSP_FSCTL_DIR_INFO, FileNameBuf) == 104, "name offset changed");
+FSP_FSCTL_STATIC_ASSERT(FSP_FSCTL_DEFAULT_ALIGNMENT == 8, "directory alignment changed");
 
 typedef struct PW_PROBE_VOLUME {
     uint64_t volume;
 } PW_PROBE_VOLUME;
 typedef struct PW_PROBE_FILE {
     uint64_t file; /* separately typed granted policy token, not raw admin token */
+    uint64_t directory; /* typed immutable directory snapshot; never a live OS grant */
     int32_t close_status;
     /* Test-only, lifetime-valid trusted claims. NULL denies metadata mutation.
      * Open never manufactures this context. Future native ACL authorization
      * must not infer these claims from daemon UID or untrusted request data. */
     const PwCredentials *metadata_caller;
 } PW_PROBE_FILE;
+
+static VOID PwVolumeParamsInit(FSP_FSCTL_VOLUME_PARAMS *options)
+{
+    const WCHAR name[] = L"PortaWeaveLab";
+    ZeroMemory(options, sizeof(*options));
+    options->SectorSize = 4096;
+    options->SectorsPerAllocationUnit = 1;
+    options->FileInfoTimeout = 1000;
+    options->CasePreservedNames = 1;
+    options->UnicodeOnDisk = 1;
+    options->DirectoryMarkerAsNextOffset = 1;
+    /* PersistentAcls/HardLinks/security remain closed. Pattern filtering is FSD-owned. */
+    CopyMemory(options->FileSystemName, name, sizeof(name));
+}
 
 static NTSTATUS PwNtStatus(int32_t result)
 {
@@ -115,6 +141,7 @@ static NTSTATUS PwGetFileInfo(FSP_FILE_SYSTEM *fs, PVOID context, FSP_FSCTL_FILE
         return STATUS_INVALID_PARAMETER;
     volume = (PW_PROBE_VOLUME *)fs->UserContext;
     file = (PW_PROBE_FILE *)context;
+    if (file->directory) return file->file ? STATUS_INVALID_PARAMETER : STATUS_NOT_SUPPORTED;
     status = PwNtStatus(pw_windows_file_info(volume->volume, file->file, &info));
     if (!NT_SUCCESS(status)) return status;
     PwCopyFileInfo(&info, out);
@@ -133,6 +160,7 @@ static NTSTATUS PwRead(
         return STATUS_INVALID_PARAMETER;
     volume = (PW_PROBE_VOLUME *)fs->UserContext;
     file = (PW_PROBE_FILE *)context;
+    if (file->directory) return file->file ? STATUS_INVALID_PARAMETER : STATUS_FILE_IS_A_DIRECTORY;
     status = PwNtStatus(pw_posix_file_read(
         volume->volume, file->file, offset, (uint8_t *)buffer, length, &done));
     if (!NT_SUCCESS(status))
@@ -157,6 +185,7 @@ static NTSTATUS PwWrite(
         return STATUS_INVALID_PARAMETER;
     volume = (PW_PROBE_VOLUME *)fs->UserContext;
     file = (PW_PROBE_FILE *)context;
+    if (file->directory) return file->file ? STATUS_INVALID_PARAMETER : STATUS_FILE_IS_A_DIRECTORY;
     if (append) flags |= PW_WRITE_APPEND;
     if (constrained) flags |= PW_WRITE_CONSTRAINED;
     status = PwNtStatus(pw_windows_file_write(volume->volume, file->file,
@@ -182,6 +211,7 @@ static NTSTATUS PwSetFileSize(
     if (allocation) return STATUS_NOT_SUPPORTED;
     volume = (PW_PROBE_VOLUME *)fs->UserContext;
     file = (PW_PROBE_FILE *)context;
+    if (file->directory) return file->file ? STATUS_INVALID_PARAMETER : STATUS_FILE_IS_A_DIRECTORY;
     status = PwNtStatus(pw_windows_file_set_size(volume->volume, file->file, size, &info));
     if (!NT_SUCCESS(status)) return status;
     PwCopyFileInfo(&info, out);
@@ -201,6 +231,7 @@ static NTSTATUS PwSetBasicInfo(
         return STATUS_INVALID_PARAMETER;
     volume = (PW_PROBE_VOLUME *)fs->UserContext;
     file = (PW_PROBE_FILE *)context;
+    if (file->directory) return file->file ? STATUS_INVALID_PARAMETER : STATUS_NOT_SUPPORTED;
     if (!file->metadata_caller) return STATUS_ACCESS_DENIED;
     ZeroMemory(&request, sizeof(request));
     request.file_attributes = attributes;
@@ -223,8 +254,39 @@ static VOID PwClose(FSP_FILE_SYSTEM *fs, PVOID context)
         return;
     volume = (PW_PROBE_VOLUME *)fs->UserContext;
     file = (PW_PROBE_FILE *)context;
-    file->close_status = pw_posix_file_close(volume->volume, file->file);
-    if (file->close_status == PW_OK) file->file = 0;
+    if (file->file && file->directory) { file->close_status = PW_INVALID; return; }
+    if (file->directory) {
+        file->close_status = pw_windows_directory_close(volume->volume, file->directory);
+        if (file->close_status == PW_OK) file->directory = 0;
+    } else {
+        file->close_status = pw_posix_file_close(volume->volume, file->file);
+        if (file->close_status == PW_OK) file->file = 0;
+    }
+}
+static NTSTATUS PwReadDirectory(
+    FSP_FILE_SYSTEM *fs, PVOID context, PWSTR pattern, PWSTR marker,
+    PVOID buffer, ULONG length, PULONG transferred)
+{
+    PW_PROBE_VOLUME *volume;
+    PW_PROBE_FILE *directory;
+    UINT64 offset = 0;
+    size_t done = 0;
+    NTSTATUS status;
+    (void)pattern; /* Pinned FSD always performs its own pattern filtering. */
+    if (!fs || !fs->UserContext || !context || !transferred || (length && !buffer))
+        return STATUS_INVALID_PARAMETER;
+    volume = (PW_PROBE_VOLUME *)fs->UserContext;
+    directory = (PW_PROBE_FILE *)context;
+    if (directory->file && directory->directory) return STATUS_INVALID_PARAMETER;
+    if (!directory->directory) return STATUS_NOT_A_DIRECTORY;
+    /* DirectoryMarkerAsNextOffset=1: marker points to 8 bytes, NOT a string.
+     * Copy supports unaligned marker storage without dereferencing a UINT64*. */
+    if (marker) CopyMemory(&offset, marker, sizeof(offset));
+    status = PwNtStatus(pw_windows_directory_read(volume->volume, directory->directory,
+        offset, (uint8_t *)buffer, length, &done));
+    if (!NT_SUCCESS(status)) return status;
+    *transferred = (ULONG)done; /* ABI caps to 16 MiB before encoding. */
+    return STATUS_SUCCESS;
 }
 /* A SQLite WAL checkpoint cannot satisfy filesystem Flush! Fail closed. */
 static NTSTATUS PwFlush(
@@ -246,21 +308,133 @@ static VOID PwInterfaceInit(FSP_FILE_SYSTEM_INTERFACE *callbacks)
     callbacks->Write = PwWrite;
     callbacks->SetFileSize = PwSetFileSize;
     callbacks->SetBasicInfo = PwSetBasicInfo;
+    callbacks->ReadDirectory = PwReadDirectory;
     callbacks->Close = PwClose;
     callbacks->Flush = PwFlush;
-    /* Create, Rename, Directory, ACL, mmap etc. remain unset. */
+    /* Create, Rename, ACL etc. remain unset; no directory Open/GFI/refresh yet. */
 }
 #ifndef PW_WINFSP_NO_TEST
 #define REQUIRE(condition) do { if (!(condition)) { \
     fprintf(stderr, "check failed: %s at line %d\n", #condition, __LINE__); \
     return 1; \
 } } while (0)
+/* Independent SDK-typed consumer of bytes emitted by Rust, including unaligned
+ * user buffers. No WinFsp DLL/helper implementation is copied or simulated. */
+static BOOL PwDecodeDirectory(const UINT8 *buffer, ULONG length, ULONG offset,
+    FSP_FSCTL_DIR_INFO *info, WCHAR *name, PULONG next)
+{
+    UINT16 size;
+    ULONG padded, units, i;
+    if (offset > length || length - offset < sizeof(size)) return FALSE;
+    CopyMemory(&size, buffer + offset, sizeof(size));
+    ZeroMemory(info, sizeof(*info)); name[0] = 0;
+    if (!size) { *next = offset + (ULONG)sizeof(size); return TRUE; }
+    if (size < sizeof(*info) || (size - sizeof(*info)) % sizeof(WCHAR)) return FALSE;
+    padded = (ULONG)FSP_FSCTL_DEFAULT_ALIGN_UP(size);
+    if (padded > length - offset) return FALSE;
+    units = (size - (ULONG)sizeof(*info)) / (ULONG)sizeof(WCHAR);
+    if (units > 255) return FALSE;
+    CopyMemory(info, buffer + offset, sizeof(*info));
+    CopyMemory(name, buffer + offset + sizeof(*info), units * sizeof(WCHAR));
+    name[units] = 0;
+    for (i = size; i < padded; ++i) if (buffer[offset + i]) return FALSE;
+    *next = offset + padded;
+    return TRUE;
+}
+static int PwDirectoryContract(FSP_FILE_SYSTEM *fs,
+    const FSP_FILE_SYSTEM_INTERFACE *callbacks, uint64_t volume, const PwCredentials *caller)
+{
+    PW_PROBE_FILE directory = {0}, regular = {0};
+    FSP_FSCTL_DIR_INFO record;
+    FSP_FSCTL_FILE_INFO info;
+    UINT8 bytes[2049], marker[9];
+    WCHAR name[256];
+    const char emoji[] = "\xF0\x9F\x98\x80.txt";
+    UINT64 cookie, saved;
+    ULONG done, offset, next, records, seen;
+    size_t written;
+    uint64_t handle, root;
+    int64_t folder, file, unicodeFile, branch;
+    PwCredentials other = {999, 20, NULL, 0, 0};
+    REQUIRE(PW_OK == pw_directory_create(volume, 1, (const uint8_t *)"enumeration", 11, &folder));
+    REQUIRE(PW_OK == pw_file_create(volume, folder, (const uint8_t *)"file", 4, &file));
+    REQUIRE(PW_OK == pw_file_open(volume, file, &handle));
+    REQUIRE(PW_OK == pw_file_write(volume, handle, 0, (const uint8_t *)"abc", 3, &written));
+    REQUIRE(PW_OK == pw_file_close(volume, handle));
+    REQUIRE(PW_OK == pw_hard_link(volume, file, folder, (const uint8_t *)"z-alias", 7));
+    REQUIRE(PW_OK == pw_file_create(volume, folder, (const uint8_t *)emoji, strlen(emoji), &unicodeFile));
+    REQUIRE(PW_OK == pw_directory_create(volume, folder, (const uint8_t *)"branch", 6, &branch));
+    root = 99;
+    REQUIRE(PW_DENIED == pw_windows_directory_begin(volume, folder, &other, &root) && root == 99);
+    REQUIRE(PW_OK == pw_windows_directory_begin(volume, folder, caller, &directory.directory));
+    REQUIRE(PW_BUSY == pw_volume_close(volume));
+    done = 99; memset(bytes, 0xa5, sizeof(bytes));
+    REQUIRE(STATUS_SUCCESS == callbacks->ReadDirectory(fs, &directory, NULL, NULL, bytes + 1, 111, &done));
+    REQUIRE(done == 0 && bytes[1] == 0xa5);
+    REQUIRE(STATUS_SUCCESS == callbacks->ReadDirectory(fs, &directory, L"ignored-pattern", NULL, bytes + 1, 112, &done));
+    REQUIRE(done == 112 && PwDecodeDirectory(bytes + 1, done, 0, &record, name, &next));
+    REQUIRE(record.NextOffset == 1 && 0 == wcscmp(name, L".") && record.FileInfo.IndexNumber == (UINT64)folder);
+    /* Resume via an intentionally unaligned 64-bit cookie, not a name. */
+    cookie = record.NextOffset; CopyMemory(marker + 1, &cookie, sizeof(cookie));
+    REQUIRE(STATUS_SUCCESS == callbacks->ReadDirectory(fs, &directory, NULL, (PWSTR)(marker + 1), bytes + 1, 112, &done));
+    REQUIRE(PwDecodeDirectory(bytes + 1, done, 0, &record, name, &next));
+    REQUIRE(record.NextOffset == 2 && 0 == wcscmp(name, L"..") && record.FileInfo.IndexNumber == 1);
+    REQUIRE(STATUS_SUCCESS == callbacks->ReadDirectory(fs, &directory, L"does-not-match", NULL, bytes + 1, 2048, &done));
+    offset = records = seen = 0;
+    while (offset < done) {
+        REQUIRE(PwDecodeDirectory(bytes + 1, done, offset, &record, name, &next));
+        if (!record.Size) { REQUIRE(next == done); break; }
+        ++records; REQUIRE(record.NextOffset == records && !record.FileInfo.HardLinks && !record.FileInfo.EaSize);
+        if (0 == wcscmp(name, L"file") || 0 == wcscmp(name, L"z-alias")) {
+            REQUIRE(record.FileInfo.IndexNumber == (UINT64)file && record.FileInfo.FileSize == 3 &&
+                record.FileInfo.AllocationSize == 4096 && record.FileInfo.FileAttributes == FILE_ATTRIBUTE_NORMAL);
+            seen |= 1;
+        } else if (name[0] == 0xd83d && name[1] == 0xde00) {
+            REQUIRE(record.FileInfo.IndexNumber == (UINT64)unicodeFile && 0 == wcscmp(name + 2, L".txt")); seen |= 2;
+        } else {
+            REQUIRE(record.FileInfo.FileAttributes == FILE_ATTRIBUTE_DIRECTORY);
+            if (0 == wcscmp(name, L"branch")) REQUIRE(record.FileInfo.IndexNumber == (UINT64)branch);
+        }
+        offset = next;
+    }
+    REQUIRE(records == 6 && seen == 3 && !record.Size);
+    cookie = 6; CopyMemory(marker + 1, &cookie, sizeof(cookie));
+    REQUIRE(STATUS_SUCCESS == callbacks->ReadDirectory(fs, &directory, NULL, (PWSTR)(marker + 1), bytes + 1, 2, &done));
+    REQUIRE(done == 2 && bytes[1] == 0 && bytes[2] == 0);
+    cookie = UINT64_MAX; CopyMemory(marker + 1, &cookie, sizeof(cookie)); done = 99;
+    REQUIRE(STATUS_INVALID_PARAMETER == callbacks->ReadDirectory(fs, &directory, NULL, (PWSTR)(marker + 1), bytes + 1, 128, &done) && done == 99);
+    REQUIRE(STATUS_INVALID_PARAMETER == callbacks->ReadDirectory(fs, &directory, NULL, NULL, NULL, 1, &done));
+    REQUIRE(STATUS_NOT_A_DIRECTORY == callbacks->ReadDirectory(fs, &regular, NULL, NULL, bytes, 128, &done));
+    REQUIRE(STATUS_NOT_SUPPORTED == callbacks->GetFileInfo(fs, &directory, &info)); // no live directory GFI advertised
+    REQUIRE(STATUS_FILE_IS_A_DIRECTORY == callbacks->Read(fs, &directory, bytes, 0, 1, &done));
+    directory.file = 1;
+    REQUIRE(STATUS_INVALID_PARAMETER == callbacks->ReadDirectory(fs, &directory, NULL, NULL, bytes, 128, &done));
+    directory.file = 0;
+    /* The old metadata snapshot remains deterministic across namespace edits. */
+    REQUIRE(PW_OK == pw_remove(volume, folder, (const uint8_t *)"file", 4, 0));
+    REQUIRE(PW_OK == pw_remove(volume, folder, (const uint8_t *)"z-alias", 7, 0));
+    REQUIRE(STATUS_SUCCESS == callbacks->ReadDirectory(fs, &directory, NULL, NULL, bytes + 1, 2048, &done));
+    REQUIRE(PwDecodeDirectory(bytes + 1, done, 224, &record, name, &next)); // branch after two dots
+    REQUIRE(0 == wcscmp(name, L"branch"));
+    REQUIRE(PW_OK == pw_windows_directory_begin(volume, 1, caller, &root));
+    REQUIRE(PW_OK == pw_windows_directory_read(volume, root, 0, bytes + 1, 2048, &written));
+    REQUIRE(PwDecodeDirectory(bytes + 1, (ULONG)written, 0, &record, name, &next));
+    REQUIRE(0 == wcscmp(name, L"enumeration")); // root has no synthetic dot entries
+    REQUIRE(PW_OK == pw_windows_directory_close(volume, root));
+    saved = directory.directory; callbacks->Close(fs, &directory);
+    REQUIRE(directory.directory == 0 && directory.close_status == PW_OK);
+    written = 99;
+    REQUIRE(PW_INVALID == pw_windows_directory_read(volume, saved, 0, bytes, 128, &written) && written == 99);
+    puts("WINFSP_DIRECTORY_CONTRACT_OK (pinned SDK wire/callbacks; no directory Open/refresh/ACL/mount)");
+    return 0;
+}
 int main(int argc, char **argv)
 {
     FSP_FILE_SYSTEM_INTERFACE callbacks;
     FSP_FILE_SYSTEM fs = {0};
     FSP_FSCTL_VOLUME_INFO info = {0};
     FSP_FSCTL_FILE_INFO fileInfo = {0}, oldInfo;
+    FSP_FSCTL_VOLUME_PARAMS params;
     PW_PROBE_VOLUME context = {0};
     PW_PROBE_FILE file = {0}, reader = {0}, raw = {0};
     PwCreateAttributes attrs = {100, 20, 0777, 0};
@@ -278,9 +452,12 @@ int main(int argc, char **argv)
     context.volume = volume;
     fs.UserContext = &context;
     PwInterfaceInit(&callbacks);
+    PwVolumeParamsInit(&params);
+    REQUIRE(params.DirectoryMarkerAsNextOffset && !params.PassQueryDirectoryPattern &&
+        !params.PersistentAcls && !params.HardLinks);
     REQUIRE(callbacks.GetFileInfo == PwGetFileInfo && callbacks.Write == PwWrite &&
         callbacks.SetFileSize == PwSetFileSize && callbacks.SetBasicInfo == PwSetBasicInfo &&
-        callbacks.Create == NULL);
+        callbacks.ReadDirectory == PwReadDirectory && callbacks.Create == NULL);
     REQUIRE(STATUS_SUCCESS == callbacks.GetVolumeInfo(&fs, &info));
     REQUIRE(info.TotalSize == 65536 && info.FreeSize <= info.TotalSize);
     REQUIRE(STATUS_ACCESS_DENIED == callbacks.GetSecurityByName(&fs, L"\\", NULL, NULL, NULL));
@@ -390,6 +567,7 @@ int main(int argc, char **argv)
     callbacks.Close(&fs, &reader); callbacks.Close(&fs, &file);
     REQUIRE(reader.file == 0 && file.file == 0 && reader.close_status == PW_OK && file.close_status == PW_OK);
     REQUIRE(STATUS_INVALID_PARAMETER == callbacks.GetFileInfo(&fs, &file, &fileInfo));
+    REQUIRE(PwDirectoryContract(&fs, &callbacks, volume, &caller) == 0);
     REQUIRE(PW_OK == pw_volume_close(volume));
     puts("WINFSP_BASIC_INFO_CONTRACT_OK (trusted current-owner policy; no Windows ACL/mount certification)");
     puts("WINFSP_GRANTED_IO_CONTRACT_OK (regular-file grants; no ACL/Open/mount certification)");
