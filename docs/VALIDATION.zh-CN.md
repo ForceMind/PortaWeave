@@ -232,3 +232,15 @@ Work Linux full default/all-feature workspace 各 32 suites、clippy `-D warning
 覆盖全部祖先及 R+X/v1/预算拒绝、原名/父目录/不可读子项属性、无 inode/data pin、保护下只读观察、UTF-16 surrogate/255-unit/对齐/零 padding/完整分页及 EOF、投影拒绝无 cursor、错误输出哨兵、跨 owner/管理 token 混用、64 个真实混合 cursor 和关闭后的准入。4 个真实读线程与 close 竞争，只允许完整快照或不改输出的 invalid。累计 100000-entry 逻辑预算以 unit 中降低至 3 的真实卷/两类 cursor 验证，不冒称 100000 个真实名字的性能压力、精确堆界限或完整解析器预算。首次 clippy 的 is_multiple_of/as_chunks 两个 decoder lint 已修正，未降低 lint。
 
 固定 WinFsp 2.1 头、fsop.c 和 dirctl.c 已重读核对 104-byte/8-byte/EOF/ordinal marker。新 MSVC SDK 类型解析/ReadDirectory 回调、共享 volume 参数和 self-test，macOS SDK 64-cursor 压力下自有 LRU/外部 snapshot 保留及完整 App/Extension、真实跨 OS artifact 回传，必须按本增量 PR 的准确 source/tree/日志验收，当前文档不预报结果。Marker 重放是同一快照，目录 Open/当前 GFI/刷新及 ACL/共享/Flush 仍未完成；真正挂载/Codex 正常沙盒/越界与物理 exFAT/USB/断电保持 BLOCKED/NOT_RUN。
+
+PR #35 已验收：source `2ad7a8c007512465d7b3ef99107d841cd91e76ba` / tree `2e6ef7e23d2b5b531ef6d43abd918cdfea2955ec`，17 项 completed/success；实际 MSVC job121494703714 输出 WINFSP_DIRECTORY_CONTRACT_OK，SDK job121494703375 输出 FSVOLUME_CURSOR_PRESSURE_CONTRACT_OK，App/Extension 完整构建及真实 macOS/Windows/return 目录元数据交接通过。候选 `14f421facf80cd65091bde594f1fb9e92c85c4d2` 与合并 `2dca20f5630c73e54fdbab9d2bac7adf4e543187` 树一致，主线 14 项全部 success（core40300438415、native40300438267、bundle40300438225、handover40300438447、host40300438335）。最终 return job121497630332 保全 v1/v2 恢复原件 SHA-256。Windows 清单 artifact12639927908 实际下载/核验 SHA-256 `4fac3af915b8b0dd79209f684a9910229e2665daa102eab4cb9a3eb6e2fe54c0`，source_commit 为该 main，runtime/driver 为空，实际挂载 NOT_RUN，安装/服务更改/挂载尝试 false。2026-10-27 再通过 GitHub 连接核验此 main 的 14 项全成功、无开放 PR。
+
+## 2026-10-27 续研：M0-U 当前目录属性与显式重建
+
+从上述已核验 main 继续。当前目录属性每次按当前可信 R+X/全部祖先检查，只用 snapshot 捕获的 ID；显式替换先准备完整新列表/属性和新 token，抵扣自己的旧 slot/条目后才发布。删除返回 NotFound，不提供目录 inode pin；旧 token 在成功替换后失效，旧 cookie 必须丢弃。ReadDirectory 的 NULL Marker 保持原快照重放，原生门禁继续关闭。
+
+Work Linux full all-feature/default workspace（各 32 suites，包含 Disk Studio）、clippy `-D warnings`、fmt、真实 C11 caller、独立 C++17 公共头检查及 Python 9 项实际通过。新增 core 2 项（directory_snapshots 现 all-feature6/default5）及 ABI4项（windows_directory12/native integration累计35），强化原有保护下只读观察和3-entry共享预算 unit，不虚增单元测试数量。覆盖当前/旧属性分离、祖先撤权、目录移动及原名替换、删后无旧 inode/重开正常、转换与权限拒绝输出、满64混合cursor替换、抵扣后超限保留旧快照、4真实读线程与替换竞争及typed token隔离。
+
+首次新增 ABI 两处 NULL credentials 的测试预期误写 DENIED，既有解析为 INVALID；按既有 C ABI 修正断言/头注释后通过，没有修改凭据解析或放宽授权。WinFsp 回调层自己在 NULL caller 时 ACCESS_DENIED。真实 C caller 输出 NATIVE_C_ABI_OK；本地四阶段输出 DIRECTORY_CURRENT_INFO_HANDOVER_OK，均运行在 Linux，不冒充另两个 OS。
+
+准确源码的 MSVC 回调新合同、Swift/SDK 满额重建、完整 App/Extension 与真实跨 OS artifact 返回，须读取对应 PR 的 CI 日志验收；此文件不预报平台结果。完整活目录需另做格式/旧 reader/恢复决策，因为当前 v1/v2 拒绝孤儿目录，不能暗中放宽 schema/verify、伪造旧 fstat 或迁移唯一容器。真正挂载/Codex正常沙盒/越界/物理exFAT/USB/断电仍 BLOCKED/NOT_RUN，没有本机/驱动/签名/安全要求改动。

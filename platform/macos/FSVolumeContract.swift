@@ -156,11 +156,23 @@ struct FSVolumeContract {
             var count = 0
             try pwCheck(pw_windows_directory_read(volume.session.volume, external[0], 0, &bytes, bytes.count, &count))
             try require(count == 226, "Swift evicted or altered an external Windows snapshot")
+            var info = PwWindowsFileInfo()
+            try pwCheck(pw_windows_directory_info(volume.session.volume, external[0], &caller, &info))
+            try require(info.index_number == UInt64(cached.object), "directory observation changed identity")
+            let old = external[0]
+            var replacement: UInt64 = 0
+            try pwCheck(pw_windows_directory_refresh(volume.session.volume, old, &caller, &replacement, &info))
+            try require(replacement != old && pw_windows_directory_close(volume.session.volume, old) == PW_INVALID,
+                        "full-capacity replacement did not retire old token")
+            external[0] = replacement
+            try pwCheck(pw_windows_directory_read(volume.session.volume, replacement, 0, &bytes, bytes.count, &count))
+            try require(count == 226, "replacement evicted external state or changed empty directory")
             for token in external { try pwCheck(pw_windows_directory_close(volume.session.volume, token)) }
             try pwCheck(pw_dir_close(volume.session.volume, administrative))
         }
         try success { volume.deactivate(options: [], replyHandler: $0) }
         print("FSVOLUME_CURSOR_PRESSURE_CONTRACT_OK (own LRU eviction; external snapshots preserved; no OS mount)")
+        print("FSVOLUME_DIRECTORY_REPLACEMENT_CONTRACT_OK (native replacement at full shared admission; no native open grant)")
     }
     static func checkedNamespaceContract(_ base: URL) throws {
         for v2 in [false, true] {

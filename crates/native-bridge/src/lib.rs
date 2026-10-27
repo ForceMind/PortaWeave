@@ -18,7 +18,8 @@ mod namespace_ops;
 pub use namespace_ops::{pw_remove_checked, pw_rename_checked};
 mod windows_directory;
 pub use windows_directory::{
-    pw_windows_directory_begin, pw_windows_directory_close, pw_windows_directory_read,
+    pw_windows_directory_begin, pw_windows_directory_close, pw_windows_directory_info,
+    pw_windows_directory_read, pw_windows_directory_refresh,
 };
 
 use portaweave_core::{
@@ -132,12 +133,20 @@ impl Session {
         if self.dirs.len() + self.windows_dirs.len() >= MAX_CURSORS {
             return Err(Fault::resource());
         }
+        self.directory_entry_admission(0)
+    }
+    // A replacement has no additional cursor slot and credits only the old
+    // snapshot's entries. Preparation leaves that snapshot published on failure.
+    fn directory_entry_admission(&self, replacing_entries: usize) -> FResult<usize> {
         let limit = MAX_DIRECTORY_ENTRIES;
         #[cfg(test)]
         let limit = self.directory_entry_ceiling.unwrap_or(limit).min(limit);
         let used = self.dirs.values().map(|c| c.entries.len()).sum::<usize>()
             + self.windows_dirs.values().map(|c| c.len()).sum::<usize>();
-        limit.checked_sub(used).ok_or_else(Fault::resource)
+        let retained = used
+            .checked_sub(replacing_entries)
+            .ok_or_else(Fault::resource)?;
+        limit.checked_sub(retained).ok_or_else(Fault::resource)
     }
 }
 static TABLE: OnceLock<Mutex<BTreeMap<u64, Session>>> = OnceLock::new();

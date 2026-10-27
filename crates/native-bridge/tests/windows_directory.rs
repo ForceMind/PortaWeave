@@ -7,6 +7,13 @@ use std::{
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
 const EPOCH: u64 = 116_444_736_000_000_000;
+// Independent public C status values; the Rust bridge keeps its codes private.
+const PW_INVALID: i32 = -1;
+const PW_NOT_FOUND: i32 = -2;
+const PW_BUSY: i32 = -7;
+const PW_UNSUPPORTED: i32 = -11;
+const PW_RESOURCE: i32 = -14;
+const PW_DENIED: i32 = -17;
 struct Fixture {
     path: PathBuf,
     volume: u64,
@@ -174,6 +181,416 @@ fn parse(bytes: &[u8]) -> (Vec<Record>, bool) {
         at += padded;
     }
     (records, eof)
+}
+
+fn sentinel_info() -> PwWindowsFileInfo {
+    PwWindowsFileInfo {
+        file_size: 71,
+        allocation_size: 72,
+        creation_time: 73,
+        last_access_time: 74,
+        last_write_time: 75,
+        change_time: 76,
+        index_number: 77,
+    }
+}
+fn set_meta(f: &Fixture, id: i64, update: PwMetadataUpdate) {
+    assert_eq!(unsafe { pw_metadata_set(f.volume, id, &update) }, 0);
+}
+
+#[test]
+fn current_info_rechecks_same_directory_identity_ancestors_and_outputs() {
+    let f = Fixture::new(true);
+    let dir = f.create(1, "selected", true);
+    let hidden = f.create(1, "hidden", true);
+    set_meta(
+        &f,
+        hidden,
+        PwMetadataUpdate {
+            valid: 1 | 4,
+            uid: 200,
+            mode: 0o700,
+            ..Default::default()
+        },
+    );
+    let token = f.begin(dir);
+    let bytes = f.read(token, 0, 1024);
+    assert_eq!(
+        unsafe {
+            pw_rename(
+                f.volume,
+                1,
+                b"selected".as_ptr(),
+                8,
+                hidden,
+                b"moved".as_ptr(),
+                5,
+                0,
+            )
+        },
+        0
+    );
+    let replacement = f.create(1, "selected", true);
+    assert_ne!(replacement, dir);
+    let sentinel = sentinel_info();
+    let mut info = sentinel;
+    assert_eq!(
+        unsafe { pw_windows_directory_info(f.volume, token, &caller(100), &mut info) },
+        PW_DENIED
+    );
+    assert_eq!(info, sentinel);
+    set_meta(
+        &f,
+        hidden,
+        PwMetadataUpdate {
+            valid: 4,
+            mode: 0o711,
+            ..Default::default()
+        },
+    );
+    set_meta(
+        &f,
+        dir,
+        PwMetadataUpdate {
+            valid: 32,
+            modified: PwTimestamp {
+                seconds: 10,
+                nanoseconds: 700,
+                reserved: 0,
+            },
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        unsafe { pw_windows_directory_info(f.volume, token, &caller(100), &mut info) },
+        0
+    );
+    assert_eq!(info.index_number, dir as u64);
+    assert_eq!(info.last_write_time, EPOCH + 100_000_007);
+    assert_eq!((info.file_size, info.allocation_size), (0, 0));
+    assert_eq!(f.read(token, 0, 1024), bytes);
+    assert_eq!(
+        unsafe { pw_windows_directory_info(f.volume, token, ptr::null(), &mut info) },
+        PW_INVALID
+    );
+    assert_eq!(
+        unsafe { pw_windows_directory_info(f.volume, token, &caller(100), ptr::null_mut()) },
+        PW_INVALID
+    );
+    let valid = info;
+    set_meta(
+        &f,
+        dir,
+        PwMetadataUpdate {
+            valid: 8,
+            created: PwTimestamp {
+                seconds: -11_644_473_601,
+                nanoseconds: 0,
+                reserved: 0,
+            },
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        unsafe { pw_windows_directory_info(f.volume, token, &caller(100), &mut info) },
+        PW_UNSUPPORTED
+    );
+    assert_eq!(info, valid);
+    assert_eq!(
+        unsafe { pw_remove(f.volume, hidden, b"moved".as_ptr(), 5, 1) },
+        0
+    );
+    assert_eq!(
+        unsafe { pw_windows_directory_info(f.volume, token, &caller(100), &mut info) },
+        PW_NOT_FOUND
+    );
+    assert_eq!(info, valid);
+    let mut refused = 99;
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, token, &caller(100), &mut refused, &mut info)
+        },
+        PW_NOT_FOUND
+    );
+    assert_eq!((refused, info), (99, valid));
+    assert_eq!(f.read(token, 0, 1024), bytes); // captured bytes, never current GFI fallback
+    f.healthy();
+    assert_eq!(pw_windows_directory_close(f.volume, token), 0);
+    assert_eq!(
+        unsafe { pw_windows_directory_info(f.volume, token, &caller(100), &mut info) },
+        PW_INVALID
+    );
+}
+
+#[test]
+fn refresh_prepares_complete_replacement_and_preserves_old_snapshot_on_every_refusal() {
+    let f = Fixture::new(true);
+    let dir = f.create(1, "selected", true);
+    let old_child = f.create(dir, "old", false);
+    let token = f.begin(dir);
+    let bytes = f.read(token, 0, 1024);
+    assert_eq!(
+        unsafe { pw_remove(f.volume, dir, b"old".as_ptr(), 3, 0) },
+        0
+    );
+    let child = f.create(dir, "new", false);
+    assert_ne!(old_child, child);
+    set_meta(
+        &f,
+        child,
+        PwMetadataUpdate {
+            valid: 8,
+            created: PwTimestamp {
+                seconds: -11_644_473_601,
+                nanoseconds: 0,
+                reserved: 0,
+            },
+            ..Default::default()
+        },
+    );
+    let (mut fresh, mut info) = (99, sentinel_info());
+    assert_eq!(
+        unsafe { pw_windows_directory_info(f.volume, token, &caller(100), &mut info) },
+        0
+    ); // does not enumerate children
+    info = sentinel_info();
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, token, &caller(100), &mut fresh, &mut info)
+        },
+        PW_UNSUPPORTED
+    );
+    assert_eq!((fresh, info), (99, sentinel_info()));
+    assert_eq!(f.read(token, 0, 1024), bytes);
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, token, ptr::null(), &mut fresh, &mut info)
+        },
+        PW_INVALID
+    );
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, token, &caller(100), ptr::null_mut(), &mut info)
+        },
+        PW_INVALID
+    );
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, token, &caller(100), &mut fresh, ptr::null_mut())
+        },
+        PW_INVALID
+    );
+    assert_eq!((fresh, info), (99, sentinel_info()));
+    set_meta(
+        &f,
+        dir,
+        PwMetadataUpdate {
+            valid: 4,
+            mode: 0,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, token, &caller(100), &mut fresh, &mut info)
+        },
+        PW_DENIED
+    );
+    assert_eq!((fresh, info), (99, sentinel_info()));
+    assert_eq!(f.read(token, 0, 1024), bytes);
+    set_meta(
+        &f,
+        dir,
+        PwMetadataUpdate {
+            valid: 4,
+            mode: 0o700,
+            ..Default::default()
+        },
+    );
+    set_meta(
+        &f,
+        child,
+        PwMetadataUpdate {
+            valid: 8,
+            created: PwTimestamp {
+                seconds: 0,
+                nanoseconds: 0,
+                reserved: 0,
+            },
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, token, &caller(100), &mut fresh, &mut info)
+        },
+        0
+    );
+    assert_ne!(fresh, token);
+    assert_eq!(info.index_number, dir as u64);
+    let (entries, eof) = parse(&f.read(fresh, 0, 1024));
+    assert!(eof);
+    assert_eq!(
+        entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+        [".", "..", "new"]
+    );
+    assert_eq!(entries[2].id, child as u64);
+    let (mut untouched, mut count) = ([77; 128], 99);
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_read(
+                f.volume,
+                token,
+                0,
+                untouched.as_mut_ptr(),
+                untouched.len(),
+                &mut count,
+            )
+        },
+        PW_INVALID
+    );
+    assert_eq!((untouched, count), ([77; 128], 99));
+    let saved = info;
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, token, &caller(100), &mut fresh, &mut info)
+        },
+        PW_INVALID
+    );
+    assert_eq!(info, saved);
+    assert_eq!(pw_windows_directory_close(f.volume, token), PW_INVALID);
+    assert_eq!(pw_windows_directory_close(f.volume, fresh), 0);
+    f.healthy();
+}
+
+#[test]
+fn refresh_at_full_shared_cursor_limit_credits_only_its_own_slot_and_rejects_foreign_types() {
+    let f = Fixture::new(true);
+    let other = Fixture::new(true);
+    let token = f.begin(1);
+    let mut admin = Vec::new();
+    for _ in 0..63 {
+        let mut c = 0;
+        assert_eq!(unsafe { pw_dir_begin(f.volume, 1, &mut c) }, 0);
+        admin.push(c);
+    }
+    let (mut fresh, mut info) = (99, sentinel_info());
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, admin[0], &caller(100), &mut fresh, &mut info)
+        },
+        PW_INVALID
+    );
+    assert_eq!(
+        unsafe { pw_windows_directory_info(f.volume, admin[0], &caller(100), &mut info) },
+        PW_INVALID
+    );
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(other.volume, token, &caller(100), &mut fresh, &mut info)
+        },
+        PW_INVALID
+    );
+    assert_eq!(
+        unsafe { pw_windows_directory_info(other.volume, token, &caller(100), &mut info) },
+        PW_INVALID
+    );
+    assert_eq!((fresh, info), (99, sentinel_info()));
+    f.create(1, "arrived", false);
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, token, &caller(100), &mut fresh, &mut info)
+        },
+        0
+    );
+    assert_ne!(fresh, token);
+    assert_eq!(parse(&f.read(fresh, 0, 1024)).0[0].name, "arrived");
+    let mut refused = 99;
+    assert_eq!(
+        unsafe { pw_windows_directory_begin(f.volume, 1, &caller(100), &mut refused) },
+        PW_RESOURCE
+    );
+    assert_eq!(refused, 99);
+    assert_eq!(pw_volume_close(f.volume), PW_BUSY);
+    for c in admin {
+        assert_eq!(pw_dir_seek(f.volume, c, 0), 0);
+        assert_eq!(pw_dir_close(f.volume, c), 0);
+    }
+    assert_eq!(pw_windows_directory_close(f.volume, fresh), 0);
+    f.healthy();
+}
+
+#[test]
+fn racing_reads_and_refresh_return_only_whole_old_pages_or_unchanged_invalid_outputs() {
+    use std::sync::{Arc, Barrier};
+    let f = Fixture::new(true);
+    let token = f.begin(1);
+    let expected = f.read(token, 0, 1024);
+    f.create(1, "arrived", false);
+    let start = Arc::new(Barrier::new(5));
+    let mut readers = Vec::new();
+    for _ in 0..4 {
+        let (start, expected, volume) = (Arc::clone(&start), expected.clone(), f.volume);
+        readers.push(std::thread::spawn(move || {
+            let mut bytes = [77; 1024];
+            let mut count = 99;
+            assert_eq!(
+                unsafe {
+                    pw_windows_directory_read(
+                        volume,
+                        token,
+                        0,
+                        bytes.as_mut_ptr(),
+                        bytes.len(),
+                        &mut count,
+                    )
+                },
+                0
+            );
+            assert_eq!(&bytes[..count], expected.as_slice());
+            start.wait();
+            for _ in 0..64 {
+                bytes.fill(77);
+                count = 99;
+                let status = unsafe {
+                    pw_windows_directory_read(
+                        volume,
+                        token,
+                        0,
+                        bytes.as_mut_ptr(),
+                        bytes.len(),
+                        &mut count,
+                    )
+                };
+                match status {
+                    0 => {
+                        assert_eq!(&bytes[..count], expected.as_slice());
+                        assert!(bytes[count..].iter().all(|b| *b == 77));
+                    }
+                    PW_INVALID => {
+                        assert_eq!(count, 99);
+                        assert_eq!(bytes, [77; 1024]);
+                    }
+                    other => panic!("unexpected read status: {other}"),
+                }
+            }
+        }));
+    }
+    start.wait();
+    let (mut fresh, mut info) = (0, sentinel_info());
+    assert_eq!(
+        unsafe {
+            pw_windows_directory_refresh(f.volume, token, &caller(100), &mut fresh, &mut info)
+        },
+        0
+    );
+    let changed = f.read(fresh, 0, 1024);
+    assert_ne!(changed, expected);
+    assert_eq!(parse(&changed).0[0].name, "arrived");
+    for reader in readers {
+        reader.join().unwrap();
+    }
+    assert_eq!(pw_windows_directory_close(f.volume, fresh), 0);
 }
 
 #[test]

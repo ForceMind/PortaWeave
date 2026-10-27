@@ -216,6 +216,10 @@ fn protected_engine_can_observe_an_authorized_snapshot_without_running_maintenan
     ));
     assert!(v.is_write_protected());
     assert_eq!(
+        v.posix(caller(100)).unwrap().directory_info(ROOT).unwrap(),
+        saved.directory
+    );
+    assert_eq!(
         v.posix(caller(100))
             .unwrap()
             .directory_snapshot(ROOT, 1)
@@ -223,4 +227,122 @@ fn protected_engine_can_observe_an_authorized_snapshot_without_running_maintenan
         saved
     );
     assert!(v.is_write_protected());
+}
+
+#[test]
+fn current_directory_info_follows_identity_and_current_ancestors_not_snapshot_authority() {
+    let s = Scratch::new();
+    let mut v = s.volume();
+    let directory = v
+        .mkdir_with_attributes(ROOT, "selected", attrs(100, 0o700))
+        .unwrap();
+    let hidden = v
+        .mkdir_with_attributes(ROOT, "hidden", attrs(200, 0o700))
+        .unwrap();
+    let saved = v
+        .posix(caller(100))
+        .unwrap()
+        .directory_snapshot(directory, 0)
+        .unwrap();
+    v.rename(ROOT, "selected", hidden, "moved", false).unwrap();
+    let replacement = v
+        .mkdir_with_attributes(ROOT, "selected", attrs(100, 0o700))
+        .unwrap();
+    assert_ne!(directory, replacement);
+    assert!(matches!(
+        v.posix(caller(100)).unwrap().directory_info(directory),
+        Err(Error::PermissionDenied)
+    ));
+    v.set_metadata(
+        hidden,
+        MetadataUpdate {
+            mode: Some(0o711),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let time = Timestamp {
+        seconds: 10,
+        nanoseconds: 700,
+    };
+    v.set_metadata(
+        directory,
+        MetadataUpdate {
+            modified: Some(time),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let current = v
+        .posix(caller(100))
+        .unwrap()
+        .directory_info(directory)
+        .unwrap();
+    assert_eq!(current.stat.id, directory);
+    assert_eq!(current.metadata.modified, time);
+    assert_ne!(current, saved.directory);
+    assert_eq!(
+        v.object_info(directory).unwrap().metadata.unwrap(),
+        current.metadata
+    );
+    assert_eq!(v.stats().unwrap().open_handles, 0);
+    v.rmdir(hidden, "moved").unwrap();
+    assert!(matches!(
+        v.posix(caller(100)).unwrap().directory_info(directory),
+        Err(Error::NotFound)
+    ));
+    assert_eq!(saved.directory.stat.id, directory);
+    assert_eq!(
+        v.posix(caller(100))
+            .unwrap()
+            .directory_info(replacement)
+            .unwrap()
+            .stat
+            .id,
+        replacement
+    );
+    assert!(!v.is_write_protected());
+    v.verify().unwrap();
+    drop(v);
+    let v = Volume::open(s.0.join("volume")).unwrap();
+    v.verify().unwrap(); // no persisted orphan directory or format change
+}
+
+#[test]
+fn current_directory_info_requires_read_and_search_and_refuses_nondirectories() {
+    let s = Scratch::new();
+    let mut v = s.volume();
+    let directory = v
+        .mkdir_with_attributes(ROOT, "selected", attrs(100, 0o700))
+        .unwrap();
+    let file = v.create_file(ROOT, "file").unwrap();
+    assert!(matches!(
+        v.posix(caller(100)).unwrap().directory_info(file),
+        Err(Error::NotDirectory)
+    ));
+    for mode in [0, 0o400, 0o100] {
+        v.set_metadata(
+            directory,
+            MetadataUpdate {
+                mode: Some(mode),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let before = v.object_info(directory).unwrap();
+        assert!(matches!(
+            v.posix(caller(100)).unwrap().directory_info(directory),
+            Err(Error::PermissionDenied)
+        ));
+        assert_eq!(v.object_info(directory).unwrap(), before);
+        assert_eq!(
+            v.posix(caller(0))
+                .unwrap()
+                .directory_info(directory)
+                .unwrap()
+                .metadata,
+            before.metadata.unwrap()
+        );
+    }
+    assert!(!v.is_write_protected());
 }

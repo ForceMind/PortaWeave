@@ -245,6 +245,12 @@ int main(int argc, char **argv) {
     if (count != 114 || directory_bytes[0] != 112 || directory_bytes[1] != 0 ||
         directory_bytes[104] != 't' || directory_bytes[105] != 0 || directory_bytes[112] != 0 ||
         directory_bytes[113] != 0 || pw_dir_seek(volume, directory_snapshot, 0) != PW_INVALID) return 65;
+    REQUIRE(pw_windows_directory_info(volume, directory_snapshot, &owner, &windows_info));
+    if (windows_info.index_number != 1 || windows_info.file_size != 0) return 66;
+    uint64_t fresh_directory_snapshot = 0;
+    REQUIRE(pw_windows_directory_refresh(volume, directory_snapshot, &owner, &fresh_directory_snapshot, &windows_info));
+    if (fresh_directory_snapshot == directory_snapshot || pw_windows_directory_close(volume, directory_snapshot) != PW_INVALID) return 67;
+    directory_snapshot = fresh_directory_snapshot;
     REQUIRE(pw_windows_directory_close(volume, directory_snapshot));
     REQUIRE(pw_volume_close(volume));
     puts("NATIVE_C_ABI_OK");

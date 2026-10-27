@@ -38,6 +38,8 @@ M0-S（2026-10-26）接续删除/改名的同请求、事务内 expected source/
 
 M0-T（2026-10-26）增加权限检查后的不可变目录元数据、typed Windows snapshot 与 ReadDirectory 固定格式、UTF-16/cookie/EOF；Windows/admin 共用 64 cursor/100000 条目，FSKit 只回收自己的旧 LRU。不是活目录 grant/current GFI/刷新，原生 Open/security/Flush/挂载继续关闭；准确 source/MSVC/SDK/bundle/artifact 见对应 PR 与 ADR0013。
 
+M0-U（2026-10-27）在同一 ID 上重新授权读取当前 linked-directory 属性，并原子准备/替换快照；失败保留旧 token/输出，成功新 token，满额只抵扣自己，不驱逐外部 cursor。直接 WinFsp GetFileInfo 仅在显式可信实验凭据下使用新观察；不是 SID/READ_ATTRIBUTES 或删除后 inode fstat。删除后 NOT_FOUND，ReadDirectory NULL Marker 仍重放原快照。当前格式的零链接目录被 verify/Recovery 拒绝，完整活目录需独立格式/恢复/旧 reader 决策，不得暗改或开放 native gates。见 M0U、ADR0014、VALIDATION 与对应 PR。
+
 阅读 AGENTS、SPEC、COMPATIBILITY、所有 IMPLEMENTATION-M0*/M1*、VALIDATION 与 ADR。保留早期失败及修复证据：格式失败、FSPathURLResource target 失败、otool header 误判，以及 schema LF/CRLF 交接拒绝。不能盲目重跑掩盖差异。
 
 ## 不可降低的目标

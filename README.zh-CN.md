@@ -19,9 +19,9 @@ cargo test --locked -p portaweave-partition-inspector
 
 支持 512/4096 字节扇区、GPT 主备 CRC 校验和异常报告；MBR 只解析四个主分区，扩展 EBR 链暂不支持。只有一份 GPT 有效时报告 DEGRADED 并且绝不自动修复。后续独立规划逻辑子卷、动态块设备 .pwdisk 和受控真实磁盘管理，**不能用“分区 UI”掩盖当前尚未完成的双端工作盘、Codex/Git 验收**。
 
-## 当前状态（2026-10-26）
+## 当前状态（2026-10-27）
 
-**M0-T WinFsp 目录/授权文件合同与 M0-S 实验性 FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-N 文件句柄属性核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
+**M0-U WinFsp 当前目录属性/授权文件合同与 M0-S 实验性 FSVolume 回调、macOS App/Extension 无签名构建、实验性 WinFsp Dispatcher 与 M1-N 文件句柄属性核心。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
 
 实现范围见 [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md)、[M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md)、[M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md)，历史测试见[验证记录](docs/VALIDATION.zh-CN.md)。确切源码版本的测试结果记录在对应 PR；实现文档不是自动的通过声明。云端三系统核心测试不等于真实 exFAT、挂载盘或 Codex 已兼容。
 
@@ -96,7 +96,9 @@ M1-I 增加大小/元数据单事务变更，明确时间优先级，验证提�
 
 ## M0-T 有界目录枚举
 
-WinFsp ReadDirectory 现使用经可信权限检查的不可变元数据快照，输出固定 SDK 的 UTF-16 名称、ordinal cookie、完整分页及 EOF。Windows/管理快照共享 cursor/条目额度；FSKit 压力下仅回收自己的旧 LRU。目录 Open/当前 GFI/刷新、OS 身份/ACL 和真实挂载仍未完成。见 [M0-T](docs/IMPLEMENTATION-M0T.zh-CN.md) 与 [ADR 0013](docs/adr/0013-directory-snapshot-wire-and-admission.md)。
+WinFsp ReadDirectory 使用经可信权限检查的不可变元数据快照，输出固定 SDK 的 UTF-16 名称、ordinal cookie、完整分页及 EOF。Windows/管理快照共享 cursor/条目额度；FSKit 压力下仅回收自己的旧 LRU。原生目录 Open/内核刷新、OS 身份/ACL 和真实挂载仍未完成。见 [M0-T](docs/IMPLEMENTATION-M0T.zh-CN.md) 与 [ADR 0013](docs/adr/0013-directory-snapshot-wire-and-admission.md)。
+
+M0-U 增加重新按可信 READ+SEARCH 授权的当前 linked-directory 属性，接入直接 WinFsp GetFileInfo 合同。显式重建只抵扣自己的旧 cursor/条目，可在满额下替换；失败保留旧 token/输出，成功返回新 token。目录删除后 NOT_FOUND，不 pin inode、不按旧名打开同名替代对象。NULL Marker 仍是同一快照重放，不是自动内核刷新。完整删除后活目录句柄仍需独立格式/恢复决策，原生 security/Open/Flush 保持关闭。见 [M0-U](docs/IMPLEMENTATION-M0U.zh-CN.md) 与 [ADR 0014](docs/adr/0014-current-directory-info-and-atomic-replacement.md)。
 
 ## M0-S 名字操作身份校验
 

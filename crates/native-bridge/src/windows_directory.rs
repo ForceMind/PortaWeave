@@ -1,5 +1,5 @@
 //! Bounded, immutable directory metadata and the pinned WinFsp 2.1 wire format.
-//! No native caller authentication, live directory grant, cache refresh or mount.
+//! Explicit current-policy observation/replacement, never a live inode grant.
 use super::{
     FResult, Fault, MAX_IO, OK, PwCredentials, PwWindowsFileInfo, credentials, file_id, next_token,
     readable, required, run, windows::project, with_session,
@@ -32,6 +32,8 @@ impl Record {
     }
 }
 pub(super) struct DirectoryCursor {
+    directory: portaweave_core::FileId,
+    captured_info: PwWindowsFileInfo,
     entries: Vec<Record>,
 }
 impl DirectoryCursor {
@@ -41,7 +43,8 @@ impl DirectoryCursor {
     fn from_snapshot(snapshot: DirectorySnapshot) -> FResult<Self> {
         // Validate even root/parent metadata, rather than silently inventing a
         // representable Windows directory when the core cannot project it.
-        project(snapshot.directory.clone())?;
+        let directory = snapshot.directory.stat.id;
+        let captured_info = project(snapshot.directory.clone())?;
         project(snapshot.parent.clone())?;
         let dots = if snapshot.directory.stat.id == ROOT {
             0
@@ -56,7 +59,11 @@ impl DirectoryCursor {
         for entry in snapshot.entries {
             entries.push(Record::new(&entry.name, entry.info)?);
         }
-        Ok(Self { entries })
+        Ok(Self {
+            directory,
+            captured_info,
+            entries,
+        })
     }
     fn encode(&self, start: usize, capacity: usize) -> FResult<Vec<u8>> {
         if start > self.entries.len() {
@@ -181,6 +188,89 @@ pub unsafe extern "C" fn pw_windows_directory_read(
     })
 }
 
+/// Observe CURRENT attributes after fresh trusted READ+SEARCH/ancestor checks.
+/// This is not fstat of an open inode; deletion returns NotFound, even though
+/// the old snapshot remains readable until explicit replacement/close.
+/// # Safety
+/// Caller/groups readable; output writable/aligned/nonaliasing throughout call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_windows_directory_info(
+    volume: u64,
+    cursor: u64,
+    caller: *const PwCredentials,
+    out_info: *mut PwWindowsFileInfo,
+) -> i32 {
+    run(|| {
+        required(out_info)?;
+        let caller = unsafe { credentials(caller)? };
+        with_session(volume, |session| {
+            let directory = session
+                .windows_dirs
+                .get(&cursor)
+                .ok_or_else(Fault::invalid)?
+                .directory;
+            let info = session
+                .volume
+                .posix(caller)
+                .map_err(Fault::from)?
+                .directory_info(directory)
+                .map_err(Fault::from)?;
+            let info = project(info)?;
+            unsafe { out_info.write(info) };
+            Ok(OK)
+        })
+    })
+}
+
+/// Reauthorize and replace ONE existing typed snapshot atomically. Admission
+/// credits its old entries/slot, not anyone else's. All conversion and token
+/// reservation precede publication; failure preserves the old cursor/outputs.
+/// Success retires the old token and starts new ordinal cookies at zero.
+/// # Safety
+/// Caller/groups readable; outputs writable/aligned/mutually nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_windows_directory_refresh(
+    volume: u64,
+    cursor: u64,
+    caller: *const PwCredentials,
+    out_cursor: *mut u64,
+    out_info: *mut PwWindowsFileInfo,
+) -> i32 {
+    run(|| {
+        required(out_cursor)?;
+        required(out_info)?;
+        let caller = unsafe { credentials(caller)? };
+        with_session(volume, |session| {
+            let old = session
+                .windows_dirs
+                .get(&cursor)
+                .ok_or_else(Fault::invalid)?;
+            let directory = old.directory;
+            let dots = if directory == ROOT { 0 } else { 2 };
+            let maximum = session
+                .directory_entry_admission(old.len())?
+                .checked_sub(dots)
+                .ok_or_else(Fault::resource)?;
+            let snapshot = session
+                .volume
+                .posix(caller)
+                .map_err(Fault::from)?
+                .directory_snapshot(directory, maximum)
+                .map_err(Fault::from)?;
+            let new = DirectoryCursor::from_snapshot(snapshot)?;
+            let info = new.captured_info;
+            let token = next_token()?;
+            session.windows_dirs.remove(&cursor);
+            session.windows_dirs.insert(token, new);
+            unsafe {
+                out_info.write(info);
+                out_cursor.write(token);
+            }
+            Ok(OK)
+        })
+    })
+}
+
 /// Release is allowed under engine protection and never performs data GC.
 #[unsafe(no_mangle)]
 pub extern "C" fn pw_windows_directory_close(volume: u64, cursor: u64) -> i32 {
@@ -200,7 +290,7 @@ mod tests {
     use super::*;
     use crate::{
         PwCreateAttributes, pw_dir_begin, pw_dir_close, pw_directory_create, pw_file_create,
-        pw_volume_close, pw_volume_create_with_metadata,
+        pw_remove, pw_volume_close, pw_volume_create_with_metadata,
     };
     use std::ptr;
 
@@ -271,6 +361,34 @@ mod tests {
             0
         );
         assert_eq!(unsafe { pw_dir_begin(volume, empty, &mut admin) }, 0); // empty admin snapshot costs 0 entries
+        let mut info = PwWindowsFileInfo::default();
+        let old = windows;
+        assert_eq!(
+            unsafe { pw_windows_directory_refresh(volume, old, &caller, &mut windows, &mut info) },
+            0
+        );
+        assert_ne!(old, windows); // replacement credits 2, now retains exactly 3
+        assert_eq!(pw_windows_directory_close(volume, old), crate::INVALID);
+        let mut extra = 0;
+        assert_eq!(
+            unsafe { pw_file_create(volume, 1, b"extra".as_ptr(), 5, &mut extra) },
+            0
+        );
+        let saved_info = info;
+        let mut rejected = 99;
+        assert_eq!(
+            unsafe {
+                pw_windows_directory_refresh(volume, windows, &caller, &mut rejected, &mut info)
+            },
+            crate::RESOURCE
+        );
+        assert_eq!((rejected, info), (99, saved_info));
+        with_session(volume, |s| {
+            assert_eq!(s.windows_dirs.get(&windows).unwrap().len(), 3);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(unsafe { pw_remove(volume, 1, b"extra".as_ptr(), 5, 0) }, 0);
         assert_eq!(
             unsafe { pw_windows_directory_begin(volume, empty, &caller, &mut refused) },
             crate::RESOURCE
