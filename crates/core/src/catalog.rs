@@ -7,18 +7,21 @@ use rusqlite::Connection;
 pub(crate) enum CatalogVersion {
     BlocksV1,
     MetadataV2,
+    DirectoryV3,
 }
 impl CatalogVersion {
     pub(crate) fn marker(self) -> &'static str {
         match self {
             Self::BlocksV1 => crate::FORMAT,
             Self::MetadataV2 => crate::METADATA_FORMAT,
+            Self::DirectoryV3 => crate::DIRECTORY_FORMAT,
         }
     }
     pub(crate) fn from_marker(marker: &[u8]) -> Result<Self> {
         match marker {
             m if m == crate::FORMAT.as_bytes() => Ok(Self::BlocksV1),
             m if m == crate::METADATA_FORMAT.as_bytes() => Ok(Self::MetadataV2),
+            m if m == crate::DIRECTORY_FORMAT.as_bytes() => Ok(Self::DirectoryV3),
             _ => Err(Error::UnsupportedFormat),
         }
     }
@@ -26,6 +29,17 @@ impl CatalogVersion {
         match self {
             Self::BlocksV1 => include_str!("schema.sql"),
             Self::MetadataV2 => include_str!("schema-v2.sql"),
+            Self::DirectoryV3 => include_str!("schema-v3.sql"),
+        }
+    }
+    pub(crate) fn has_metadata(self) -> bool {
+        self != Self::BlocksV1
+    }
+    pub(crate) fn capabilities(self) -> u64 {
+        match self {
+            Self::BlocksV1 => 0,
+            Self::MetadataV2 => 1,
+            Self::DirectoryV3 => 3,
         }
     }
 }
@@ -64,6 +78,7 @@ pub(crate) fn validate_schema(db: &Connection) -> Result<CatalogVersion> {
     let version = match (app, version) {
         (1347898693, 1) => CatalogVersion::BlocksV1,
         (1347898693, 2) => CatalogVersion::MetadataV2,
+        (1347898693, 3) => CatalogVersion::DirectoryV3,
         _ => return Err(Error::UnsupportedFormat),
     };
     // Derive the accepted representation from the SAME committed schema and
@@ -83,7 +98,11 @@ mod tests {
 
     #[test]
     fn schema_gate_accepts_both_source_checkout_line_endings() {
-        for version in [CatalogVersion::BlocksV1, CatalogVersion::MetadataV2] {
+        for version in [
+            CatalogVersion::BlocksV1,
+            CatalogVersion::MetadataV2,
+            CatalogVersion::DirectoryV3,
+        ] {
             let unix = version.schema().replace("\r\n", "\n");
             for sql in [unix.clone(), unix.replace('\n', "\r\n")] {
                 let db = Connection::open_in_memory().unwrap();

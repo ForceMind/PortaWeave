@@ -237,7 +237,7 @@ impl Volume {
             a.validate()?;
         }
         self.mutate(|this| {
-            this.directory(parent)?;
+            this.linked_directory(parent)?;
             let key = names::key(name)?;
             if let Some(size) = options.size {
                 this.quota(0, size)?;
@@ -245,7 +245,7 @@ impl Volume {
             if this.lookup_key(parent, &key)?.is_some() {
                 return Err(Error::Exists);
             }
-            let attributes = if this.catalog_version == CatalogVersion::MetadataV2 {
+            let attributes = if this.catalog_version.has_metadata() {
                 let parent_attrs = this.metadata(parent)?;
                 Some(options.attributes.unwrap_or(CreateAttributes {
                     uid: parent_attrs.uid,
@@ -325,7 +325,7 @@ impl Volume {
             if this.stat(object)?.kind != Kind::File {
                 return Err(Error::IsDirectory);
             }
-            this.directory(parent)?;
+            this.linked_directory(parent)?;
             let key = names::key(name)?;
             if this.lookup_key(parent, &key)?.is_some() {
                 return Err(Error::Exists);
@@ -367,7 +367,7 @@ impl Volume {
         expected: Option<FileId>,
     ) -> Result<()> {
         self.mutate(|this| {
-            this.directory(parent)?;
+            this.linked_directory(parent)?;
             let key = names::key(name)?;
             let found = this.lookup_key(parent, &key)?;
             if expected.is_some() && found != expected {
@@ -395,7 +395,7 @@ impl Volume {
                 "DELETE FROM entries WHERE parent=?1 AND name_key=?2",
                 params![parent.0, key],
             )?;
-            if kind == Kind::Directory {
+            if kind == Kind::Directory && this.catalog_version != CatalogVersion::DirectoryV3 {
                 tx.execute("DELETE FROM objects WHERE id=?1", [id.0])?;
             } else {
                 metadata::touch(&tx, this.catalog_version, id, time, false, false)?;
@@ -449,8 +449,8 @@ impl Volume {
         expected: Option<RenameExpectation>,
     ) -> Result<()> {
         self.mutate(|this| {
-            this.directory(from_parent)?;
-            this.directory(to_parent)?;
+            this.linked_directory(from_parent)?;
+            this.linked_directory(to_parent)?;
             let old_key = names::key(from)?;
             let new_key = names::key(to)?;
             let source = this.lookup_key(from_parent, &old_key)?;
@@ -503,7 +503,7 @@ impl Volume {
             }
             if let Some(id) = target {
                 tx.execute("DELETE FROM entries WHERE parent=?1 AND name_key=?2", params![to_parent.0, new_key])?;
-                if source_kind == Kind::Directory { tx.execute("DELETE FROM objects WHERE id=?1", [id.0])?; }
+                if source_kind == Kind::Directory && this.catalog_version != CatalogVersion::DirectoryV3 { tx.execute("DELETE FROM objects WHERE id=?1", [id.0])?; }
                 else { metadata::touch(&tx, this.catalog_version, id, time, false, false)?; }
             }
             let changed = tx.execute("UPDATE entries SET parent=?1,name_key=?2,display_name=?3 WHERE parent=?4 AND name_key=?5",

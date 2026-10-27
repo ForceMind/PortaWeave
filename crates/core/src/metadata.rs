@@ -87,11 +87,15 @@ pub struct MetadataUpdate {
 pub struct VolumeIdentity {
     /// Persistent UUID v4 bytes, not a credential or cryptographic secret.
     pub uuid: [u8; 16],
-    /// v2 currently defines only bit 0: POSIX metadata storage.
+    /// Bit 0: metadata storage; v3 also requires bit 1: directory lifetimes.
     pub capabilities: u64,
 }
 
-pub(crate) fn initialize(db: &Connection, attrs: CreateAttributes) -> Result<()> {
+pub(crate) fn initialize(
+    db: &Connection,
+    attrs: CreateAttributes,
+    version: CatalogVersion,
+) -> Result<()> {
     // Existing bundled SQLite PRNG, no OS identity inference or new dependency.
     let bytes: Vec<u8> = db.query_row("SELECT randomblob(16)", [], |r| r.get(0))?;
     let mut uuid: [u8; 16] = bytes
@@ -99,11 +103,14 @@ pub(crate) fn initialize(db: &Connection, attrs: CreateAttributes) -> Result<()>
         .map_err(|_| Error::Corrupt("UUID length".into()))?;
     uuid[6] = (uuid[6] & 0x0f) | 0x40;
     uuid[8] = (uuid[8] & 0x3f) | 0x80;
-    db.execute("INSERT INTO volume_identity VALUES (1,?1,1)", [&uuid[..]])?;
+    db.execute(
+        "INSERT INTO volume_identity VALUES (1,?1,?2)",
+        params![&uuid[..], version.capabilities() as i64],
+    )?;
     insert(db, FileId(1), attrs, Timestamp::now()?)
 }
 
-pub(crate) fn identity(db: &Connection) -> Result<VolumeIdentity> {
+pub(crate) fn identity(db: &Connection, version: CatalogVersion) -> Result<VolumeIdentity> {
     let (bytes, capabilities): (Vec<u8>, i64) = db
         .query_row(
             "SELECT uuid,capabilities FROM volume_identity WHERE id=1",
@@ -115,7 +122,7 @@ pub(crate) fn identity(db: &Connection) -> Result<VolumeIdentity> {
     let uuid: [u8; 16] = bytes
         .try_into()
         .map_err(|_| Error::Corrupt("UUID length".into()))?;
-    if uuid[6] >> 4 != 4 || uuid[8] >> 6 != 2 || capabilities != 1 {
+    if uuid[6] >> 4 != 4 || uuid[8] >> 6 != 2 || capabilities != version.capabilities() as i64 {
         return Err(Error::Corrupt(
             "unsupported volume identity or capabilities".into(),
         ));
@@ -177,7 +184,7 @@ pub(crate) fn verify(db: &Connection, version: CatalogVersion) -> Result<()> {
     if version == CatalogVersion::BlocksV1 {
         return Ok(());
     }
-    identity(db)?;
+    identity(db, version)?;
     if db.prepare("SELECT 1 FROM objects o LEFT JOIN object_metadata m ON m.object=o.id WHERE m.object IS NULL LIMIT 1")?.exists([])? {
         return Err(Error::Corrupt("incomplete object metadata".into()));
     }
@@ -253,14 +260,14 @@ pub(crate) fn apply_update(
 
 impl Volume {
     pub(crate) fn require_metadata(&self) -> Result<()> {
-        if self.catalog_version != CatalogVersion::MetadataV2 {
+        if !self.catalog_version.has_metadata() {
             return Err(Error::UnsupportedOperation);
         }
         Ok(())
     }
     pub fn volume_identity(&self) -> Result<VolumeIdentity> {
         self.require_metadata()?;
-        self.observe(identity(&self.db))
+        self.observe(identity(&self.db, self.catalog_version))
     }
     pub fn metadata(&self, id: FileId) -> Result<Metadata> {
         self.require_metadata()?;

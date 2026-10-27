@@ -948,6 +948,9 @@ fn invalid_inputs_do_not_create_files_and_session_tokens_are_not_reused() {
 }
 
 fn request_volume(s: &Scratch) -> (u64, u64, u64, i64) {
+    request_volume_format(s, false)
+}
+fn request_volume_format(s: &Scratch, directory_v3: bool) -> (u64, u64, u64, i64) {
     let mut volume = 0;
     let mut object = 0;
     let mut writer = 0;
@@ -965,9 +968,20 @@ fn request_volume(s: &Scratch) -> (u64, u64, u64, i64) {
         group_count: 0,
         reserved: 0,
     };
+    let create: unsafe extern "C" fn(
+        *const u8,
+        usize,
+        u64,
+        *const PwCreateAttributes,
+        *mut u64,
+    ) -> i32 = if directory_v3 {
+        pw_volume_create_with_directory_lifetimes
+    } else {
+        pw_volume_create_with_metadata
+    };
     unsafe {
         assert_eq!(
-            pw_volume_create_with_metadata(
+            create(
                 s.path().as_ptr(),
                 s.path().len(),
                 1 << 24,
@@ -1693,9 +1707,21 @@ fn atomic_fskit_create_publishes_one_admin_pin_and_keeps_failed_outputs_unchange
 #[test]
 fn fskit_create_file_admission_includes_policy_and_admin_handles_before_namespace_change() {
     let s = Scratch::new();
-    let (volume, writer, reader, object) = request_volume(&s);
+    let (volume, writer, reader, object) = request_volume_format(&s, true);
+    let owner = PwCredentials {
+        uid: 100,
+        gid: 20,
+        groups: std::ptr::null(),
+        group_count: 0,
+        reserved: 0,
+    };
+    let mut directory_pin = 0;
+    assert_eq!(
+        unsafe { pw_posix_directory_open(volume, 1, &owner, &mut directory_pin) },
+        0
+    );
     let mut handles = Vec::new();
-    for _ in 0..4094 {
+    for _ in 0..4093 {
         let mut h = 0;
         assert_eq!(unsafe { pw_file_open(volume, object, &mut h) }, 0);
         handles.push(h);
@@ -1723,6 +1749,12 @@ fn fskit_create_file_admission_includes_policy_and_admin_handles_before_namespac
         -14
     );
     assert_eq!(out, sentinel);
+    let mut denied = 99;
+    assert_eq!(
+        unsafe { pw_posix_directory_open(volume, 1, &owner, &mut denied) },
+        -14
+    );
+    assert_eq!(denied, 99);
     let mut found = 99;
     assert_eq!(
         unsafe { pw_lookup(volume, 1, b"absent".as_ptr(), 6, &mut found) },
@@ -1746,6 +1778,13 @@ fn fskit_create_file_admission_includes_policy_and_admin_handles_before_namespac
         0
     );
     assert_eq!(out.file, 0);
+    let old_directory = directory_pin;
+    assert_eq!(pw_posix_directory_close(volume, directory_pin), 0);
+    assert_eq!(
+        unsafe { pw_posix_directory_open(volume, 1, &owner, &mut directory_pin) },
+        0
+    );
+    assert_ne!(old_directory, directory_pin);
     for h in handles {
         assert_eq!(pw_file_close(volume, h), 0);
     }
@@ -1766,6 +1805,7 @@ fn fskit_create_file_admission_includes_policy_and_admin_handles_before_namespac
     assert_eq!(pw_file_close(volume, out.file), 0);
     assert_eq!(pw_posix_file_close(volume, writer), 0);
     assert_eq!(pw_posix_file_close(volume, reader), 0);
+    assert_eq!(pw_posix_directory_close(volume, directory_pin), 0);
     assert_eq!(pw_volume_close(volume), 0);
 }
 

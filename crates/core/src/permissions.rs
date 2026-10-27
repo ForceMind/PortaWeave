@@ -1,8 +1,8 @@
-//! Mode-only policy over a serialized v2 owner. Credentials are TRUSTED INPUT,
+//! Mode-only policy over a serialized v2/v3 owner. Credentials are TRUSTED INPUT,
 //! not authentication of an OS caller. Raw Volume APIs remain administrative.
 use crate::{
-    CreateAttributes, Entry, Error, FileId, Handle, Kind, MaintenanceStatus, Metadata,
-    MetadataUpdate, ROOT, ReadView, Result, Stat, Volume, WritePosition, metadata,
+    CreateAttributes, DirectoryHandle, Entry, Error, FileId, Handle, Kind, MaintenanceStatus,
+    Metadata, MetadataUpdate, ROOT, ReadView, Result, Stat, Volume, WritePosition, metadata,
 };
 use std::collections::BTreeSet;
 
@@ -99,6 +99,69 @@ pub struct DirectorySnapshot {
     pub directory: FileInfo,
     pub parent: FileInfo,
     pub entries: Vec<DirectoryEntryInfo>,
+}
+/// Owned data read through an admitted v3 directory. Removed directories have
+/// no parent/dot entries and no children; this copy retains no additional pin.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OpenDirectorySnapshot {
+    pub directory: FileInfo,
+    pub parent: Option<FileInfo>,
+    pub entries: Vec<DirectoryEntryInfo>,
+}
+
+/// READ+SEARCH granted at open. Info/enumeration survive chmod/rename/unlink,
+/// but confer no future namespace mutation or current metadata authority.
+#[must_use = "close the directory grant explicitly"]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PosixDirectory {
+    handle: DirectoryHandle,
+}
+impl PosixDirectory {
+    fn object(self, volume: &Volume) -> Result<FileId> {
+        volume.directory_object(self.handle)
+    }
+    pub fn info(self, volume: &Volume) -> Result<FileInfo> {
+        let id = self.object(volume)?;
+        volume.observe(FileInfo::at(&volume.db, id))
+    }
+    pub fn snapshot(self, volume: &Volume, maximum: usize) -> Result<OpenDirectorySnapshot> {
+        let id = self.object(volume)?;
+        volume.observe((|| {
+            let directory = FileInfo::at(&volume.db, id)?;
+            let unlinked = id != ROOT && directory.stat.links == 0;
+            if unlinked
+                && volume
+                    .db
+                    .prepare("SELECT 1 FROM entries WHERE parent=?1 LIMIT 1")?
+                    .exists([id.raw()])?
+            {
+                return Err(Error::Corrupt("unlinked directory has children".into()));
+            }
+            let parent = if unlinked {
+                None
+            } else {
+                Some(FileInfo::at(&volume.db, volume.parent_directory(id)?)?)
+            };
+            let entries = volume
+                .list_bounded(id, maximum)?
+                .into_iter()
+                .map(|entry| {
+                    Ok(DirectoryEntryInfo {
+                        name: entry.name,
+                        info: FileInfo::at(&volume.db, entry.id)?,
+                    })
+                })
+                .collect::<Result<_>>()?;
+            Ok(OpenDirectorySnapshot {
+                directory,
+                parent,
+                entries,
+            })
+        })())
+    }
+    pub fn close(self, volume: &mut Volume) -> Result<()> {
+        volume.close_directory(self.handle)
+    }
 }
 impl FileInfo {
     fn at(db: &rusqlite::Connection, id: FileId) -> Result<Self> {
@@ -284,7 +347,7 @@ impl PosixSession<'_> {
         let mut cursor = directory;
         let mut seen = BTreeSet::new();
         for _ in 0..MAX_SEARCH_DIRECTORIES {
-            self.volume.directory(cursor)?;
+            self.volume.linked_directory(cursor)?;
             if !seen.insert(cursor) {
                 return self
                     .volume
@@ -396,6 +459,15 @@ impl PosixSession<'_> {
         let handle = self.volume.open_file(id)?;
         Ok(PosixFile { handle, rights })
     }
+    /// v3 only. New path authority is checked once; the resulting read grant
+    /// pins the directory until explicit close, including after last unlink.
+    pub fn open_directory(&mut self, directory: FileId) -> Result<PosixDirectory> {
+        self.volume.require_directory_lifetimes()?;
+        self.directory_access(directory, Access::READ | Access::EXECUTE)?;
+        Ok(PosixDirectory {
+            handle: self.volume.open_directory(directory)?,
+        })
+    }
     fn metadata_update(&self, id: FileId, mut update: MetadataUpdate) -> Result<MetadataUpdate> {
         metadata::validate_update(update)?;
         if update == MetadataUpdate::default() {
@@ -465,6 +537,18 @@ impl PosixSession<'_> {
         reply: impl FnOnce(FileInfo) -> Result<T>,
     ) -> Result<T> {
         let id = file.object(self.volume, Access::EXISTS)?;
+        let update = self.metadata_update(id, update)?;
+        self.volume
+            .set_metadata_request(id, update, |db, _, id| reply(FileInfo::at(db, id)?))
+    }
+    /// Current owner/group policy is separate from the old directory read grant.
+    pub fn set_directory_metadata_with_reply<T>(
+        &mut self,
+        directory: PosixDirectory,
+        update: MetadataUpdate,
+        reply: impl FnOnce(FileInfo) -> Result<T>,
+    ) -> Result<T> {
+        let id = directory.object(self.volume)?;
         let update = self.metadata_update(id, update)?;
         self.volume
             .set_metadata_request(id, update, |db, _, id| reply(FileInfo::at(db, id)?))

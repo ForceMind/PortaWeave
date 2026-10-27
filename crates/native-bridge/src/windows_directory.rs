@@ -1,10 +1,11 @@
 //! Bounded, immutable directory metadata and the pinned WinFsp 2.1 wire format.
-//! Explicit current-policy observation/replacement, never a live inode grant.
+//! Metadata cursors retain no live inode. Separate v3 grants can supply capture
+//! authority; linked-directory observation/replacement rechecks current policy.
 use super::{
-    FResult, Fault, MAX_IO, OK, PwCredentials, PwWindowsFileInfo, credentials, file_id, next_token,
-    readable, required, run, windows::project, with_session,
+    FResult, Fault, MAX_IO, OK, PwCredentials, PwWindowsBasicInfo, PwWindowsFileInfo, credentials,
+    file_id, next_token, readable, required, run, windows::project, with_session,
 };
-use portaweave_core::{DirectorySnapshot, Error, FileInfo, Kind, ROOT};
+use portaweave_core::{DirectorySnapshot, Error, FileInfo, Kind, OpenDirectorySnapshot, ROOT};
 
 // Checked against the pinned C header by static assertions in the real MSVC
 // callback translation unit. These are WinFsp wire offsets, not Rust repr(C).
@@ -41,20 +42,31 @@ impl DirectoryCursor {
         self.entries.len()
     }
     fn from_snapshot(snapshot: DirectorySnapshot) -> FResult<Self> {
+        Self::from_open_snapshot(OpenDirectorySnapshot {
+            directory: snapshot.directory,
+            parent: Some(snapshot.parent),
+            entries: snapshot.entries,
+        })
+    }
+    fn from_open_snapshot(snapshot: OpenDirectorySnapshot) -> FResult<Self> {
         // Validate even root/parent metadata, rather than silently inventing a
         // representable Windows directory when the core cannot project it.
         let directory = snapshot.directory.stat.id;
         let captured_info = project(snapshot.directory.clone())?;
-        project(snapshot.parent.clone())?;
-        let dots = if snapshot.directory.stat.id == ROOT {
+        if let Some(parent) = &snapshot.parent {
+            project(parent.clone())?;
+        }
+        let dots = if snapshot.directory.stat.id == ROOT || snapshot.parent.is_none() {
             0
         } else {
             2
         };
         let mut entries = Vec::with_capacity(snapshot.entries.len() + dots);
-        if dots != 0 {
+        if let Some(parent) = snapshot.parent
+            && dots != 0
+        {
             entries.push(Record::new(".", snapshot.directory)?);
-            entries.push(Record::new("..", snapshot.parent)?);
+            entries.push(Record::new("..", parent)?);
         }
         for entry in snapshot.entries {
             entries.push(Record::new(&entry.name, entry.info)?);
@@ -115,7 +127,100 @@ impl DirectoryCursor {
     }
 }
 
-/// Capture READ+SEARCH-authorized v2 names/attributes before publishing a token.
+/// Capture through an admitted v3 directory READ+SEARCH grant; no fresh path
+/// check or namespace authority. An unlinked empty directory has no dot rows.
+/// The cursor owns metadata only, independently of the source pin's lifetime.
+/// # Safety
+/// Output writable/aligned/nonaliasing throughout the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_windows_directory_begin_granted(
+    volume: u64,
+    directory: u64,
+    out_cursor: *mut u64,
+) -> i32 {
+    run(|| {
+        required(out_cursor)?;
+        with_session(volume, |s| {
+            let directory = *s.policy_dirs.get(&directory).ok_or_else(Fault::invalid)?;
+            let info = directory.info(&s.volume).map_err(Fault::from)?;
+            let dots = if info.stat.id == ROOT || info.stat.links == 0 {
+                0
+            } else {
+                2
+            };
+            let maximum = s
+                .directory_admission()?
+                .checked_sub(dots)
+                .ok_or_else(Fault::resource)?;
+            let snapshot = directory
+                .snapshot(&s.volume, maximum)
+                .map_err(Fault::from)?;
+            let cursor = DirectoryCursor::from_open_snapshot(snapshot)?;
+            let token = next_token()?;
+            s.windows_dirs.insert(token, cursor);
+            unsafe {
+                out_cursor.write(token);
+            }
+            Ok(OK)
+        })
+    })
+}
+
+/// v3 granted inode projection, including after unlink. Not native SID/ACL.
+/// # Safety
+/// Output writable/aligned/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_windows_directory_handle_info(
+    volume: u64,
+    directory: u64,
+    out_info: *mut PwWindowsFileInfo,
+) -> i32 {
+    run(|| {
+        required(out_info)?;
+        with_session(volume, |s| {
+            let directory = *s.policy_dirs.get(&directory).ok_or_else(Fault::invalid)?;
+            let info = project(directory.info(&s.volume).map_err(Fault::from)?)?;
+            unsafe {
+                out_info.write(info);
+            }
+            Ok(OK)
+        })
+    })
+}
+
+/// CURRENT owner policy plus pure Windows projection BEFORE metadata commit.
+/// # Safety
+/// Caller/groups/request readable; output writable/aligned/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_windows_directory_handle_set_basic_info(
+    volume: u64,
+    directory: u64,
+    caller: *const PwCredentials,
+    request: *const PwWindowsBasicInfo,
+    out_info: *mut PwWindowsFileInfo,
+) -> i32 {
+    run(|| {
+        required(out_info)?;
+        readable(request, 1)?;
+        let caller = unsafe { credentials(caller)? };
+        let update = unsafe { request.read() }.update()?;
+        with_session(volume, |s| {
+            let directory = *s.policy_dirs.get(&directory).ok_or_else(Fault::invalid)?;
+            let info = s
+                .volume
+                .posix(caller)
+                .map_err(Fault::from)?
+                .set_directory_metadata_with_reply(directory, update, project)
+                .map_err(Fault::from)?;
+            unsafe {
+                out_info.write(info);
+            }
+            Ok(OK)
+        })
+    })
+}
+
+/// Capture READ+SEARCH-authorized v2/v3 names/attributes before publishing a token.
 /// This is a metadata snapshot, not a live directory descriptor or Windows ACL.
 /// # Safety
 /// Caller/groups readable; output writable/aligned/nonaliasing throughout call.

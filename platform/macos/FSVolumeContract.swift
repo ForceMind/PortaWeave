@@ -111,6 +111,69 @@ func replaceNativeName(_ volume: PortaWeaveVolume, _ from: String, _ to: String)
 
 @main
 struct FSVolumeContract {
+    static func directoryLifetimeContract(_ url: URL) throws {
+        let path = Data(url.path.utf8)
+        var native: UInt64 = 0
+        var attributes = PwCreateAttributes(uid: 501, gid: 20, mode: 0o700, reserved: 0)
+        try pwCheck(path.withUnsafeBytes {
+            pw_volume_create_with_directory_lifetimes($0.bindMemory(to: UInt8.self).baseAddress,
+                                                      path.count, 134_217_728, &attributes, &native)
+        })
+        var identity = PwVolumeIdentity()
+        try pwCheck(pw_volume_identity(native, &identity))
+        try require(identity.capabilities == 3, "v3 required directory capability absent")
+        try pwCheck(pw_volume_close(native))
+        let volume = try PortaWeaveVolume(laboratoryContainerURL: url)
+        try require(volume.session.persistentIdentity == UUID(uuid: identity.uuid), "v3 persistent identity changed")
+        let directory = try create(volume, "directory", volume.session.rootItem, type: .directory)
+        var caller = PwCredentials(uid: 501, gid: 20, groups: nil, group_count: 0, reserved: 0)
+        var grant: UInt64 = 0
+        var cursor: UInt64 = 0
+        try volume.session.synchronized {
+            // Explicit external trusted pin; FSKit Open/caller mapping remains closed.
+            try pwCheck(pw_posix_directory_open(volume.session.volume, directory.object, &caller, &grant))
+            var update = PwMetadataUpdate()
+            update.valid = UInt64(PW_META_MODE)
+            update.mode = 0
+            try pwCheck(pw_metadata_set(volume.session.volume, directory.object, &update))
+            let name = Data("directory".utf8)
+            try pwCheck(name.withUnsafeBytes {
+                pw_remove_checked(volume.session.volume, 1, $0.bindMemory(to: UInt8.self).baseAddress,
+                                  name.count, 1, directory.object)
+            })
+            var info = PwFileInfo()
+            try pwCheck(pw_posix_directory_info(volume.session.volume, grant, &info))
+            try require(info.object == directory.object && info.stat.links == 0, "removed directory inode lost")
+            update.valid = UInt64(PW_META_MODIFIED)
+            update.modified = PwTimestamp(seconds: 10, nanoseconds: 700, reserved: 0)
+            try pwCheck(pw_posix_directory_set_metadata_info(volume.session.volume, grant, &caller, &update, &info))
+            try pwCheck(pw_windows_directory_begin_granted(volume.session.volume, grant, &cursor))
+            var bytes = [UInt8](repeating: 77, count: 8)
+            var count = 0
+            try pwCheck(pw_windows_directory_read(volume.session.volume, cursor, 0, &bytes, bytes.count, &count))
+            try require(count == 2 && bytes[0] == 0 && bytes[1] == 0, "unlinked directory invented dot entries")
+        }
+        let request = FSItem.GetAttributesRequest()
+        request.wantedAttributes = [.fileID, .uid, .mode, .modifyTime]
+        let values: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: directory, replyHandler: $0) }
+        try require(values.fileID.rawValue == UInt64(directory.object) + 1 && values.uid == 501 &&
+                    values.mode == 0 && values.modifyTime.tv_sec == 10 && values.modifyTime.tv_nsec == 700,
+                    "SDK attributes did not observe the retained v3 inode")
+        try require(!values.isValid(.linkCount), "internal directory references advertised as native link count")
+        try volume.session.synchronized {
+            try pwCheck(pw_posix_directory_close(volume.session.volume, grant))
+            var bytes = [UInt8](repeating: 77, count: 8)
+            var count = 0
+            try pwCheck(pw_windows_directory_read(volume.session.volume, cursor, 0, &bytes, bytes.count, &count))
+            try require(count == 2, "snapshot incorrectly depended on the closed directory pin")
+            try pwCheck(pw_windows_directory_close(volume.session.volume, cursor))
+        }
+        try expect(.ENOENT) { done in
+            volume.getAttributes(request, of: directory) { _, error in done(error) }
+        }
+        try success { volume.deactivate(options: [], replyHandler: $0) }
+        print("FSVOLUME_V3_DIRECTORY_LIFETIME_CONTRACT_OK (external trusted inode pin/SDK attributes; no native Open/mount)")
+    }
     static func cursorPressureContract(_ url: URL) throws {
         let path = Data(url.path.utf8)
         var native: UInt64 = 0
@@ -686,6 +749,7 @@ struct FSVolumeContract {
         try creationContract(url.appendingPathExtension("creation"))
         try checkedNamespaceContract(url.appendingPathExtension("checked"))
         try cursorPressureContract(url.appendingPathExtension("cursor-pressure"))
+        try directoryLifetimeContract(url.appendingPathExtension("directory-v3"))
         print("FSVOLUME_CALLBACK_CONTRACT_OK (SDK callbacks/core ABI; no installation or OS mount)")
     }
 }

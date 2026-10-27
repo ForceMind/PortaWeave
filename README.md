@@ -21,12 +21,16 @@ GPT requires valid CRC32 header/entry tables; it reports damaged primary/backup 
 
 ## Status — 2026-10-27
 
-**M0-U WinFsp linked-directory observation/granted-file and M0-S laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-N descriptor metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M1-O opt-in v3 directory inode lifetimes, M0-U linked-directory observation, laboratory WinFsp/FSVolume callbacks, unsigned macOS App/Extension build and experimental WinFsp dispatcher. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
 FSKit and WinFsp remain candidates. Internal true hard links do not remove WinFsp's documented interface limitation. See the [backend ADR](docs/adr/0001-development-volume-backend-gate.md).
 
+
+## M1-O explicit v3 directory lifetimes
+
+A NEW opt-in v3 container retains granted directory inodes across rename, permission changes and last unlink until final close, with one shared 4096 file/directory pin budget. Current metadata authority remains separate from the old read grant. Recovery strictly reports empty orphan directories without inventing paths; normal reopen reclaims abandoned unpinned inodes. Default v1 and explicit v2 are unchanged and never migrated. The actual pinned old reader must refuse v3 without changing source hashes. Direct WinFsp and external-pin SDK contracts do not enable authenticated native Open or system mounts. See [M1-O](docs/IMPLEMENTATION-M1O.zh-CN.md) and [ADR 0015](docs/adr/0015-explicit-v3-directory-inode-lifetimes.md).
 
 ### Native adapter ABI (experimental)
 

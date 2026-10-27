@@ -119,13 +119,28 @@ fn creation_projection_refusal_invalid_input_and_conflict_leave_no_entry_or_pin(
 #[test]
 fn file_admission_counts_administrative_handles_and_does_not_block_directory_creation() {
     let s = Scratch::new();
-    let mut v = s.volume(true);
+    let mut v = Volume::create_with_directory_lifetimes(
+        s.0.join("volume"),
+        1 << 24,
+        CreateAttributes {
+            uid: 100,
+            gid: 20,
+            mode: 0o750,
+        },
+    )
+    .unwrap();
+    let directory_pin = v
+        .posix(portaweave_core::Credentials::new(100, 20, &[]).unwrap())
+        .unwrap()
+        .open_directory(ROOT)
+        .unwrap();
     let id = v.create_file(ROOT, "source").unwrap();
-    let mut handles: Vec<_> = (0..MAX_POSIX_FILES)
+    let mut handles: Vec<_> = (0..MAX_POSIX_FILES - 1)
         .map(|_| v.open_file(id).unwrap())
         .collect();
     let before = v.object_info(ROOT).unwrap();
     assert!(matches!(v.open_file(id), Err(Error::ResourceLimit)));
+    assert!(matches!(v.open_directory(ROOT), Err(Error::ResourceLimit)));
     assert!(matches!(
         v.create_node_with_reply(ROOT, "absent", Kind::File, None, Ok),
         Err(Error::ResourceLimit)
@@ -140,10 +155,14 @@ fn file_admission_counts_administrative_handles_and_does_not_block_directory_cre
     assert_eq!(v.stats().unwrap().open_handles, MAX_POSIX_FILES);
     let released = handles.pop().unwrap();
     v.close_file(released).unwrap();
+    let admitted_directory = v.open_directory(ROOT).unwrap();
+    assert_eq!(v.stats().unwrap().open_handles, MAX_POSIX_FILES);
+    v.close_directory(admitted_directory).unwrap();
     let admitted = v.open_file(id).unwrap();
     assert_ne!(released, admitted);
     assert_eq!(v.stats().unwrap().open_handles, MAX_POSIX_FILES);
     v.close_file(admitted).unwrap();
+    directory_pin.close(&mut v).unwrap();
     for h in handles {
         v.close_file(h).unwrap();
     }

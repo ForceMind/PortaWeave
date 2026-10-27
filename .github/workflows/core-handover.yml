@@ -17,6 +17,7 @@ jobs:
       - run: rustup toolchain install 1.99.1 --profile minimal
       - run: cargo run --locked -p portaweave-core --example interop -- handover-lab seed
       - run: cargo run --locked -p portaweave-core --example metadata_handover -- metadata-lab seed
+      - run: cargo run --locked -p portaweave-core --example directory_handover -- directory-lab seed
       - uses: actions/upload-artifact@v4
         with:
           name: handover-seed
@@ -26,6 +27,11 @@ jobs:
         with:
           name: metadata-seed
           path: metadata-lab/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: directory-seed
+          path: directory-lab/
           if-no-files-found: error
   macos:
     needs: seed
@@ -43,9 +49,14 @@ jobs:
         with:
           name: metadata-seed
           path: metadata-lab
+      - uses: actions/download-artifact@v4
+        with:
+          name: directory-seed
+          path: directory-lab
       - run: rustup toolchain install 1.99.1 --profile minimal
       - run: cargo run --locked -p portaweave-core --example interop -- handover-lab macos
       - run: cargo run --locked -p portaweave-core --example metadata_handover -- metadata-lab macos
+      - run: cargo run --locked -p portaweave-core --example directory_handover -- directory-lab macos
       - uses: actions/upload-artifact@v4
         with:
           name: handover-after-macos
@@ -55,6 +66,11 @@ jobs:
         with:
           name: metadata-after-macos
           path: metadata-lab/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: directory-after-macos
+          path: directory-lab/
           if-no-files-found: error
   windows:
     needs: macos
@@ -72,9 +88,14 @@ jobs:
         with:
           name: metadata-after-macos
           path: metadata-lab
+      - uses: actions/download-artifact@v4
+        with:
+          name: directory-after-macos
+          path: directory-lab
       - run: rustup toolchain install 1.99.1 --profile minimal
       - run: cargo run --locked -p portaweave-core --example interop -- handover-lab windows
       - run: cargo run --locked -p portaweave-core --example metadata_handover -- metadata-lab windows
+      - run: cargo run --locked -p portaweave-core --example directory_handover -- directory-lab windows
       - uses: actions/upload-artifact@v4
         with:
           name: handover-after-windows
@@ -84,6 +105,11 @@ jobs:
         with:
           name: metadata-after-windows
           path: metadata-lab/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: directory-after-windows
+          path: directory-lab/
           if-no-files-found: error
   verify-return:
     needs: windows
@@ -101,9 +127,14 @@ jobs:
         with:
           name: metadata-after-windows
           path: metadata-lab
+      - uses: actions/download-artifact@v4
+        with:
+          name: directory-after-windows
+          path: directory-lab
       - run: rustup toolchain install 1.99.1 --profile minimal
       - run: cargo run --locked -p portaweave-core --example interop -- handover-lab verify
       - run: cargo run --locked -p portaweave-core --example metadata_handover -- metadata-lab verify
+      - run: cargo run --locked -p portaweave-core --example directory_handover -- directory-lab verify
       - name: Export returned container without changing its bytes
         shell: python
         run: |
@@ -135,6 +166,18 @@ jobs:
           assert Path('metadata-export/COMPLETE').is_file()
           assert 'POSIX modes, uid/gid' in Path('metadata-export/report.txt').read_text()
           print('Returned v2 recovery, content links and original SHA-256 preservation verified')
+          source = Path('directory-lab')
+          before = hashes()
+          subprocess.run(['cargo','run','--locked','-p','portaweave-core','--bin','portaweave-recover','--','export',str(source),'directory-final-recovery','directory-final-export'], check=True)
+          assert hashes() == before, 'v3 recovery changed the original container'
+          out = Path('directory-final-export/files')
+          assert (out/'payload').read_bytes() == b'stage-2'
+          assert os.path.samefile(out/'payload', out/'alias')
+          assert not (out/'abandoned').exists()
+          assert Path('directory-final-export/COMPLETE').is_file()
+          assert not Path('directory-final-export/INCOMPLETE').exists()
+          assert 'unnamed_orphan_directories_not_exported=0' in Path('directory-final-export/report.txt').read_text()
+          print('Returned v3 content links, final orphan reclamation and original SHA-256 preservation verified')
       - uses: actions/upload-artifact@v4
         with:
           name: handover-return-verified
@@ -150,4 +193,14 @@ jobs:
             metadata-lab/
             metadata-export/report.txt
             metadata-recovery/snapshot-manifest.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: directory-return-verified
+          path: |
+            directory-lab/
+            directory-final-export/report.txt
+            directory-final-recovery/snapshot-manifest.txt
+            directory-lab-export-2/report.txt
+            directory-lab-recovery-2/snapshot-manifest.txt
           if-no-files-found: error

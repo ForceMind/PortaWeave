@@ -91,3 +91,18 @@ jobs:
             platform/macos/FSKitExtension/PortaWeaveVolume.swift \
             platform/macos/FSVolumeContract.swift -o "$RUNNER_TEMP/portaweave-fsvolume-contract"
           DYLD_LIBRARY_PATH="$PWD/target/debug" "$RUNNER_TEMP/portaweave-fsvolume-contract" "$RUNNER_TEMP/portaweave-fsvolume-$GITHUB_RUN_ID"
+      - name: Fetch the exact pre-v3 reader source (read-only)
+        uses: actions/checkout@v4
+        with:
+          ref: a578785591976e9d71658dc5b93bf1c234c9db7f
+          path: build-deps/v2-reader
+          persist-credentials: false
+      - name: Build actual old reader separately and verify v3 refusal without mutation
+        shell: python
+        run: |
+          import subprocess
+          old = 'build-deps/v2-reader'
+          assert subprocess.check_output(['git','-C',old,'rev-parse','HEAD'], text=True).strip() == 'a578785591976e9d71658dc5b93bf1c234c9db7f'
+          subprocess.run(['cargo','build','--locked','--manifest-path',old+'/Cargo.toml','-p','portaweave-native','--target-dir','target/v2-reader'], check=True)
+          subprocess.run(['cargo','run','--locked','-p','portaweave-core','--example','directory_handover','--','target/v3-old-reader-fixture','seed'], check=True)
+          subprocess.run(['python','tools/old_reader_guard.py',old,'target/v2-reader/debug','target/v3-old-reader-fixture'], check=True)
