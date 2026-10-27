@@ -11,7 +11,7 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
     init(laboratoryContainerURL url: URL) throws {
         let session = try PortaWeaveVolumeSession(laboratoryContainerURL: url)
         self.session = session
-        // v2 has a persistent UUID; v1 retains an explicitly session-only ID.
+        // v2/v3 have a persistent UUID; v1 has an explicitly session-only ID.
         // The separate random session.identity still rejects stale FSItems.
         super.init(volumeID: FSVolume.Identifier(uuid: session.persistentIdentity ?? session.identity),
                    volumeName: FSFileName(string: "PortaWeave Laboratory"))
@@ -161,20 +161,35 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
                 var state = try self.session.creationState(attributes)
                 let pending = try self.session.prepareCreation(kind: type == .file ? 0 : 1)
                 let data = try self.session.data(name)
-                var created = PwFsKitCreated()
-                let status = data.withUnsafeBytes { bytes in
-                    let pointer = bytes.bindMemory(to: UInt8.self).baseAddress
-                    if var values = creation {
-                        return pw_fskit_node_create_with_state(self.session.volume, parent.object, pointer,
-                                                              data.count, type == .directory ? 1 : 0, &values, &state, &created)
+                if type == .directory && self.session.directoryLifetimes {
+                    var created = PwFsKitDirectoryCreated()
+                    let status = data.withUnsafeBytes { bytes in
+                        let pointer = bytes.bindMemory(to: UInt8.self).baseAddress
+                        if var values = creation {
+                            return pw_fskit_directory_create_with_state(self.session.volume, parent.object, pointer,
+                                                                       data.count, &values, &state, &created)
+                        }
+                        return pw_fskit_directory_create_with_state(self.session.volume, parent.object, pointer,
+                                                                   data.count, nil, &state, &created)
                     }
-                    return pw_fskit_node_create_with_state(self.session.volume, parent.object, pointer,
-                                                          data.count, type == .directory ? 1 : 0, nil, &state, &created)
+                    try pwCheck(status)
+                    self.session.publishDirectoryCreation(pending, created: created)
+                } else {
+                    var created = PwFsKitCreated()
+                    let status = data.withUnsafeBytes { bytes in
+                        let pointer = bytes.bindMemory(to: UInt8.self).baseAddress
+                        if var values = creation {
+                            return pw_fskit_node_create_with_state(self.session.volume, parent.object, pointer,
+                                                                  data.count, type == .directory ? 1 : 0, &values, &state, &created)
+                        }
+                        return pw_fskit_node_create_with_state(self.session.volume, parent.object, pointer,
+                                                              data.count, type == .directory ? 1 : 0, nil, &state, &created)
+                    }
+                    try pwCheck(status)
+                    self.session.publishCreation(pending, created: created)
                 }
-                try pwCheck(status)
                 // Native token/admission/projection completed before commit.
                 // Publish the already allocated item without a second open/query.
-                self.session.publishCreation(pending, created: created)
                 for attribute in [FSItem.Attribute.uid, .gid, .mode, .size, .birthTime, .accessTime, .modifyTime] {
                     if attributes.isValid(attribute) { attributes.consumedAttributes.insert(attribute) }
                 }
@@ -212,7 +227,9 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
             do {
                 let item = try self.session.item(raw)
                 let parent = try self.session.item(directory)
-                if item.kind == 1 && !item.modes.isEmpty { throw POSIXError(.EBUSY) }
+                // Legacy directories have no retained inode. v3 cached items
+                // own a typed pin, so open-directory unlink can safely proceed.
+                if item.kind == 1 && item.directoryHandle == nil && !item.modes.isEmpty { throw POSIXError(.EBUSY) }
                 let bytes = try self.session.data(name)
                 let status = bytes.withUnsafeBytes {
                     pw_remove_checked(self.session.volume, parent.object, $0.bindMemory(to: UInt8.self).baseAddress,
@@ -238,7 +255,7 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
                 var expectedTarget: Int64 = 0
                 if let overItem = overItem {
                     let expected = try self.session.item(overItem)
-                    if expected.kind == 1 && !expected.modes.isEmpty { throw POSIXError(.EBUSY) }
+                    if expected.kind == 1 && expected.directoryHandle == nil && !expected.modes.isEmpty { throw POSIXError(.EBUSY) }
                     expectedTarget = expected.object
                 }
                 let a = try self.session.data(sourceName)

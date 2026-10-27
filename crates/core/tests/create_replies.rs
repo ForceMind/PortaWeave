@@ -142,6 +142,14 @@ fn file_admission_counts_administrative_handles_and_does_not_block_directory_cre
     assert!(matches!(v.open_file(id), Err(Error::ResourceLimit)));
     assert!(matches!(v.open_directory(ROOT), Err(Error::ResourceLimit)));
     assert!(matches!(
+        v.create_directory_with_pin(ROOT, "pinned-absent", Default::default(), Ok),
+        Err(Error::ResourceLimit)
+    ));
+    assert!(matches!(
+        v.lookup(ROOT, "pinned-absent"),
+        Err(Error::NotFound)
+    ));
+    assert!(matches!(
         v.create_node_with_reply(ROOT, "absent", Kind::File, None, Ok),
         Err(Error::ResourceLimit)
     ));
@@ -155,6 +163,11 @@ fn file_admission_counts_administrative_handles_and_does_not_block_directory_cre
     assert_eq!(v.stats().unwrap().open_handles, MAX_POSIX_FILES);
     let released = handles.pop().unwrap();
     v.close_file(released).unwrap();
+    let pinned_directory = v
+        .create_directory_with_pin(ROOT, "pinned-created", Default::default(), Ok)
+        .unwrap();
+    assert_eq!(v.stats().unwrap().open_handles, MAX_POSIX_FILES);
+    v.close_directory(pinned_directory.handle).unwrap();
     let admitted_directory = v.open_directory(ROOT).unwrap();
     assert_eq!(v.stats().unwrap().open_handles, MAX_POSIX_FILES);
     v.close_directory(admitted_directory).unwrap();

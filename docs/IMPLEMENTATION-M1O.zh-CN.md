@@ -51,3 +51,5 @@ Work Linux 已通过 full default/all-feature workspace、clippy `-D warnings`�
 本地 v3 四阶段例程和实际旧二进制拒绝通过；这四个阶段都运行在 Linux。首轮 C caller 使用 uid=100 创建夹具却用既有 uid=501 申请 grant，正确返回 DENIED；修正夹具 owner 后通过，权限实现没有放宽。MSVC/SDK/bundle 和真正跨 OS artifact 必须依据此增量准确 CI 日志，不能从本地结果预报 PASS。
 
 Windows 已安装 runtime/driver 的隔离实际挂载仍 BLOCKED/NOT_RUN，ACL/SID/共享访问/缓存一致性/完整 Flush 和硬链接接口未完成。macOS 签名、系统授权、原生 caller、目录 Open/缓存/同步与真正挂载未完成。符号链接、监听、OS mmap、原生执行、真实卷 SQLite/Git/依赖安装/IDE/Codex 正常沙盒及越界拒绝、物理 exFAT/USB/断电验收均未通过；本增量不关闭 Issue #1/#3。
+
+后续 M0-V：上述 SDK 外部 pin 合同属于 M1-O 阶段。现在 [M0-V](IMPLEMENTATION-M0V.zh-CN.md) 为缓存目录增加自己的管理引用，并在创建事务前准入；外部 grant 关闭后 SDK item 仍保留 inode，reclaim 后旧 SDK 对象 ESTALE。v3 格式和旧卷规则不变；原生 caller/挂载仍未认证。

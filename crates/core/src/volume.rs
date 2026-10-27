@@ -54,7 +54,7 @@ pub struct Handle(u64);
 /// Administrative v3 directory pin. Separate from ordinary-file Handle.
 #[must_use = "close the directory pin explicitly"]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DirectoryHandle(Handle);
+pub struct DirectoryHandle(pub(crate) Handle);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ReadView(u64);
 

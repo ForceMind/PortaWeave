@@ -168,11 +168,188 @@ struct FSVolumeContract {
             try require(count == 2, "snapshot incorrectly depended on the closed directory pin")
             try pwCheck(pw_windows_directory_close(volume.session.volume, cursor))
         }
-        try expect(.ENOENT) { done in
+        // The external grant is closed; the cached v3 SDK item now owns its
+        // separate administrative reference until reclaim, not until modes=[].
+        let retained: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: directory, replyHandler: $0) }
+        try require(retained.fileID.rawValue == UInt64(directory.object) + 1 && directory.directoryHandle != nil,
+                    "SDK cache lost its own directory reference")
+        try expect(.EBUSY) { volume.deactivate(options: [], replyHandler: $0) }
+        try success { volume.reclaimItem(directory, replyHandler: $0) }
+        try expect(.ESTALE) { done in
             volume.getAttributes(request, of: directory) { _, error in done(error) }
         }
+        try volume.session.synchronized {
+            var stat = PwStat()
+            try require(pw_stat(volume.session.volume, directory.object, &stat) == PW_NOT_FOUND,
+                        "last SDK reference did not reclaim the empty orphan")
+        }
         try success { volume.deactivate(options: [], replyHandler: $0) }
-        print("FSVOLUME_V3_DIRECTORY_LIFETIME_CONTRACT_OK (external trusted inode pin/SDK attributes; no native Open/mount)")
+        print("FSVOLUME_V3_DIRECTORY_LIFETIME_CONTRACT_OK (external and SDK inode pins; no native authorization/mount)")
+    }
+    static func makeDirectoryVolume(_ url: URL) throws -> PortaWeaveVolume {
+        let path = Data(url.path.utf8)
+        var native: UInt64 = 0
+        var attributes = PwCreateAttributes(uid: 501, gid: 20, mode: 0o750, reserved: 0)
+        try pwCheck(path.withUnsafeBytes {
+            pw_volume_create_with_directory_lifetimes($0.bindMemory(to: UInt8.self).baseAddress,
+                                                      path.count, 134_217_728, &attributes, &native)
+        })
+        try pwCheck(pw_volume_close(native))
+        let volume = try PortaWeaveVolume(laboratoryContainerURL: url)
+        try require(volume.session.directoryLifetimes, "v3 lifetime profile lost")
+        return volume
+    }
+    static func directoryItemContract(_ url: URL) throws {
+        let volume = try makeDirectoryVolume(url)
+        let root = volume.session.rootItem
+        try require(root.directoryHandle == nil, "immortal root consumed an inode pin")
+        let holder = try create(volume, "holder", root, type: .directory)
+        let item = try create(volume, "active", root, type: .directory)
+        try require(item.directoryHandle != nil && item.handle == nil && item.modes.isEmpty,
+                    "directory creation did not publish a separate typed reference")
+        try expect(.EISDIR) { volume.openItem(item, modes: .write, replyHandler: $0) }
+        try success { volume.openItem(item, modes: .read, replyHandler: $0) }
+        try success { volume.openItem(item, modes: .read, replyHandler: $0) }
+        try expect(.EINVAL) { volume.closeItem(item, modes: .write, replyHandler: $0) }
+        let _: FSFileName = try waitValue {
+            volume.renameItem(item, inDirectory: root, named: FSFileName(string: "active"),
+                              to: FSFileName(string: "moved"), inDirectory: holder, overItem: nil, replyHandler: $0)
+        }
+        try volume.session.synchronized {
+            var update = PwMetadataUpdate()
+            update.valid = UInt64(PW_META_MODE)
+            update.mode = 0
+            try pwCheck(pw_metadata_set(volume.session.volume, holder.object, &update))
+        }
+        // Administrative lab callbacks; mode changes do not certify OS access.
+        try success { volume.removeItem(item, named: FSFileName(string: "moved"), fromDirectory: holder, replyHandler: $0) }
+        for name in [".", "..", "absent"] {
+            try expect(.ENOENT) { done in
+                volume.lookupItem(named: FSFileName(string: name), inDirectory: item) { _, _, error in done(error) }
+            }
+        }
+        let childAttributes = FSItem.SetAttributesRequest()
+        childAttributes.invalidateAllProperties()
+        try expect(.ENOENT) { done in
+            volume.createItem(named: FSFileName(string: "no-new-children"), type: .file,
+                              inDirectory: item, attributes: childAttributes) { _, _, error in done(error) }
+        }
+        try require(childAttributes.consumedAttributes.isEmpty, "orphan creation consumed fields")
+        let request = FSItem.GetAttributesRequest()
+        request.wantedAttributes = [.fileID, .mode, .modifyTime]
+        let update = FSItem.SetAttributesRequest()
+        update.invalidateAllProperties()
+        update.mode = 0
+        update.modifyTime = timespec(tv_sec: 123, tv_nsec: 456_789)
+        let changed: FSItem.Attributes = try waitValue { volume.setAttributes(update, on: item, replyHandler: $0) }
+        try require(changed.fileID.rawValue == UInt64(item.object) + 1 && changed.mode == 0 &&
+                    changed.modifyTime.tv_sec == 123 && changed.modifyTime.tv_nsec == 456_789 &&
+                    !changed.isValid(.linkCount), "removed directory metadata reply is wrong")
+        try require(update.wasAttributeConsumed(.mode) && update.wasAttributeConsumed(.modifyTime), "directory update was not consumed")
+        try volume.session.synchronized {
+            _ = try volume.session.enumerate(item, cookie: 0, verifier: 0, attributes: nil) {
+                _, _, _, _, _ in throw ContractFailure(message: "empty orphan emitted an invented entry")
+            }
+        }
+        try expect(.EACCES) { done in volume.checkAccess(to: item, requestedAccess: .readData) { allowed, error in
+            if allowed { done(ContractFailure(message: "directory pin enabled native access")) } else { done(error) }
+        } }
+        try expect(.EBUSY) { volume.reclaimItem(item, replyHandler: $0) }
+        try expect(.EBUSY) { volume.deactivate(options: [], replyHandler: $0) }
+        try success { volume.closeItem(item, modes: [], replyHandler: $0) }
+        let retained: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: item, replyHandler: $0) }
+        try require(retained.fileID.rawValue == changed.fileID.rawValue, "final close confused open access with cached identity")
+        try success { volume.reclaimItem(item, replyHandler: $0) }
+        try expect(.ESTALE) { done in volume.getAttributes(request, of: item) { _, error in done(error) } }
+        try volume.session.synchronized {
+            var stat = PwStat()
+            try require(pw_stat(volume.session.volume, item.object, &stat) == PW_NOT_FOUND, "orphan survived final reference")
+        }
+        try success { volume.removeItem(holder, named: FSFileName(string: "holder"), fromDirectory: root, replyHandler: $0) }
+        try success { volume.reclaimItem(holder, replyHandler: $0) }
+
+        let source = try create(volume, "source", root, type: .directory)
+        let target = try create(volume, "target", root, type: .directory)
+        try success { volume.openItem(target, modes: .read, replyHandler: $0) }
+        let _: FSFileName = try waitValue {
+            volume.renameItem(source, inDirectory: root, named: FSFileName(string: "source"),
+                              to: FSFileName(string: "target"), inDirectory: root, overItem: target, replyHandler: $0)
+        }
+        try require(try lookup(volume, "target", root) === source, "directory replacement lost source identity")
+        let old: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: target, replyHandler: $0) }
+        try require(old.fileID.rawValue == UInt64(target.object) + 1, "replacement followed the new name")
+        try success { volume.closeItem(target, modes: [], replyHandler: $0) }
+        try success { volume.reclaimItem(target, replyHandler: $0) }
+        try success { volume.removeItem(source, named: FSFileName(string: "target"), fromDirectory: root, replyHandler: $0) }
+        try success { volume.reclaimItem(source, replyHandler: $0) }
+
+        try volume.session.synchronized {
+            var object: Int64 = 0
+            let name = Data("external".utf8)
+            try pwCheck(name.withUnsafeBytes { pw_directory_create(volume.session.volume, 1, $0.bindMemory(to: UInt8.self).baseAddress, name.count, &object) })
+        }
+        let external = try lookup(volume, "external", root)
+        let token = external.directoryHandle
+        let sameExternal = try lookup(volume, "EXTERNAL", root)
+        try require(token != nil && sameExternal === external && external.directoryHandle == token,
+                    "directory lookup failed to retain/reuse a typed reference")
+        try success { volume.removeItem(external, named: FSFileName(string: "external"), fromDirectory: root, replyHandler: $0) }
+        try success { volume.reclaimItem(external, replyHandler: $0) }
+        try success { volume.deactivate(options: [], replyHandler: $0) }
+        print("FSVOLUME_DIRECTORY_ITEM_REFERENCE_CONTRACT_OK (v3 SDK create/lookup/open/unlink/replace/close/reclaim; no native authorization/mount)")
+    }
+    static func directoryAdmissionContract(_ url: URL) throws {
+        let volume = try makeDirectoryVolume(url)
+        let root = volume.session.rootItem
+        let source = try create(volume, "source", root)
+        var handles: [UInt64] = []
+        try volume.session.synchronized {
+            var object: Int64 = 0
+            let name = Data("lookup-blocked".utf8)
+            try pwCheck(name.withUnsafeBytes { pw_directory_create(volume.session.volume, 1, $0.bindMemory(to: UInt8.self).baseAddress, name.count, &object) })
+            for _ in 0..<4095 {
+                var handle: UInt64 = 0
+                try pwCheck(pw_file_open(volume.session.volume, source.object, &handle))
+                handles.append(handle)
+            }
+        }
+        let request = FSItem.GetAttributesRequest()
+        request.wantedAttributes = [.modifyTime, .changeTime]
+        let before: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: root, replyHandler: $0) }
+        let attributes = FSItem.SetAttributesRequest()
+        attributes.invalidateAllProperties()
+        attributes.mode = 0o700
+        try expect(.ENOMEM) { done in volume.createItem(named: FSFileName(string: "absent"), type: .directory,
+            inDirectory: root, attributes: attributes) { item, _, error in
+                done(item == nil ? error : ContractFailure(message: "refused directory published an item"))
+            }
+        }
+        try require(attributes.consumedAttributes.isEmpty, "directory admission consumed attributes")
+        try expect(.ENOENT) { done in volume.lookupItem(named: FSFileName(string: "absent"), inDirectory: root) { _, _, error in done(error) } }
+        try expect(.ENOMEM) { done in volume.lookupItem(named: FSFileName(string: "lookup-blocked"), inDirectory: root) { _, _, error in done(error) } }
+        let after: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: root, replyHandler: $0) }
+        try require(before.modifyTime.tv_sec == after.modifyTime.tv_sec && before.modifyTime.tv_nsec == after.modifyTime.tv_nsec &&
+                    before.changeTime.tv_sec == after.changeTime.tv_sec && before.changeTime.tv_nsec == after.changeTime.tv_nsec,
+                    "refused directory admission changed the parent")
+        try volume.session.synchronized { try pwCheck(pw_file_close(volume.session.volume, handles.removeLast())) }
+        let lookupItem = try lookup(volume, "lookup-blocked", root)
+        try require(try lookup(volume, "LOOKUP-BLOCKED", root) === lookupItem, "cached lookup consumed another pin at full admission")
+        try success { volume.reclaimItem(lookupItem, replyHandler: $0) }
+        let resumed = try create(volume, "resumed", root, type: .directory)
+        try require(resumed.directoryHandle != nil && resumed.handle == nil, "released capacity did not admit the directory atomically")
+        try volume.session.synchronized {
+            var refused: UInt64 = 99
+            try require(pw_directory_open(volume.session.volume, 1, &refused) == PW_RESOURCE && refused == 99,
+                        "created SDK directory did not occupy shared native admission")
+        }
+        try success { volume.openItem(resumed, modes: .read, replyHandler: $0) }
+        try success { volume.removeItem(resumed, named: FSFileName(string: "resumed"), fromDirectory: root, replyHandler: $0) }
+        try success { volume.closeItem(resumed, modes: [], replyHandler: $0) }
+        try success { volume.reclaimItem(resumed, replyHandler: $0) }
+        try volume.session.synchronized { for handle in handles { try pwCheck(pw_file_close(volume.session.volume, handle)) } }
+        try success { volume.reclaimItem(source, replyHandler: $0) }
+        try success { volume.deactivate(options: [], replyHandler: $0) }
+        print("FSVOLUME_DIRECTORY_ADMISSION_CONTRACT_OK (real 4096 mixed file/directory pins and atomic SDK creation; no native mount)")
     }
     static func cursorPressureContract(_ url: URL) throws {
         let path = Data(url.path.utf8)
@@ -750,6 +927,8 @@ struct FSVolumeContract {
         try checkedNamespaceContract(url.appendingPathExtension("checked"))
         try cursorPressureContract(url.appendingPathExtension("cursor-pressure"))
         try directoryLifetimeContract(url.appendingPathExtension("directory-v3"))
+        try directoryItemContract(url.appendingPathExtension("directory-items-v3"))
+        try directoryAdmissionContract(url.appendingPathExtension("directory-admission-v3"))
         print("FSVOLUME_CALLBACK_CONTRACT_OK (SDK callbacks/core ABI; no installation or OS mount)")
     }
 }

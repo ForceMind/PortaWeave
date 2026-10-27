@@ -279,6 +279,31 @@ int main(int argc, char **argv) {
     REQUIRE(pw_windows_directory_read(volume, pinned_snapshot, 0, buffer, sizeof(buffer), &count));
     if (count != 2 || pw_volume_close(volume) != PW_BUSY) return 74;
     REQUIRE(pw_windows_directory_close(volume, pinned_snapshot));
+    PwFsKitDirectoryCreated directory_created = {0};
+    PwCreateState directory_state = {0};
+    directory_state.valid = PW_CREATE_MODIFIED;
+    directory_state.modified.seconds = -12;
+    directory_state.modified.nanoseconds = 123456789;
+    REQUIRE(pw_fskit_directory_create_with_state(volume, 1, (const uint8_t *)"cached", 6,
+        &directory_root, &directory_state, &directory_created));
+    if (directory_created.object <= 1 || !directory_created.directory ||
+        directory_created.attributes.file_id != (uint64_t)directory_created.object + 1 ||
+        directory_created.attributes.kind != 1 || directory_created.attributes.links != 0 ||
+        directory_created.attributes.metadata.modified.seconds != -12 ||
+        directory_created.attributes.metadata.modified.nanoseconds != 123456789) return 75;
+    uint64_t administrative_directory = 0;
+    REQUIRE(pw_directory_open(volume, directory_created.object, &administrative_directory));
+    if (pw_file_close(volume, directory_created.directory) != PW_INVALID ||
+        pw_posix_directory_close(volume, directory_created.directory) != PW_INVALID) return 76;
+    REQUIRE(pw_remove_checked(volume, 1, (const uint8_t *)"cached", 6, 1, directory_created.object));
+    REQUIRE(pw_stat(volume, directory_created.object, &stat));
+    if (stat.kind != 1 || stat.links != 0 || pw_volume_close(volume) != PW_BUSY) return 77;
+    REQUIRE(pw_directory_close(volume, directory_created.directory));
+    REQUIRE(pw_stat(volume, directory_created.object, &stat));
+    REQUIRE(pw_directory_close(volume, administrative_directory));
+    if (pw_stat(volume, directory_created.object, &stat) != PW_NOT_FOUND ||
+        pw_directory_close(volume, administrative_directory) != PW_INVALID) return 78;
+    puts("NATIVE_DIRECTORY_ITEM_REFERENCE_ABI_OK (atomic v3 administrative references; no native authorization/mount)");
     REQUIRE(pw_volume_close(volume));
     puts("NATIVE_V3_DIRECTORY_ABI_OK (trusted directory references; no native mount)");
     puts("NATIVE_C_ABI_OK");

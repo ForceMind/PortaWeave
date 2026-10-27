@@ -2,8 +2,8 @@
 //! Each outgoing owner deliberately abandons ONE pinned empty orphan. The next
 //! process preserves the source before ordinary open reclaims that orphan.
 use portaweave_core::{
-    CreateAttributes, Credentials, Error as CoreError, ExportLinks, FileId, MetadataUpdate, ROOT,
-    Recovery, RecoveryLimits, Timestamp, Volume,
+    CreateAttributes, Credentials, Error as CoreError, ExportLinks, FileId, MetadataUpdate,
+    NodeCreateOptions, ROOT, Recovery, RecoveryLimits, Timestamp, Volume,
 };
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, error::Error, fs, path::Path};
@@ -91,6 +91,39 @@ fn preserve_before_open(path: &Path, expected: u8) -> TestResult {
     Ok(()) // source owner is released BEFORE ordinary open
 }
 fn exercise(v: &mut Volume, stage: u8) -> TestResult {
+    let created = v.create_directory_with_pin(
+        ROOT,
+        "created-with-pin",
+        NodeCreateOptions {
+            attributes: Some(ATTR),
+            modified: Some(Timestamp {
+                seconds: i64::from(stage),
+                nanoseconds: 456_789,
+            }),
+            ..Default::default()
+        },
+        Ok,
+    )?;
+    assert_eq!(created.reply, v.object_info(created.object)?);
+    assert_eq!(
+        created
+            .reply
+            .metadata
+            .ok_or("missing initial directory metadata")?
+            .modified,
+        Timestamp {
+            seconds: i64::from(stage),
+            nanoseconds: 456_789
+        }
+    );
+    assert_eq!(v.stats()?.open_handles, 1);
+    v.rmdir(ROOT, "created-with-pin")?;
+    assert_eq!(v.stat(created.object)?.links, 0);
+    v.close_directory(created.handle)?;
+    assert!(matches!(v.stat(created.object), Err(CoreError::NotFound)));
+    println!(
+        "DIRECTORY_CREATE_PIN_HANDOVER_OK stage={stage} (atomic v3 initial state/reference; no native mount)"
+    );
     let holder = v.mkdir_with_attributes(ROOT, "holder", ATTR)?;
     let directory = v.mkdir_with_attributes(ROOT, "active", ATTR)?;
     let child = v.create_file(directory, "child")?;

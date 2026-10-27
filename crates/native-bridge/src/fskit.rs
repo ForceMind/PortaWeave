@@ -153,6 +153,64 @@ pub struct PwFsKitCreated {
     pub file: u64,
     pub attributes: PwFsKitAttributes,
 }
+
+/// Separate layout/type: never put a directory pin in PwFsKitCreated.file.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwFsKitDirectoryCreated {
+    pub object: i64,
+    pub directory: u64,
+    pub attributes: PwFsKitAttributes,
+}
+
+/// EXPLICIT v3 create plus an administrative directory pin. Ordinary creation
+/// continues admitting no directory pin. No OS caller authorization is implied.
+/// # Safety
+/// Name/optional attributes/state readable; output writable/aligned/nonaliasing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_fskit_directory_create_with_state(
+    volume: u64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+    attributes: *const PwCreateAttributes,
+    state: *const PwCreateState,
+    out: *mut PwFsKitDirectoryCreated,
+) -> i32 {
+    run(|| {
+        required(out)?;
+        let name = unsafe { text(name, name_len)? };
+        let attributes = if attributes.is_null() {
+            None
+        } else {
+            readable(attributes, 1)?;
+            Some(unsafe { attributes.read() }.core()?)
+        };
+        readable(state, 1)?;
+        let options = unsafe { state.read() }.core(attributes)?;
+        let parent = super::file_id(parent)?;
+        with_session(volume, |s| {
+            s.handle_admission()?;
+            let token = next_token()?;
+            let created = s
+                .volume
+                .create_directory_with_pin(parent, name, options, |info| {
+                    let id = info.stat.id.raw();
+                    project(info, id)
+                })
+                .map_err(Fault::from)?;
+            s.directory_pins.insert(token, created.handle);
+            unsafe {
+                out.write(PwFsKitDirectoryCreated {
+                    object: created.object.raw(),
+                    directory: token,
+                    attributes: created.reply,
+                });
+            }
+            Ok(OK)
+        })
+    })
+}
 /// Reserve admission/tokens before creation; return pin/projected state together.
 /// # Safety
 /// Name and optional attributes readable/aligned, output writable/nonaliasing.

@@ -21,7 +21,7 @@ cargo test --locked -p portaweave-partition-inspector
 
 ## 当前状态（2026-10-27）
 
-**M1-O 显式 v3 目录 inode 生命周期、M0-U 当前目录观察、实验性 WinFsp/FSVolume 合同、macOS App/Extension 无签名构建与 WinFsp Dispatcher。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
+**M0-V v3 FSKit 目录对象引用、M1-O 版本化 inode 生命周期、实验性 WinFsp/FSVolume 合同、macOS App/Extension 无签名构建与 WinFsp Dispatcher。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
 
 实现范围见 [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md)、[M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md)、[M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md)，历史测试见[验证记录](docs/VALIDATION.zh-CN.md)。确切源码版本的测试结果记录在对应 PR；实现文档不是自动的通过声明。云端三系统核心测试不等于真实 exFAT、挂载盘或 Codex 已兼容。
 
@@ -31,6 +31,10 @@ FSKit/WinFsp 仍为待验收候选。核心硬链接不代表 WinFsp 接口限�
 ## M1-O 显式 v3 目录生命周期
 
 只在全新显式 v3 容器中增加真正的核心目录 pin：已授权目录在移动、撤权、最后 unlink 后保留原 inode，最后 close 自动回收，所有文件/目录 pin 共用 4096 限额。当前属性修改权限独立于旧读 grant。保全恢复严格报告空孤儿目录且不猜名字，普通重开才回收放弃的引用。默认 v1/显式 v2 不变，不自动迁移；固定旧二进制必须拒绝 v3 且原件 SHA-256 不变。直接 WinFsp 与外部 pin 的 SDK 合同不等于原生 Open/身份认证或系统挂载。见 [M1-O](docs/IMPLEMENTATION-M1O.zh-CN.md) 与 [ADR 0015](docs/adr/0015-explicit-v3-directory-inode-lifetimes.md)。
+
+## M0-V FSKit 目录对象引用
+
+v3 实验 FSVolume 为每个缓存的非根目录持有独立 typed inode 引用。创建目录时先准入引用再提交名字，lookup 复用引用，删除/替换后保留原身份，reclaim 才释放；关闭 OpenModes 与回收缓存身份是两个生命周期。普通目录创建仍不占 pin，v1/v2 不变。这些是管理型适配操作，不认证 OS caller，也不代表有效权限或系统挂载。见 [M0-V](docs/IMPLEMENTATION-M0V.zh-CN.md) 与 [ADR 0016](docs/adr/0016-fskit-directory-item-references.md)。
 
 ### 原生接口（实验）
 

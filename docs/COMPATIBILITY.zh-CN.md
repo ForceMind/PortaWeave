@@ -92,10 +92,12 @@ FSKit 的 API 文档只证明开发接口存在，不证明我们的文件系统
 | 层级 | 已有结果 | 尚未验证 |
 |---|---|---|
 | Rust 核心 | 授权范围租约/共享预算、v1/v2/v3 schema 门禁、v2 身份/元数据、受信任凭据的目录/打开文件/属性策略、原子追加/EOF 裁剪、活文件当前属性授权、显式 v3 活目录 pin/删后回收、目录快照/当前目录重新授权和事务内回执；准确结果见对应 PR | 原生身份绑定/有效权限、符号链接/xattr/ACL、原生目录 Open/平台生命周期、完整故障/解析器预算 |
-| macOS 接入 | App/ExtensionKit 构建/链接；FSVolume 实际 SDK 回调合同、v2 UUID/属性读取与原子设置/创建、提交前投影的 setattr 回执、预先准入的原子创建与文件 pin、初始逻辑大小/v2 时间、删除/改名的事务内预期身份校验、共享 cursor 压力下的自有 LRU 回收，准确结果见对应 PR | 有效 caller/路径权限、符号链接/xattr、完整缓存/同步、签名/系统授权、实际挂载和开发工具 |
+| macOS 接入 | App/ExtensionKit 构建/链接；FSVolume 实际 SDK 回调合同、v2 UUID/属性读取与原子设置/创建、提交前投影的 setattr 回执、预先准入的原子创建与文件 pin、初始逻辑大小/v2 时间、删除/改名的事务内预期身份校验、共享 cursor 压力下的自有 LRU 回收、v3 目录 FSItem 自有引用/删后身份/reclaim 和提交前准入的目录创建，准确结果见对应 PR | 有效 caller/路径权限、符号链接/xattr、完整缓存/同步、签名/系统授权、实际挂载和开发工具 |
 | Windows 接入 | WinFsp Dispatcher、策略文件信息/写入/EOF/关闭/SetBasicInfo 时间合同、不可变目录快照/UTF-16 分页、重新授权的当前 linked-directory GFI/显式快照原子替换、v3 可信目录 grant 的 GFI/SetBasicInfo/Close、自检及只读 runtime/driver 清单 | 完整活目录 Open/删除后句柄、内核刷新/通知、系统挂载、ACL/共享/同步/缓存；硬链接接口仍 BLOCKED |
 | 开发盘验收 | 测试契约与宿主探针保留 | FS-01..14、DEV-01..10、真实 Codex 及沙盒负向测试均须在真卷重做 |
 
 Xcode 默认的 LaunchServices 构建输出登记、内部 C ABI 调用、普通宿主探针和跨 OS artifact 均不能提升为真实挂载证据。
 
 M1-O 显式 v3 只解决版本化核心目录引用与其直接平台消费合同，详见 [实现](IMPLEMENTATION-M1O.zh-CN.md)。v1/v2 不迁移，旧读取器实际拒绝必须验证；可信 READ+SEARCH grant、当前 owner 元数据策略与 OS SID/ACL/沙盒认证仍是不同层级。FSKit SDK 合同由外部可信 pin 保留 inode，不是原生目录 Open。真实挂载、完整缓存/共享/同步、硬链接平台接口、Codex 正常沙盒与越界拒绝门禁维持 BLOCKED/NOT_RUN。
+
+M0-V 接入 v3 缓存目录自有 administrative pin 与原子目录引用创建；见 [范围](IMPLEMENTATION-M0V.zh-CN.md)。FSKit closeItem 只调整保留模式，reclaim 才释放身份；管理引用不等于 PosixDirectory grant，更不等于认证 native caller。旧 v1/v2 与所有真实挂载/权限/缓存/同步/沙盒门禁保持。
