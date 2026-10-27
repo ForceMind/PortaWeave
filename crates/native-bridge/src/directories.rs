@@ -7,6 +7,47 @@ use super::{
 use portaweave_core::Volume;
 use std::path::Path;
 
+/// Administrative v3 directory reference, NOT a policy grant or OS caller.
+/// # Safety
+/// Output writable/aligned/nonaliasing throughout the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_directory_open(
+    volume: u64,
+    directory: i64,
+    out_directory: *mut u64,
+) -> i32 {
+    run(|| {
+        required(out_directory)?;
+        let directory = file_id(directory)?;
+        with_session(volume, |s| {
+            s.handle_admission()?;
+            let token = next_token()?;
+            let handle = s.volume.open_directory(directory).map_err(Fault::from)?;
+            s.directory_pins.insert(token, handle);
+            unsafe {
+                out_directory.write(token);
+            }
+            Ok(OK)
+        })
+    })
+}
+
+/// Release only an administrative directory token, including under protection.
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_directory_close(volume: u64, directory: u64) -> i32 {
+    run(|| {
+        with_session(volume, |s| {
+            let handle = *s
+                .directory_pins
+                .get(&directory)
+                .ok_or_else(Fault::invalid)?;
+            s.volume.close_directory(handle).map_err(Fault::from)?;
+            s.directory_pins.remove(&directory);
+            Ok(OK)
+        })
+    })
+}
+
 /// NEW v3 container; never opens/upgrades a v1/v2 path.
 /// # Safety
 /// Path/attributes readable; output writable/aligned/nonaliasing.

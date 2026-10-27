@@ -1721,7 +1721,12 @@ fn fskit_create_file_admission_includes_policy_and_admin_handles_before_namespac
         0
     );
     let mut handles = Vec::new();
-    for _ in 0..4093 {
+    let mut administrative_directory = 0;
+    assert_eq!(
+        unsafe { pw_directory_open(volume, 1, &mut administrative_directory) },
+        0
+    );
+    for _ in 0..4092 {
         let mut h = 0;
         assert_eq!(unsafe { pw_file_open(volume, object, &mut h) }, 0);
         handles.push(h);
@@ -1749,6 +1754,27 @@ fn fskit_create_file_admission_includes_policy_and_admin_handles_before_namespac
         -14
     );
     assert_eq!(out, sentinel);
+    let mut pinned_directory = PwFsKitDirectoryCreated {
+        object: 77,
+        directory: 88,
+        ..Default::default()
+    };
+    let pinned_sentinel = pinned_directory;
+    assert_eq!(
+        unsafe {
+            pw_fskit_directory_create_with_state(
+                volume,
+                1,
+                b"absent".as_ptr(),
+                6,
+                std::ptr::null(),
+                &PwCreateState::default(),
+                &mut pinned_directory,
+            )
+        },
+        -14
+    );
+    assert_eq!(pinned_directory, pinned_sentinel);
     let mut denied = 99;
     assert_eq!(
         unsafe { pw_posix_directory_open(volume, 1, &owner, &mut denied) },
@@ -1778,6 +1804,22 @@ fn fskit_create_file_admission_includes_policy_and_admin_handles_before_namespac
         0
     );
     assert_eq!(out.file, 0);
+    assert_eq!(pw_directory_close(volume, administrative_directory), 0);
+    assert_eq!(
+        unsafe {
+            pw_fskit_directory_create_with_state(
+                volume,
+                1,
+                b"pinned-created".as_ptr(),
+                14,
+                std::ptr::null(),
+                &PwCreateState::default(),
+                &mut pinned_directory,
+            )
+        },
+        0
+    );
+    assert_eq!(pw_directory_close(volume, pinned_directory.directory), 0);
     let old_directory = directory_pin;
     assert_eq!(pw_posix_directory_close(volume, directory_pin), 0);
     assert_eq!(

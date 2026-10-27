@@ -257,3 +257,16 @@ Work Linux full default/all-feature workspace、clippy `-D warnings`、fmt 实�
 本地 directory_handover 四阶段全部运行在 Linux，验证同一 UUID/硬链接/阶段内容、目录 grant 和放弃 owner 后一个空孤儿。每站在普通打开前 Recovery::prepare/strict export/全原件 SHA-256，之后 ordinary open 才回收，最终无孤儿；这是 abandoned-owner 夹具，不能称为硬件断电、安全卸载或跨 OS 实测。
 
 新增 Windows MSVC v3 目录回调合同、macOS SDK 外部可信 pin 后真实 getAttributes/最后 close ENOENT、完整 App/Extension、固定旧 reader 三平台拒绝，以及独立 v3 artifact 的 seed→macOS→Windows→Linux，必须按本增量准确 source CI 验收并记录在对应 PR。WinFsp Open/security/Flush 和 FSKit access/probe/load/activate/mount 未打开。实际已安装驱动的挂载、签名/系统授权、SID/ACL/共享/缓存/完整同步、真实卷开发工具/Codex 正常沙盒及越界拒绝、物理 exFAT/USB/断电仍 BLOCKED/NOT_RUN。
+
+
+## 2026-10-27 续研：M0-V FSKit 目录对象引用
+
+GitHub连接重新核验 main `0103619da1cee08ffc3eb3970296c4b06fb463aa` / tree `efafd2d7bdde73580ceb6b715c491ad7ccd2c5f3`，14项completed/success，无未合并PR，#1/#3/#28开放。从该版本继续，不改schema/format/capabilities或原生安全门。
+
+Work Linux full default/all-feature workspace、clippy -D warnings、fmt、Python9、实际C11 caller与独立C++17公共头/布局/类型/链接调用通过。新增 core directory_create_pins all-feature4/default2，ignored helper由父测试在新夹具中实际执行两次exit86；新 native directory_item_pins 4项（integration累计47/unit3），含4真实线程同名创建竞争。旧 core/native 4096预算加入typed admin目录和显式atomic目录创建拒绝/恢复，未虚增测试数。验证旧格式拒绝、默认目录不占pin、预投影拒绝无名字/父元数据/pin、前后commit故障/维护保护、引用独立与foreign/stale/typed隔离。
+
+实际 C caller 输出 NATIVE_DIRECTORY_ITEM_REFERENCE_ABI_OK/NATIVE_V3_DIRECTORY_ABI_OK/NATIVE_C_ABI_OK。本地 v3 四阶段每站输出 DIRECTORY_CREATE_PIN_HANDOVER_OK 并保留恢复/原件SHA256/UUID/硬链接回归；四阶段全部在Linux。固定实际 a578旧二进制仍两次UNSUPPORTED、输出99和源全文件SHA256不变。没有用本地阶段名冒充另外两个OS。
+
+新实际SDK目录item生命周期/删除替换/当前属性/close与reclaim分离、4096额度下create与lookup拒绝/字段消费/父时间不变/释放恢复，必须由本增量准确CI执行；保留M1-O外部grant与SDK独立pin合同。枚举空目录的pack closure只是算法证据，不是packer系统分发。完整unsigned App/Extension、MSVC/Dispatcher、三平台core/native/旧reader与同一v1/v2/v3 artifact往返须读日志，不能从类型检查推断挂载。具体source/tree/Actions与最终main以对应PR为准。
+
+真实Windows挂载缺runtime/driver、macOS签名/系统授权、原生caller/ACL/共享/缓存/完整同步、符号链接/xattr/监听/mmap、真实卷开发工具/Codex正常沙盒及越界限制、物理exFAT/USB/断电仍BLOCKED/NOT_RUN，#1/#3不关闭。未操作用户本机、安装驱动、修改服务或放宽沙盒。

@@ -6,8 +6,9 @@
 
 mod fskit;
 pub use fskit::{
-    PwCreateState, PwFsKitAttributes, PwFsKitCreated, pw_fskit_file_set_attributes,
-    pw_fskit_metadata_set, pw_fskit_node_create, pw_fskit_node_create_with_state,
+    PwCreateState, PwFsKitAttributes, PwFsKitCreated, PwFsKitDirectoryCreated,
+    pw_fskit_directory_create_with_state, pw_fskit_file_set_attributes, pw_fskit_metadata_set,
+    pw_fskit_node_create, pw_fskit_node_create_with_state,
 };
 mod windows;
 pub use windows::{
@@ -18,8 +19,9 @@ mod namespace_ops;
 pub use namespace_ops::{pw_remove_checked, pw_rename_checked};
 mod directories;
 pub use directories::{
-    pw_posix_directory_close, pw_posix_directory_info, pw_posix_directory_open,
-    pw_posix_directory_set_metadata_info, pw_volume_create_with_directory_lifetimes,
+    pw_directory_close, pw_directory_open, pw_posix_directory_close, pw_posix_directory_info,
+    pw_posix_directory_open, pw_posix_directory_set_metadata_info,
+    pw_volume_create_with_directory_lifetimes,
 };
 mod windows_directory;
 pub use windows_directory::{
@@ -29,9 +31,10 @@ pub use windows_directory::{
 };
 
 use portaweave_core::{
-    Access, CreateAttributes, Credentials, Entry, Error, FileAccess, FileId, FileInfo, Handle,
-    Kind, MAX_IO, MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, Metadata, MetadataUpdate,
-    PosixDirectory, PosixFile, PosixReadView, ROOT, ReadView, Timestamp, Volume, WritePosition,
+    Access, CreateAttributes, Credentials, DirectoryHandle, Entry, Error, FileAccess, FileId,
+    FileInfo, Handle, Kind, MAX_IO, MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, Metadata,
+    MetadataUpdate, PosixDirectory, PosixFile, PosixReadView, ROOT, ReadView, Timestamp, Volume,
+    WritePosition,
 };
 use std::{
     collections::BTreeMap,
@@ -126,6 +129,7 @@ struct Cursor {
 struct Session {
     volume: Volume,
     files: BTreeMap<u64, Handle>,
+    directory_pins: BTreeMap<u64, DirectoryHandle>,
     policy_files: BTreeMap<u64, PosixFile>,
     policy_dirs: BTreeMap<u64, PosixDirectory>,
     policy_views: BTreeMap<u64, PosixReadView>,
@@ -140,6 +144,7 @@ impl Session {
         Self {
             volume,
             files: BTreeMap::new(),
+            directory_pins: BTreeMap::new(),
             policy_files: BTreeMap::new(),
             policy_dirs: BTreeMap::new(),
             policy_views: BTreeMap::new(),
@@ -151,7 +156,12 @@ impl Session {
         }
     }
     fn handle_admission(&self) -> FResult<()> {
-        if self.files.len() + self.policy_files.len() + self.policy_dirs.len() >= MAX_HANDLES {
+        if self.files.len()
+            + self.directory_pins.len()
+            + self.policy_files.len()
+            + self.policy_dirs.len()
+            >= MAX_HANDLES
+        {
             return Err(Fault::resource());
         }
         Ok(())
@@ -1150,6 +1160,7 @@ pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
         with_table(|all| {
             let session = all.get(&volume).ok_or_else(Fault::invalid)?;
             if !session.files.is_empty()
+                || !session.directory_pins.is_empty()
                 || !session.policy_files.is_empty()
                 || !session.policy_dirs.is_empty()
                 || !session.policy_views.is_empty()

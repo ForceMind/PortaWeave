@@ -100,6 +100,12 @@ typedef struct PwFileInfo {
 int32_t pw_posix_directory_open(uint64_t volume, int64_t directory, const PwCredentials *caller, uint64_t *out_directory);
 int32_t pw_posix_directory_info(uint64_t volume, uint64_t directory, PwFileInfo *out_info);
 int32_t pw_posix_directory_close(uint64_t volume, uint64_t directory);
+/* ADMINISTRATIVE v3 directory pins, separate from file/policy/cursor tokens.
+ * No caller checks; never expose as untrusted IPC or native authorization.
+ * Shared 4096 pins/BUSY; close permits release under protection.
+ * v1/v2 UNSUPPORTED. Failed outputs unchanged. */
+int32_t pw_directory_open(uint64_t volume, int64_t directory, uint64_t *out_directory);
+int32_t pw_directory_close(uint64_t volume, uint64_t directory);
 typedef struct PwWriteResult {
   size_t written;
   uint64_t offset; /* resolved EOF for append */
@@ -310,6 +316,21 @@ enum { PW_CREATE_SIZE=1, PW_CREATE_CREATED=2, PW_CREATE_ACCESSED=4, PW_CREATE_MO
 int32_t pw_fskit_node_create_with_state(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len,
                                       uint8_t directory, const PwCreateAttributes *attributes,
                                       const PwCreateState *state, PwFsKitCreated *out_created);
+
+/* EXPLICIT v3 directory create WITH an administrative pin, prepared/admitted
+ * before mutation, projected before commit, published before maintenance.
+ * Ordinary directory creation above still returns no pin. Directory size is
+ * unsupported even when zero. No OS caller/ACL, safe-unmount or heap guarantee.
+ * Close directory with pw_directory_close, NEVER pw_file_close/policy close. */
+typedef struct PwFsKitDirectoryCreated {
+  int64_t object;
+  uint64_t directory;
+  PwFsKitAttributes attributes;
+} PwFsKitDirectoryCreated;
+int32_t pw_fskit_directory_create_with_state(uint64_t volume, int64_t parent,
+                                           const uint8_t *name, size_t name_len,
+                                           const PwCreateAttributes *attributes,
+                                           const PwCreateState *state, PwFsKitDirectoryCreated *out_created);
 
 uint32_t pw_abi_version(void);
 int64_t pw_root_id(void);

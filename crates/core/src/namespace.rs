@@ -1,6 +1,6 @@
 use crate::{
-    CreateAttributes, Entry, Error, FileId, Handle, Kind, MetadataUpdate, ObjectInfo, ROOT, Result,
-    Timestamp, Volume, catalog::CatalogVersion, metadata, names,
+    CreateAttributes, DirectoryHandle, Entry, Error, FileId, Handle, Kind, MetadataUpdate,
+    ObjectInfo, ROOT, Result, Timestamp, Volume, catalog::CatalogVersion, metadata, names,
 };
 use rusqlite::{OptionalExtension, params};
 
@@ -20,6 +20,16 @@ pub struct NodeCreateOptions {
 pub struct CreatedNode<T> {
     pub object: FileId,
     pub handle: Option<Handle>,
+    pub reply: T,
+}
+
+/// An EXPLICIT v3 directory create retaining an administrative inode reference.
+/// Ordinary directory creation still admits no pin. Not caller authorization.
+#[must_use = "close the returned directory handle explicitly"]
+#[derive(Debug)]
+pub struct CreatedDirectory<T> {
+    pub object: FileId,
+    pub handle: DirectoryHandle,
     pub reply: T,
 }
 
@@ -209,6 +219,25 @@ impl Volume {
                 })
             },
         )
+    }
+    /// Reserve a shared inode pin BEFORE creating a v3 directory. Project the
+    /// reply before commit and publish the pin before post-commit maintenance.
+    pub fn create_directory_with_pin<T>(
+        &mut self,
+        parent: FileId,
+        name: &str,
+        options: NodeCreateOptions,
+        reply: impl FnOnce(ObjectInfo) -> Result<T>,
+    ) -> Result<CreatedDirectory<T>> {
+        self.require_directory_lifetimes()?;
+        let handle = self.reserve_file_handle()?;
+        self.create_node_request(parent, name, 1, options, Some(handle), |db, version, id| {
+            Ok(CreatedDirectory {
+                object: id,
+                handle: DirectoryHandle(handle),
+                reply: reply(ObjectInfo::at(db, version, id)?)?,
+            })
+        })
     }
     fn create_node_request<T>(
         &mut self,

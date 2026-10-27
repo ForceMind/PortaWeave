@@ -62,3 +62,8 @@ CI 容器传递不是同一硬盘插拔，进程退出不是物理断电。没�
 M1-O（2026-10-27）在重新核验 main `a578785591976e9d71658dc5b93bf1c234c9db7f`（14 项成功、无开放 PR）后继续。只新增显式 experimental-m1o-directory-v3 / user_version3 / capabilities3；默认 v1 与显式 v2 原格式/孤儿目录拒绝不变，无自动迁移。核心 typed 目录 grant 与全部文件共享 4096，删后只保留空 inode、禁止重新加入子项；当前 owner 元数据授权/提交前回执独立。保全恢复报告空孤儿目录不导出猜测名字，普通重开验证后 GC；保留实际子进程 commit 前后 exit 与真正旧二进制拒绝。native 目录 grant/cursor 分表，直接 WinFsp GFI/时间/Close 和 SDK 外部 pin 合同不打开原生安全门。见 M1-O/ADR0015。
 
 Work Linux 全工作区 default/all-feature、clippy/fmt、C11/C++17、v3 本地四阶段与固定旧 reader 实际拒绝已通过；新增 core10/8、native8（integration43/unit3）。本地阶段不计作其他 OS。准确 source/tree、MSVC/SDK/bundle/实际 v1/v2/v3 artifact 和最终 main CI 以本增量 PR 为准；缺驱动/签名/授权仍 BLOCKED/NOT_RUN，不操作用户本机，不降沙盒。下一阶段继续原生 caller/目录 Open/共享/缓存/完整同步及授权隔离环境的真实挂载，不能以此核心进展关闭 #1/#3。
+
+
+M0-V（2026-10-27）接续重新核验的 main `0103619da1cee08ffc3eb3970296c4b06fb463aa`（14项成功，无开放PR）。实际 FSVolume 缓存 v3 非根目录现保留自己的 administrative typed pin 至 reclaim；OpenModes 的最后 close 只清访问，不释放缓存身份。新增独立 create_directory_with_pin / CreatedDirectory、C pw_directory_open/close 与 pw_fskit_directory_create_with_state / PwFsKitDirectoryCreated，预准入、事务内初始状态/投影、commit后维护前发布pin，普通创建/旧v1/v2不变，不迁移格式。目录删后/覆盖可保留原inode，禁止假dot/new child，root不多占pin，deactivate不强关owner；管理引用不是策略grant或OS身份。
+
+Work full default/all-feature/clippy/fmt、C11/C++17、Python9与本地v3交接/实际旧reader拒绝通过。新增core4/2（含两次实际exit86）、native4（integration47/unit3），强化原4096混合预算。实际SDK目录create/lookup/open/unlink/replace/close/reclaim及4096额度新合同、完整App/Extension、MSVC/Dispatcher、真实跨OS artifact与最终main CI必须按本增量PR准确source/tree核验。M0-V/ADR0016记录范围；后续原生身份/共享/缓存/同步/授权隔离环境真挂载与Codex门禁仍开放，没有本机/驱动/签名/沙盒改动。

@@ -35,13 +35,16 @@ final class PortaWeaveItem: FSItem {
     private(set) var object: Int64
     let kind: UInt32
     var handle: UInt64?
+    var directoryHandle: UInt64?
     var modes: FSVolume.OpenModes = []
 
-    init(owner: UUID, object: Int64, kind: UInt32, handle: UInt64? = nil) {
+    init(owner: UUID, object: Int64, kind: UInt32, handle: UInt64? = nil,
+         directoryHandle: UInt64? = nil) {
         self.owner = owner
         self.object = object
         self.kind = kind
         self.handle = handle
+        self.directoryHandle = directoryHandle
         super.init()
     }
 
@@ -49,6 +52,11 @@ final class PortaWeaveItem: FSItem {
     func adoptCreated(_ created: PwFsKitCreated) {
         object = created.object
         handle = created.file == 0 ? nil : created.file
+    }
+
+    func adoptDirectoryCreated(_ created: PwFsKitDirectoryCreated) {
+        object = created.object
+        directoryHandle = created.directory
     }
 
     var itemType: FSItem.ItemType { kind == 0 ? .file : .directory }
@@ -68,6 +76,7 @@ final class PortaWeaveItem: FSItem {
 final class PortaWeaveVolumeSession {
     let identity: UUID
     private(set) var persistentIdentity: UUID?
+    private(set) var directoryLifetimes = false
     let rootItem: PortaWeaveItem
     let queue = DispatchQueue(label: "dev.portaweave.volume")
     private let queueKey = DispatchSpecificKey<UUID>()
@@ -95,6 +104,7 @@ final class PortaWeaveVolumeSession {
             let identityStatus = pw_volume_identity(volume, &storedIdentity)
             if identityStatus == PW_OK {
                 persistentIdentity = UUID(uuid: storedIdentity.uuid)
+                directoryLifetimes = storedIdentity.capabilities == 3
             } else if identityStatus != PW_UNSUPPORTED {
                 try pwCheck(identityStatus)
             }
@@ -179,13 +189,23 @@ final class PortaWeaveVolumeSession {
         items[created.object] = item
     }
 
+    func publishDirectoryCreation(_ item: PortaWeaveItem, created: PwFsKitDirectoryCreated) {
+        item.adoptDirectoryCreated(created)
+        items[created.object] = item
+    }
+
     func intern(_ object: Int64, kind: UInt32) throws -> PortaWeaveItem {
         if let found = items[object] { return found }
         try admitItem()
         var handle: UInt64 = 0
+        var directoryHandle: UInt64 = 0
         if kind == 0 { try pwCheck(pw_file_open(volume, object, &handle)) }
+        if kind == 1 && directoryLifetimes && object != pw_root_id() {
+            try pwCheck(pw_directory_open(volume, object, &directoryHandle))
+        }
         let item = PortaWeaveItem(
-            owner: identity, object: object, kind: kind, handle: kind == 0 ? handle : nil
+            owner: identity, object: object, kind: kind, handle: kind == 0 ? handle : nil,
+            directoryHandle: directoryHandle == 0 ? nil : directoryHandle
         )
         items[object] = item
         return item
@@ -194,7 +214,11 @@ final class PortaWeaveVolumeSession {
     func lookup(_ name: FSFileName, in directory: FSItem) throws -> (PortaWeaveItem, FSFileName) {
         let parent = try item(directory)
         guard parent.kind == 1 else { throw POSIXError(.ENOTDIR) }
-        if name.string == "." { return (parent, FSFileName(string: ".")) }
+        if name.string == "." {
+            let stat = try status(parent)
+            guard parent.object == pw_root_id() || stat.links != 0 else { throw POSIXError(.ENOENT) }
+            return (parent, FSFileName(string: "."))
+        }
         if name.string == ".." {
             var id: Int64 = 0
             try pwCheck(pw_parent_directory(volume, parent.object, &id))
@@ -365,13 +389,19 @@ final class PortaWeaveVolumeSession {
             item.handle = nil
             noteHealth()
         }
+        if let directory = item.directoryHandle {
+            try pwCheck(pw_directory_close(volume, directory))
+            item.directoryHandle = nil
+            noteHealth()
+        }
         items.removeValue(forKey: item.object)
     }
 
     func close() throws {
         try requireOpen()
-        // File identities remain pinned until FSKit explicitly reclaims them.
-        guard items.values.allSatisfy({ $0.handle == nil && $0.modes.isEmpty }) else {
+        // File and v3 directory identities stay pinned until explicit reclaim.
+        // The root needs no pin: it cannot be unlinked while its owner exists.
+        guard items.values.allSatisfy({ $0.handle == nil && $0.directoryHandle == nil && $0.modes.isEmpty }) else {
             throw POSIXError(.EBUSY)
         }
         invalidateEnumerations()
