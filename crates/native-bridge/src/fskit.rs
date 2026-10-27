@@ -1,7 +1,7 @@
 //! Pure FSKit laboratory attribute projection. No OS caller authentication.
 use super::{
-    Fault, MAX_HANDLES, OK, PwCreateAttributes, PwMetadata, PwMetadataUpdate, next_token, readable,
-    required, run, text, with_session,
+    Fault, OK, PwCreateAttributes, PwMetadata, PwMetadataUpdate, next_token, readable, required,
+    run, text, with_session,
 };
 use portaweave_core::{
     Error, Kind, MetadataUpdate, NodeCreateOptions, ObjectInfo, Result, Timestamp,
@@ -208,8 +208,8 @@ pub unsafe extern "C" fn pw_fskit_node_create_with_state(
         let options = unsafe { state.read() }.core(attributes)?;
         let parent = super::file_id(parent)?;
         with_session(volume, |s| {
-            if directory == 0 && s.files.len() + s.policy_files.len() >= MAX_HANDLES {
-                return Err(Fault::resource());
+            if directory == 0 {
+                s.handle_admission()?;
             }
             let token = if directory == 0 { next_token()? } else { 0 };
             let result = s

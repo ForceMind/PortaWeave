@@ -51,6 +51,10 @@ pub enum Kind {
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Handle(u64);
+/// Administrative v3 directory pin. Separate from ordinary-file Handle.
+#[must_use = "close the directory pin explicitly"]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DirectoryHandle(Handle);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ReadView(u64);
 
@@ -87,7 +91,7 @@ impl ObjectInfo {
     pub(crate) fn at(db: &Connection, version: CatalogVersion, id: FileId) -> Result<Self> {
         Ok(Self {
             stat: Volume::stat_at(db, id)?,
-            metadata: if version == CatalogVersion::MetadataV2 {
+            metadata: if version.has_metadata() {
                 Some(metadata::get(db, id)?)
             } else {
                 None
@@ -209,7 +213,7 @@ impl Volume {
     /// Creates a NEW experimental container. Never opens or replaces an existing
     /// directory. An interrupted initialization is preserved for inspection.
     pub fn create(path: impl AsRef<Path>, quota: u64) -> Result<Self> {
-        Self::create_internal(path.as_ref(), quota, None)
+        Self::create_internal(path.as_ref(), quota, None, CatalogVersion::BlocksV1)
     }
 
     /// Explicit v2 creation. Does NOT migrate or open an existing v1 container.
@@ -220,23 +224,42 @@ impl Volume {
         root_attributes: CreateAttributes,
     ) -> Result<Self> {
         root_attributes.validate()?;
-        Self::create_internal(path.as_ref(), quota, Some(root_attributes))
+        Self::create_internal(
+            path.as_ref(),
+            quota,
+            Some(root_attributes),
+            CatalogVersion::MetadataV2,
+        )
+    }
+
+    /// NEW opt-in v3 container. Existing v1/v2 markers/schema are never changed.
+    pub fn create_with_directory_lifetimes(
+        path: impl AsRef<Path>,
+        quota: u64,
+        root_attributes: CreateAttributes,
+    ) -> Result<Self> {
+        root_attributes.validate()?;
+        Self::create_internal(
+            path.as_ref(),
+            quota,
+            Some(root_attributes),
+            CatalogVersion::DirectoryV3,
+        )
     }
 
     fn create_internal(
         path: &Path,
         quota: u64,
         root_attributes: Option<CreateAttributes>,
+        version: CatalogVersion,
     ) -> Result<Self> {
         if quota > i64::MAX as u64 {
             return Err(Error::InvalidRange);
         }
         Self::sqlite_version_gate()?;
-        let version = if root_attributes.is_some() {
-            CatalogVersion::MetadataV2
-        } else {
-            CatalogVersion::BlocksV1
-        };
+        if version.has_metadata() != root_attributes.is_some() {
+            return Err(Error::InvalidRange);
+        }
         fs::create_dir(path)?;
         let root = fs::canonicalize(path)?;
         let owner = File::create_new(root.join("session.lock"))?;
@@ -256,7 +279,7 @@ impl Volume {
             params![quota as i64, version.marker()],
         )?;
         if let Some(attributes) = root_attributes {
-            metadata::initialize(&tx, attributes)?;
+            metadata::initialize(&tx, attributes, version)?;
         }
         tx.commit()?;
         let mut marker = File::create_new(root.join("format.txt"))?;
@@ -612,6 +635,41 @@ impl Volume {
             return Err(Error::NotDirectory);
         }
         Ok(())
+    }
+    // Namespace operations cannot repopulate an unlinked directory via a known
+    // object ID. A live directory pin is not a future namespace capability.
+    pub(crate) fn linked_directory(&self, id: FileId) -> Result<()> {
+        self.directory(id)?;
+        if id != ROOT && self.stat(id)?.links == 0 {
+            return Err(Error::NotFound);
+        }
+        Ok(())
+    }
+    pub fn supports_directory_lifetimes(&self) -> bool {
+        self.catalog_version == CatalogVersion::DirectoryV3
+    }
+    pub(crate) fn require_directory_lifetimes(&self) -> Result<()> {
+        if !self.supports_directory_lifetimes() {
+            return Err(Error::UnsupportedOperation);
+        }
+        Ok(())
+    }
+    pub fn open_directory(&mut self, id: FileId) -> Result<DirectoryHandle> {
+        self.require_directory_lifetimes()?;
+        self.directory(id)?;
+        let handle = self.reserve_file_handle()?; // all node pins share 4096
+        self.publish_file_handle(handle, id);
+        Ok(DirectoryHandle(handle))
+    }
+    pub(crate) fn directory_object(&self, handle: DirectoryHandle) -> Result<FileId> {
+        self.require_directory_lifetimes()?;
+        let id = self.object(handle.0)?;
+        self.directory(id)?;
+        Ok(id)
+    }
+    pub fn close_directory(&mut self, handle: DirectoryHandle) -> Result<()> {
+        self.directory_object(handle)?;
+        self.close_file(handle.0)
     }
     pub fn open_file(&mut self, id: FileId) -> Result<Handle> {
         if self.stat(id)?.kind != Kind::File {
@@ -1053,8 +1111,20 @@ impl Volume {
         Ok(())
     }
     fn maintain(&mut self) -> Result<()> {
-        let orphan: Vec<i64> = self.db.prepare("SELECT id FROM objects WHERE id<>1 AND kind=0 AND NOT EXISTS (SELECT 1 FROM entries WHERE object=objects.id)")?
-            .query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
+        let directory_lifetimes = self.supports_directory_lifetimes();
+        if directory_lifetimes && self.db.prepare("SELECT 1 FROM objects o WHERE o.id<>1 AND o.kind=1 AND NOT EXISTS (SELECT 1 FROM entries WHERE object=o.id) AND (o.size<>0 OR EXISTS (SELECT 1 FROM entries WHERE parent=o.id) OR EXISTS (SELECT 1 FROM blocks WHERE object=o.id)) LIMIT 1")?.exists([])? {
+            return Err(Error::Corrupt("invalid unlinked directory during reclamation".into()));
+        }
+        let orphan_sql = if directory_lifetimes {
+            "SELECT id FROM objects WHERE id<>1 AND NOT EXISTS (SELECT 1 FROM entries WHERE object=objects.id)"
+        } else {
+            "SELECT id FROM objects WHERE id<>1 AND kind=0 AND NOT EXISTS (SELECT 1 FROM entries WHERE object=objects.id)"
+        };
+        let orphan: Vec<i64> = self
+            .db
+            .prepare(orphan_sql)?
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
         let tx = self.db.transaction()?;
         for id in orphan {
             if !self.handles.values().any(|p| p.0 == id) {
@@ -1179,7 +1249,17 @@ impl Volume {
                     if stat.size != 0 {
                         return Err(Error::Corrupt("directory size".into()));
                     }
-                    let mut cursor = FileId(id);
+                    let unlinked =
+                        self.supports_directory_lifetimes() && id != ROOT.raw() && stat.links == 0;
+                    if unlinked
+                        && self
+                            .db
+                            .prepare("SELECT 1 FROM entries WHERE parent=?1 LIMIT 1")?
+                            .exists([id])?
+                    {
+                        return Err(Error::Corrupt("unlinked directory has children".into()));
+                    }
+                    let mut cursor = if unlinked { ROOT } else { FileId(id) };
                     let mut seen = BTreeSet::new();
                     while cursor != ROOT {
                         if !seen.insert(cursor) {

@@ -244,3 +244,16 @@ Work Linux full all-feature/default workspace（各 32 suites，包含 Disk Stud
 首次新增 ABI 两处 NULL credentials 的测试预期误写 DENIED，既有解析为 INVALID；按既有 C ABI 修正断言/头注释后通过，没有修改凭据解析或放宽授权。WinFsp 回调层自己在 NULL caller 时 ACCESS_DENIED。真实 C caller 输出 NATIVE_C_ABI_OK；本地四阶段输出 DIRECTORY_CURRENT_INFO_HANDOVER_OK，均运行在 Linux，不冒充另两个 OS。
 
 准确源码的 MSVC 回调新合同、Swift/SDK 满额重建、完整 App/Extension 与真实跨 OS artifact 返回，须读取对应 PR 的 CI 日志验收；此文件不预报平台结果。完整活目录需另做格式/旧 reader/恢复决策，因为当前 v1/v2 拒绝孤儿目录，不能暗中放宽 schema/verify、伪造旧 fstat 或迁移唯一容器。真正挂载/Codex正常沙盒/越界/物理exFAT/USB/断电仍 BLOCKED/NOT_RUN，没有本机/驱动/签名/安全要求改动。
+
+
+## 2026-10-27 续研：M1-O 显式 v3 目录 inode 生命周期
+
+GitHub 连接重新核验 main `a578785591976e9d71658dc5b93bf1c234c9db7f` / tree `ada462873a1bee474dbde118de7a03e164f839fc`，14 项 completed/success，无未合并 PR，#1/#3/#28 开放。从该版本继续，旧 v1/v2 schema 未改、无迁移。
+
+Work Linux full default/all-feature workspace、clippy `-D warnings`、fmt 实际通过。新增 directory_lifetimes core all-feature10/default8 项；ignored 子进程 helper 由父测试在新夹具中分别执行两次真正 exit(86)，验证 rmdir commit 前后恢复与重开回收。新 native8 项，integration累计43/unit3；强化既有 core/ABI 4096 混合预算，不计作额外独立用例。覆盖目录撤权/移动/最后 unlink/替换/多个 pin、当前 owner、纯投影回滚/失败输出、非空/有块孤儿拒绝、旧格式不放宽、foreign/stale/typed token、64 个真实混合 cursor、4 个真实 info 线程与最后 close 竞争。真实 C11 caller 输出 NATIVE_V3_DIRECTORY_ABI_OK/NATIVE_C_ABI_OK，独立 C++17 公共头编译/链接/调用通过。
+
+首轮 C caller 夹具 uid=100 与既有 caller uid=501 不匹配，正确 DENIED；修正创建属性匹配 caller 后通过，未放宽权限检查。固定 a578 旧 native cdylib 在独立 target 从实际旧源码构建，Python ctypes 两次 pw_volume_open 新 v3 返回 UNSUPPORTED、输出99及原件所有文件 SHA-256 不变，输出 ACTUAL_V2_READER_REJECTS_V3_OK。这是 Linux 实测；其他 OS 仍须准确 CI。
+
+本地 directory_handover 四阶段全部运行在 Linux，验证同一 UUID/硬链接/阶段内容、目录 grant 和放弃 owner 后一个空孤儿。每站在普通打开前 Recovery::prepare/strict export/全原件 SHA-256，之后 ordinary open 才回收，最终无孤儿；这是 abandoned-owner 夹具，不能称为硬件断电、安全卸载或跨 OS 实测。
+
+新增 Windows MSVC v3 目录回调合同、macOS SDK 外部可信 pin 后真实 getAttributes/最后 close ENOENT、完整 App/Extension、固定旧 reader 三平台拒绝，以及独立 v3 artifact 的 seed→macOS→Windows→Linux，必须按本增量准确 source CI 验收并记录在对应 PR。WinFsp Open/security/Flush 和 FSKit access/probe/load/activate/mount 未打开。实际已安装驱动的挂载、签名/系统授权、SID/ACL/共享/缓存/完整同步、真实卷开发工具/Codex 正常沙盒及越界拒绝、物理 exFAT/USB/断电仍 BLOCKED/NOT_RUN。

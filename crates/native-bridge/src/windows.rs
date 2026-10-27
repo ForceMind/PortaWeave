@@ -57,7 +57,7 @@ fn timestamp(ticks: u64) -> Result<Option<Timestamp>> {
 }
 
 impl PwWindowsBasicInfo {
-    fn update(self) -> super::FResult<MetadataUpdate> {
+    pub(super) fn update(self) -> super::FResult<MetadataUpdate> {
         if self.reserved != 0 {
             return Err(Fault::invalid());
         }

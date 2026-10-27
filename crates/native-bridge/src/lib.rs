@@ -16,16 +16,22 @@ pub use windows::{
 };
 mod namespace_ops;
 pub use namespace_ops::{pw_remove_checked, pw_rename_checked};
+mod directories;
+pub use directories::{
+    pw_posix_directory_close, pw_posix_directory_info, pw_posix_directory_open,
+    pw_posix_directory_set_metadata_info, pw_volume_create_with_directory_lifetimes,
+};
 mod windows_directory;
 pub use windows_directory::{
-    pw_windows_directory_begin, pw_windows_directory_close, pw_windows_directory_info,
-    pw_windows_directory_read, pw_windows_directory_refresh,
+    pw_windows_directory_begin, pw_windows_directory_begin_granted, pw_windows_directory_close,
+    pw_windows_directory_handle_info, pw_windows_directory_handle_set_basic_info,
+    pw_windows_directory_info, pw_windows_directory_read, pw_windows_directory_refresh,
 };
 
 use portaweave_core::{
     Access, CreateAttributes, Credentials, Entry, Error, FileAccess, FileId, FileInfo, Handle,
-    Kind, MAX_IO, MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, Metadata, MetadataUpdate, PosixFile,
-    PosixReadView, ROOT, ReadView, Timestamp, Volume, WritePosition,
+    Kind, MAX_IO, MAX_SUPPLEMENTARY_GROUPS, MaintenanceStatus, Metadata, MetadataUpdate,
+    PosixDirectory, PosixFile, PosixReadView, ROOT, ReadView, Timestamp, Volume, WritePosition,
 };
 use std::{
     collections::BTreeMap,
@@ -121,6 +127,7 @@ struct Session {
     volume: Volume,
     files: BTreeMap<u64, Handle>,
     policy_files: BTreeMap<u64, PosixFile>,
+    policy_dirs: BTreeMap<u64, PosixDirectory>,
     policy_views: BTreeMap<u64, PosixReadView>,
     dirs: BTreeMap<u64, Cursor>,
     windows_dirs: BTreeMap<u64, windows_directory::DirectoryCursor>,
@@ -129,6 +136,26 @@ struct Session {
     views: BTreeMap<u64, ReadView>,
 }
 impl Session {
+    fn new(volume: Volume) -> Self {
+        Self {
+            volume,
+            files: BTreeMap::new(),
+            policy_files: BTreeMap::new(),
+            policy_dirs: BTreeMap::new(),
+            policy_views: BTreeMap::new(),
+            dirs: BTreeMap::new(),
+            windows_dirs: BTreeMap::new(),
+            #[cfg(test)]
+            directory_entry_ceiling: None,
+            views: BTreeMap::new(),
+        }
+    }
+    fn handle_admission(&self) -> FResult<()> {
+        if self.files.len() + self.policy_files.len() + self.policy_dirs.len() >= MAX_HANDLES {
+            return Err(Fault::resource());
+        }
+        Ok(())
+    }
     fn directory_admission(&self) -> FResult<usize> {
         if self.dirs.len() + self.windows_dirs.len() >= MAX_CURSORS {
             return Err(Fault::resource());
@@ -651,9 +678,7 @@ pub unsafe extern "C" fn pw_posix_file_open(
         let caller = unsafe { credentials(caller)? };
         let name = unsafe { text(name, name_len)? };
         with_session(volume, |s| {
-            if s.files.len() + s.policy_files.len() >= MAX_HANDLES {
-                return Err(Fault::resource());
-            }
+            s.handle_admission()?;
             let token = next_token()?;
             let file = s
                 .volume
@@ -949,20 +974,7 @@ pub unsafe extern "C" fn pw_volume_create(
             }
             let token = next_token()?;
             let volume = Volume::create(Path::new(path), quota).map_err(Fault::from)?;
-            all.insert(
-                token,
-                Session {
-                    volume,
-                    files: BTreeMap::new(),
-                    policy_files: BTreeMap::new(),
-                    policy_views: BTreeMap::new(),
-                    dirs: BTreeMap::new(),
-                    windows_dirs: BTreeMap::new(),
-                    #[cfg(test)]
-                    directory_entry_ceiling: None,
-                    views: BTreeMap::new(),
-                },
-            );
+            all.insert(token, Session::new(volume));
             unsafe {
                 out_volume.write(token);
             }
@@ -994,20 +1006,7 @@ pub unsafe extern "C" fn pw_volume_create_with_metadata(
             let token = next_token()?;
             let volume = Volume::create_with_metadata(Path::new(path), quota, attributes)
                 .map_err(Fault::from)?;
-            all.insert(
-                token,
-                Session {
-                    volume,
-                    files: BTreeMap::new(),
-                    policy_files: BTreeMap::new(),
-                    policy_views: BTreeMap::new(),
-                    dirs: BTreeMap::new(),
-                    windows_dirs: BTreeMap::new(),
-                    #[cfg(test)]
-                    directory_entry_ceiling: None,
-                    views: BTreeMap::new(),
-                },
-            );
+            all.insert(token, Session::new(volume));
             unsafe { out_volume.write(token) };
             Ok(OK)
         })
@@ -1136,20 +1135,7 @@ pub unsafe extern "C" fn pw_volume_open(
             }
             let token = next_token()?;
             let volume = Volume::open(Path::new(path)).map_err(Fault::from)?;
-            all.insert(
-                token,
-                Session {
-                    volume,
-                    files: BTreeMap::new(),
-                    policy_files: BTreeMap::new(),
-                    policy_views: BTreeMap::new(),
-                    dirs: BTreeMap::new(),
-                    windows_dirs: BTreeMap::new(),
-                    #[cfg(test)]
-                    directory_entry_ceiling: None,
-                    views: BTreeMap::new(),
-                },
-            );
+            all.insert(token, Session::new(volume));
             unsafe {
                 out_volume.write(token);
             }
@@ -1165,6 +1151,7 @@ pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
             let session = all.get(&volume).ok_or_else(Fault::invalid)?;
             if !session.files.is_empty()
                 || !session.policy_files.is_empty()
+                || !session.policy_dirs.is_empty()
                 || !session.policy_views.is_empty()
                 || !session.dirs.is_empty()
                 || !session.windows_dirs.is_empty()
@@ -1353,9 +1340,7 @@ pub unsafe extern "C" fn pw_file_open(volume: u64, object: i64, out_file: *mut u
     run(|| {
         required(out_file)?;
         with_session(volume, |s| {
-            if s.files.len() + s.policy_files.len() >= MAX_HANDLES {
-                return Err(Fault::resource());
-            }
+            s.handle_admission()?;
             let token = next_token()?;
             let h = s.volume.open_file(file_id(object)?).map_err(Fault::from)?;
             s.files.insert(token, h);

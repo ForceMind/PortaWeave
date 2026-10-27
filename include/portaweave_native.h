@@ -4,7 +4,7 @@
  * UTF-8 pointer+len inputs MUST remain valid throughout calls. All out
  * pointers must be writable/aligned and must not alias an input buffer.
  * Failed calls do not guarantee rollback if a SQLite commit already began.
- * Call volume_close only after file and directory cursor handles are closed.
+ * Call volume_close only after all file/directory grants, cursors and leases close.
  * API is process-local. Engine owner lock permits only one opener per volume.
  */
 #include <stddef.h>
@@ -60,7 +60,7 @@ typedef struct PwCredentials {
   uint64_t reserved;
 } PwCredentials;
 enum { PW_ACCESS_EXISTS=0, PW_ACCESS_READ=4, PW_ACCESS_WRITE=2, PW_ACCESS_EXECUTE=1 };
-/* v2 mode-only namespace policy. All ancestor directories require search.
+/* v2/v3 mode-only namespace policy. All ancestor directories require search.
  * Denial is PW_DENIED, not READ_ONLY, and does not latch write protection.
  * Creation takes permissions 0777 (mkdir also sticky 01000) and umask 0777.
  * uid comes from caller; setgid parents pass their group and directory setgid.
@@ -83,12 +83,23 @@ enum {
   PW_META_UID = 1, PW_META_GID = 2, PW_META_MODE = 4,
   PW_META_CREATED = 8, PW_META_ACCESSED = 16, PW_META_MODIFIED = 32
 };
-/* One serialized observation of a granted v2 file; no OS cache promise. */
+/* One serialized v2/v3 file or explicit v3 directory observation; no OS cache promise. */
 typedef struct PwFileInfo {
   int64_t object;
   PwStat stat;
   PwMetadata metadata;
 } PwFileInfo;
+/* v3 directory grants are typed independently of file handles/cursors.
+ * READ+SEARCH and all ancestors are checked at open with trusted claims.
+ * Info/enumeration then survive chmod/rename/final unlink until close; no
+ * namespace mutation authority is granted. Each pin shares the owner-wide
+ * 4096 budget with administrative/policy files and prevents volume close.
+ * v1/v2 return UNSUPPORTED; no migration. Directory stat.links is namespace
+ * references (root/unlinked=0), NOT an advertised native directory st_nlink.
+ */
+int32_t pw_posix_directory_open(uint64_t volume, int64_t directory, const PwCredentials *caller, uint64_t *out_directory);
+int32_t pw_posix_directory_info(uint64_t volume, uint64_t directory, PwFileInfo *out_info);
+int32_t pw_posix_directory_close(uint64_t volume, uint64_t directory);
 typedef struct PwWriteResult {
   size_t written;
   uint64_t offset; /* resolved EOF for append */
@@ -147,7 +158,7 @@ typedef struct PwWindowsBasicInfo {
 int32_t pw_windows_file_set_basic_info(uint64_t volume, uint64_t file, const PwCredentials *caller,
                                      const PwWindowsBasicInfo *request, PwWindowsFileInfo *out_info);
 
-/* Immutable v2 directory metadata snapshot after trusted READ+SEARCH/all-
+/* Immutable v2/v3 directory metadata snapshot after trusted READ+SEARCH/all-
  * ancestor checks. Not OS caller authentication, a live directory grant or
  * kernel cache refresh. All times/sizes/UTF-16 names project BEFORE admission.
  * Non-root snapshots include . and ..; root includes neither. No data blocks
@@ -158,6 +169,18 @@ int32_t pw_windows_file_set_basic_info(uint64_t volume, uint64_t file, const PwC
  * Tokens are process-local, typed, volume-scoped and block volume close.
  */
 int32_t pw_windows_directory_begin(uint64_t volume, int64_t directory, const PwCredentials *caller, uint64_t *out_cursor);
+/* Snapshot via a typed v3 directory grant. No future path authority or extra
+ * inode/data pin. Unlinked directories emit only EOF, no . or ..; snapshots
+ * share the existing 64/100000 budget, and survive source grant close. */
+int32_t pw_windows_directory_begin_granted(uint64_t volume, uint64_t directory, uint64_t *out_cursor);
+/* Current granted v3 inode, independent of pathname/mode revocation. Basic
+ * info setters still require CURRENT trusted owner authority and project the
+ * complete reply before commit. Same time/flag limits as regular files.
+ * These are not Windows SID/ACL/READ_ATTRIBUTES or native Open admission. */
+int32_t pw_windows_directory_handle_info(uint64_t volume, uint64_t directory, PwWindowsFileInfo *out_info);
+int32_t pw_windows_directory_handle_set_basic_info(uint64_t volume, uint64_t directory,
+                                                 const PwCredentials *caller, const PwWindowsBasicInfo *request,
+                                                 PwWindowsFileInfo *out_info);
 /* Pinned WinFsp 2.1 FSP_FSCTL_DIR_INFO wire bytes: 104-byte header, UTF-16LE
  * non-NUL name, 8-byte record alignment/zero padding, uint16 zero EOF marker.
  * Requires DirectoryMarkerAsNextOffset=1; NextOffset is the next ordinal.
@@ -194,16 +217,22 @@ typedef struct PwMetadataUpdate {
   uint32_t uid, gid, mode, reserved;
   PwTimestamp created, accessed, modified;
 } PwMetadataUpdate;
+/* Current owner/group metadata policy, independent of the old directory read
+ * grant; reply captured before commit. Errors leave output unchanged, actual
+ * commit errors may be indeterminate; inspect health after known success. */
+int32_t pw_posix_directory_set_metadata_info(uint64_t volume, uint64_t directory,
+                                            const PwCredentials *caller, const PwMetadataUpdate *update,
+                                            PwFileInfo *out_info);
 typedef struct PwVolumeIdentity {
   uint8_t uuid[16]; /* persistent UUID v4; not a credential or secret */
-  uint64_t capabilities; /* currently 1: POSIX metadata storage */
+  uint64_t capabilities; /* v2=1: metadata; v3=3: metadata + directory lifetimes */
 } PwVolumeIdentity;
 
 /* Granted policy file tokens are separate from administrative file tokens.
  * Open accepts READ, WRITE or READ|WRITE only; ancestor/mode checks happen once.
  * Granted data rights survive chmod/chown/rename/unlink until explicit close.
  * Wrong grants return DENIED; stale/foreign/type-confused tokens return INVALID.
- * Both token tables share the 4096 per-volume admission limit and close BUSY.
+ * Administrative/policy files and v3 directory grants share 4096 pins and close BUSY.
  * IDs are process-local lifecycle tokens, not unguessable authentication secrets.
  */
 int32_t pw_posix_file_open(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, uint8_t access, const PwCredentials *caller, uint64_t *out_file);
@@ -238,7 +267,7 @@ int32_t pw_posix_file_truncate_with_metadata(uint64_t volume, uint64_t file, uin
 
 /* FSKit laboratory ADMINISTRATIVE setters, NOT native caller authorization.
  * Projection/expected object checks complete before commit. No post-commit query.
- * Empty metadata-only calls observe v1/v2; v1 mixed size requires empty metadata.
+ * Empty metadata-only calls observe v1/v2/v3; v1 mixed size requires empty metadata.
  * Only admin file tokens are accepted by file_set_attributes, never policy grants.
  * Failed outputs remain unchanged. metadata_valid=0 explicitly means v1 missing.
  */
@@ -269,7 +298,7 @@ int32_t pw_fskit_node_create(uint64_t volume, int64_t parent, const uint8_t *nam
 
 /* Optional initial state, committed WITH the new name. File size is logical
  * sparse zeros, subject to quota, NOT physical preallocation. v1 accepts size
- * only; explicit times require v2. Directory size (even zero) is unsupported.
+ * only; explicit times require v2/v3. Directory size (even zero) is unsupported.
  * valid bits: 1=size, 2=created, 4=accessed, 8=modified. Unknown bits/reserved
  * timestamps reject. ctime is engine-controlled; initial mode is preserved.
  */
@@ -292,6 +321,11 @@ int32_t pw_volume_create(const uint8_t *path, size_t path_len, uint64_t quota, u
  */
 int32_t pw_volume_create_with_metadata(const uint8_t *path, size_t path_len, uint64_t quota,
                                       const PwCreateAttributes *attributes, uint64_t *out_volume);
+/* Explicit NEW experimental v3 container, required capabilities=3 (metadata
+ * storage + directory lifetimes). Old v1/v2 paths are not opened or migrated;
+ * their marker/schema/orphan verification rules remain unchanged. */
+int32_t pw_volume_create_with_directory_lifetimes(const uint8_t *path, size_t path_len, uint64_t quota,
+                                                const PwCreateAttributes *attributes, uint64_t *out_volume);
 int32_t pw_volume_identity(uint64_t volume, PwVolumeIdentity *out_identity);
 int32_t pw_metadata_get(uint64_t volume, int64_t object, PwMetadata *out_metadata);
 int32_t pw_metadata_set(uint64_t volume, int64_t object, const PwMetadataUpdate *update);

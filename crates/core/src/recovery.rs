@@ -35,6 +35,8 @@ pub struct RecoveryReport {
     pub files: u64,
     pub directories: u64,
     pub orphan_files: u64,
+    /// v3 only: unnamed empty directories retained at an abandoned owner boundary.
+    pub orphan_directories: u64,
     pub blocks_checked: u64,
     pub logical_bytes: u64,
 }
@@ -266,7 +268,7 @@ impl Recovery {
         }
         let mut rows = 0_u64;
         let mut tables = vec!["objects", "entries", "blocks", "segments"];
-        if self.catalog_version == CatalogVersion::MetadataV2 {
+        if self.catalog_version.has_metadata() {
             tables.extend(["volume_identity", "object_metadata"]);
         }
         for table in tables {
@@ -341,20 +343,27 @@ impl Recovery {
             *links.entry(item.object).or_default() += 1;
             items.push(item);
         }
+        let mut children = BTreeMap::<i64, Vec<&Item>>::new();
+        for item in &items {
+            children.entry(item.parent).or_default().push(item);
+        }
         for (&id, object) in &objects {
             let count = links.get(&id).copied().unwrap_or(0);
             if object.kind == 1 && id != 1 && count != 1 {
-                return Err(invalid("directory link count"));
+                if self.catalog_version == CatalogVersion::DirectoryV3
+                    && count == 0
+                    && !children.contains_key(&id)
+                {
+                    report.orphan_directories += 1;
+                } else {
+                    return Err(invalid("directory link count or nonempty orphan"));
+                }
             }
             if object.kind == 0 && count == 0 {
                 report.orphan_files += 1;
             }
         }
         // Iterative traversal also rejects disconnected directory cycles.
-        let mut children = BTreeMap::<i64, Vec<&Item>>::new();
-        for item in &items {
-            children.entry(item.parent).or_default().push(item);
-        }
         let mut seen = BTreeSet::from([1]);
         let mut queue = VecDeque::from([(1, 0_usize)]);
         while let Some((parent, depth)) = queue.pop_front() {
@@ -372,7 +381,7 @@ impl Recovery {
                 }
             }
         }
-        if seen.len() as u64 != report.directories {
+        if seen.len() as u64 + report.orphan_directories != report.directories {
             return Err(invalid("unreachable directory"));
         }
         Ok(Catalog {
@@ -495,8 +504,8 @@ impl Recovery {
         let mut summary = File::create_new(target.join("report.txt"))?;
         writeln!(
             summary,
-            "PortaWeave strict content export\n{report:#?}\nlink_mode={mode:?}\nunnamed_orphans_not_exported={}\nPOSIX modes, uid/gid, timestamps, ACL, xattrs and ADS are NOT exported or applied to the host.\nThe evidence catalog retains supported source metadata.\nNot a physical-persistence guarantee.",
-            catalog.report.orphan_files
+            "PortaWeave strict content export\n{report:#?}\nlink_mode={mode:?}\nunnamed_orphans_not_exported={}\nunnamed_orphan_directories_not_exported={}\nPOSIX modes, uid/gid, timestamps, ACL, xattrs and ADS are NOT exported or applied to the host.\nThe evidence catalog retains supported source metadata.\nNot a physical-persistence guarantee.",
+            catalog.report.orphan_files, catalog.report.orphan_directories
         )?;
         summary.sync_all()?;
         File::create_new(target.join("COMPLETE"))?.sync_all()?;
