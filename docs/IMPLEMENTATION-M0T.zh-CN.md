@@ -1,5 +1,7 @@
 # M0-T：有界目录元数据快照与 WinFsp ReadDirectory
 
+2026-10-27 后续范围见 [M0-U](IMPLEMENTATION-M0U.zh-CN.md)：增加重新授权的当前 linked-directory GFI 与显式快照替换；本节下文保留 M0-T 当时范围。完整活目录 Open/删除后 inode、自动内核刷新/通知及原生门禁仍未完成。
+
 日期：2026-10-26。基线 main `3198ac57df8a5b54762adc05868b68c0a0a411ee` / tree `d3ee3c6687b82a5ffa74ff24d1d0882dc8900ded`，重新读取后 14 项检查成功、无未合并 PR。继续已有 Dispatcher，不改格式、schema、依赖或工作流，不安装驱动。
 
 ## 核心与原生快照

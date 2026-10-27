@@ -128,6 +128,11 @@ fn verify_policy(v: &mut Volume) -> TestResult {
         .directory_snapshot(ROOT, 16)?;
     assert_eq!(snapshot.directory.stat.id, ROOT);
     assert_eq!(snapshot.directory, snapshot.parent);
+    assert_eq!(
+        v.posix(Credentials::new(501, 50, &[])?)?
+            .directory_info(ROOT)?,
+        snapshot.directory
+    );
     for entry in &snapshot.entries {
         assert_eq!(entry.info.stat, v.stat(entry.info.stat.id)?);
         assert_eq!(entry.info.metadata, v.metadata(entry.info.stat.id)?);
@@ -219,6 +224,9 @@ fn verify_policy(v: &mut Volume) -> TestResult {
     println!("WRITE_REQUEST_HANDOVER_OK (atomic append/constrained/truncate replies; no OS mount)");
     println!(
         "DIRECTORY_SNAPSHOT_HANDOVER_OK (authorized immutable names/metadata; no native directory grant)"
+    );
+    println!(
+        "DIRECTORY_CURRENT_INFO_HANDOVER_OK (fresh trusted READ+SEARCH; no open-inode or native authorization)"
     );
     println!(
         "DESCRIPTOR_METADATA_HANDOVER_OK (current trusted owner; pre-commit reply, no OS ACL claim)"

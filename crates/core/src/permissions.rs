@@ -343,6 +343,14 @@ impl PosixSession<'_> {
         self.directory_access(parent, Access::READ | Access::EXECUTE)?;
         self.volume.list_bounded(parent, maximum)
     }
+    /// Current linked-directory attributes after a NEW READ+SEARCH check.
+    /// A previous snapshot is not an open grant. Removed directories return
+    /// NotFound; no cached attributes, inode pin or namespace authority is used.
+    pub fn directory_info(&self, directory: FileId) -> Result<FileInfo> {
+        self.directory_access(directory, Access::READ | Access::EXECUTE)?;
+        self.volume
+            .observe(FileInfo::at(&self.volume.db, directory))
+    }
     /// One serialized observation after READ+SEARCH and all-ancestor checks.
     /// Child metadata needs no data grant; the snapshot retains no live inode,
     /// blocks or future path authority. v1 is refused by Volume::posix.

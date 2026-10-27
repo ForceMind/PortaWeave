@@ -91,9 +91,9 @@ FSKit 的 API 文档只证明开发接口存在，不证明我们的文件系统
 
 | 层级 | 已有结果 | 尚未验证 |
 |---|---|---|
-| Rust 核心 | 授权范围租约/共享预算、v1/v2 schema 门禁、v2 身份/元数据、受信任凭据的目录/打开文件/属性策略、原子追加/EOF 裁剪、活文件当前属性授权、已授权目录元数据快照和事务内回执；准确结果见对应 PR | 原生身份绑定/有效权限、符号链接/xattr/ACL、完整元数据、完整故障/解析器预算 |
+| Rust 核心 | 授权范围租约/共享预算、v1/v2 schema 门禁、v2 身份/元数据、受信任凭据的目录/打开文件/属性策略、原子追加/EOF 裁剪、活文件当前属性授权、已授权目录元数据快照/当前目录重新授权观察和事务内回执；准确结果见对应 PR | 原生身份绑定/有效权限、符号链接/xattr/ACL、完整活目录 inode/元数据、完整故障/解析器预算 |
 | macOS 接入 | App/ExtensionKit 构建/链接；FSVolume 实际 SDK 回调合同、v2 UUID/属性读取与原子设置/创建、提交前投影的 setattr 回执、预先准入的原子创建与文件 pin、初始逻辑大小/v2 时间、删除/改名的事务内预期身份校验、共享 cursor 压力下的自有 LRU 回收，准确结果见对应 PR | 有效 caller/路径权限、符号链接/xattr、完整缓存/同步、签名/系统授权、实际挂载和开发工具 |
-| Windows 接入 | WinFsp Dispatcher、策略 grant 的普通文件信息/写入/EOF/关闭及当前属性权限的 SetBasicInfo 时间合同、不可变目录快照/UTF-16 ReadDirectory 分页、自检及只读 runtime/driver 清单 | 目录 Open/当前 GFI/刷新、系统挂载、ACL/共享/同步/缓存；硬链接接口仍 BLOCKED |
+| Windows 接入 | WinFsp Dispatcher、策略文件信息/写入/EOF/关闭/SetBasicInfo 时间合同、不可变目录快照/UTF-16 分页、重新授权的当前 linked-directory GFI/显式快照原子替换、自检及只读 runtime/driver 清单 | 完整活目录 Open/删除后句柄、内核刷新/通知、系统挂载、ACL/共享/同步/缓存；硬链接接口仍 BLOCKED |
 | 开发盘验收 | 测试契约与宿主探针保留 | FS-01..14、DEV-01..10、真实 Codex 及沙盒负向测试均须在真卷重做 |
 
 Xcode 默认的 LaunchServices 构建输出登记、内部 C ABI 调用、普通宿主探针和跨 OS artifact 均不能提升为真实挂载证据。

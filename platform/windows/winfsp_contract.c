@@ -28,7 +28,8 @@ typedef struct PW_PROBE_FILE {
     uint64_t file; /* separately typed granted policy token, not raw admin token */
     uint64_t directory; /* typed immutable directory snapshot; never a live OS grant */
     int32_t close_status;
-    /* Test-only, lifetime-valid trusted claims. NULL denies metadata mutation.
+    /* Test-only, lifetime-valid trusted claims. NULL denies metadata mutation
+     * and current-directory attribute observation.
      * Open never manufactures this context. Future native ACL authorization
      * must not infer these claims from daemon UID or untrusted request data. */
     const PwCredentials *metadata_caller;
@@ -141,10 +142,17 @@ static NTSTATUS PwGetFileInfo(FSP_FILE_SYSTEM *fs, PVOID context, FSP_FSCTL_FILE
         return STATUS_INVALID_PARAMETER;
     volume = (PW_PROBE_VOLUME *)fs->UserContext;
     file = (PW_PROBE_FILE *)context;
-    if (file->directory) return file->file ? STATUS_INVALID_PARAMETER : STATUS_NOT_SUPPORTED;
-    status = PwNtStatus(pw_windows_file_info(volume->volume, file->file, &info));
+    if (file->directory) {
+        if (file->file) return STATUS_INVALID_PARAMETER;
+        if (!file->metadata_caller) return STATUS_ACCESS_DENIED;
+        status = PwNtStatus(pw_windows_directory_info(volume->volume, file->directory,
+            file->metadata_caller, &info));
+    } else {
+        status = PwNtStatus(pw_windows_file_info(volume->volume, file->file, &info));
+    }
     if (!NT_SUCCESS(status)) return status;
     PwCopyFileInfo(&info, out);
+    if (file->directory) out->FileAttributes = FILE_ATTRIBUTE_DIRECTORY;
     return STATUS_SUCCESS;
 }
 static NTSTATUS PwRead(
@@ -311,7 +319,7 @@ static VOID PwInterfaceInit(FSP_FILE_SYSTEM_INTERFACE *callbacks)
     callbacks->ReadDirectory = PwReadDirectory;
     callbacks->Close = PwClose;
     callbacks->Flush = PwFlush;
-    /* Create, Rename, ACL etc. remain unset; no directory Open/GFI/refresh yet. */
+    /* Create, Rename, ACL remain unset; no live directory Open or kernel refresh. */
 }
 #ifndef PW_WINFSP_NO_TEST
 #define REQUIRE(condition) do { if (!(condition)) { \
@@ -405,7 +413,10 @@ static int PwDirectoryContract(FSP_FILE_SYSTEM *fs,
     REQUIRE(STATUS_INVALID_PARAMETER == callbacks->ReadDirectory(fs, &directory, NULL, (PWSTR)(marker + 1), bytes + 1, 128, &done) && done == 99);
     REQUIRE(STATUS_INVALID_PARAMETER == callbacks->ReadDirectory(fs, &directory, NULL, NULL, NULL, 1, &done));
     REQUIRE(STATUS_NOT_A_DIRECTORY == callbacks->ReadDirectory(fs, &regular, NULL, NULL, bytes, 128, &done));
-    REQUIRE(STATUS_NOT_SUPPORTED == callbacks->GetFileInfo(fs, &directory, &info)); // no live directory GFI advertised
+    REQUIRE(STATUS_ACCESS_DENIED == callbacks->GetFileInfo(fs, &directory, &info)); // no caller fallback
+    directory.metadata_caller = caller; /* explicit lab READ+SEARCH, not OS attributes authorization */
+    REQUIRE(STATUS_SUCCESS == callbacks->GetFileInfo(fs, &directory, &info));
+    REQUIRE(info.IndexNumber == (UINT64)folder && info.FileAttributes == FILE_ATTRIBUTE_DIRECTORY);
     REQUIRE(STATUS_FILE_IS_A_DIRECTORY == callbacks->Read(fs, &directory, bytes, 0, 1, &done));
     directory.file = 1;
     REQUIRE(STATUS_INVALID_PARAMETER == callbacks->ReadDirectory(fs, &directory, NULL, NULL, bytes, 128, &done));
@@ -426,6 +437,66 @@ static int PwDirectoryContract(FSP_FILE_SYSTEM *fs,
     written = 99;
     REQUIRE(PW_INVALID == pw_windows_directory_read(volume, saved, 0, bytes, 128, &written) && written == 99);
     puts("WINFSP_DIRECTORY_CONTRACT_OK (pinned SDK wire/callbacks; no directory Open/refresh/ACL/mount)");
+    return 0;
+}
+static int PwDirectoryObservationContract(FSP_FILE_SYSTEM *fs,
+    const FSP_FILE_SYSTEM_INTERFACE *callbacks, uint64_t volume, const PwCredentials *caller)
+{
+    PW_PROBE_FILE directory = {0};
+    FSP_FSCTL_FILE_INFO info, saved;
+    FSP_FSCTL_DIR_INFO record;
+    PwWindowsFileInfo captured, current;
+    PwMetadataUpdate update = {0};
+    UINT8 bytes[256];
+    WCHAR name[256];
+    uint64_t old, fresh;
+    int64_t object, replacement;
+    ULONG done, next;
+    REQUIRE(PW_OK == pw_directory_create(volume, 1, (const uint8_t *)"current", 7, &object));
+    REQUIRE(PW_OK == pw_windows_directory_begin(volume, object, caller, &directory.directory));
+    REQUIRE(PW_OK == pw_windows_directory_info(volume, directory.directory, caller, &captured));
+    memset(&info, 0xa5, sizeof(info)); saved = info;
+    REQUIRE(STATUS_ACCESS_DENIED == callbacks->GetFileInfo(fs, &directory, &info));
+    REQUIRE(0 == memcmp(&info, &saved, sizeof(info)));
+    directory.metadata_caller = caller;
+    update.valid = PW_META_MODIFIED;
+    update.modified.seconds = 10; update.modified.nanoseconds = 700;
+    REQUIRE(PW_OK == pw_metadata_set(volume, object, &update));
+    REQUIRE(STATUS_SUCCESS == callbacks->GetFileInfo(fs, &directory, &info));
+    REQUIRE(info.IndexNumber == (UINT64)object && info.FileAttributes == FILE_ATTRIBUTE_DIRECTORY &&
+        !info.FileSize && !info.AllocationSize && !info.HardLinks && !info.EaSize &&
+        info.LastWriteTime == UINT64_C(116444736100000007));
+    REQUIRE(STATUS_SUCCESS == callbacks->ReadDirectory(fs, &directory, NULL, NULL, bytes, sizeof(bytes), &done));
+    REQUIRE(PwDecodeDirectory(bytes, done, 0, &record, name, &next));
+    REQUIRE(record.FileInfo.LastWriteTime == captured.last_write_time); // old listing, never GFI cache
+    old = directory.directory;
+    REQUIRE(PW_OK == pw_windows_directory_refresh(volume, old, caller, &fresh, &current));
+    REQUIRE(old != fresh && current.last_write_time == info.LastWriteTime);
+    directory.directory = fresh; // explicit contract restart; discard old cookies
+    REQUIRE(PW_INVALID == pw_windows_directory_close(volume, old));
+    REQUIRE(STATUS_SUCCESS == callbacks->ReadDirectory(fs, &directory, NULL, NULL, bytes, sizeof(bytes), &done));
+    REQUIRE(PwDecodeDirectory(bytes, done, 0, &record, name, &next));
+    REQUIRE(record.FileInfo.LastWriteTime == current.last_write_time);
+    update.valid = PW_META_MODE; update.mode = 0;
+    REQUIRE(PW_OK == pw_metadata_set(volume, object, &update));
+    saved = info;
+    REQUIRE(STATUS_ACCESS_DENIED == callbacks->GetFileInfo(fs, &directory, &info));
+    REQUIRE(0 == memcmp(&info, &saved, sizeof(info)));
+    fresh = 99;
+    REQUIRE(PW_DENIED == pw_windows_directory_refresh(volume, directory.directory, caller, &fresh, &current) && fresh == 99);
+    REQUIRE(STATUS_SUCCESS == callbacks->ReadDirectory(fs, &directory, NULL, NULL, bytes, sizeof(bytes), &done));
+    REQUIRE(PW_OK == pw_remove(volume, 1, (const uint8_t *)"current", 7, 1));
+    REQUIRE(PW_OK == pw_directory_create(volume, 1, (const uint8_t *)"current", 7, &replacement));
+    REQUIRE(replacement != object);
+    REQUIRE(STATUS_OBJECT_NAME_NOT_FOUND == callbacks->GetFileInfo(fs, &directory, &info));
+    REQUIRE(0 == memcmp(&info, &saved, sizeof(info)));
+    REQUIRE(PW_NOT_FOUND == pw_windows_directory_refresh(volume, directory.directory, caller, &fresh, &current));
+    REQUIRE(fresh == 99);
+    REQUIRE(STATUS_SUCCESS == callbacks->ReadDirectory(fs, &directory, NULL, NULL, bytes, sizeof(bytes), &done));
+    REQUIRE(PwDecodeDirectory(bytes, done, 0, &record, name, &next) && record.FileInfo.IndexNumber == (UINT64)object);
+    callbacks->Close(fs, &directory);
+    REQUIRE(!directory.directory && directory.close_status == PW_OK);
+    puts("WINFSP_DIRECTORY_REFRESH_CONTRACT_OK (fresh trusted linked-directory info; explicit replacement; no live inode/ACL/mount)");
     return 0;
 }
 int main(int argc, char **argv)
@@ -568,6 +639,7 @@ int main(int argc, char **argv)
     REQUIRE(reader.file == 0 && file.file == 0 && reader.close_status == PW_OK && file.close_status == PW_OK);
     REQUIRE(STATUS_INVALID_PARAMETER == callbacks.GetFileInfo(&fs, &file, &fileInfo));
     REQUIRE(PwDirectoryContract(&fs, &callbacks, volume, &caller) == 0);
+    REQUIRE(PwDirectoryObservationContract(&fs, &callbacks, volume, &caller) == 0);
     REQUIRE(PW_OK == pw_volume_close(volume));
     puts("WINFSP_BASIC_INFO_CONTRACT_OK (trusted current-owner policy; no Windows ACL/mount certification)");
     puts("WINFSP_GRANTED_IO_CONTRACT_OK (regular-file grants; no ACL/Open/mount certification)");

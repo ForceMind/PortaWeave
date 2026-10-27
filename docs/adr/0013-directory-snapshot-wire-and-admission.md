@@ -2,6 +2,8 @@
 
 Date: 2026-10-26. Status: experimental core/C/WinFsp directory callback; native mount gates closed.
 
+Follow-up 2026-10-27: [ADR 0014](0014-current-directory-info-and-atomic-replacement.md) adds freshly authorized linked-directory info and explicit atomic snapshot replacement. M0-T's captured data still grants no live inode or kernel refresh; the historical decision below retains its original scope.
+
 Directory pages must not resolve an entry's current attributes independently after earlier names have been captured. A rename/unlink could otherwise change identities, remove an inode or introduce a fallible projection halfway through paging. Capture names, directory/parent and child metadata after trusted READ+SEARCH/all-ancestor checks under one serialized owner borrow. Preflight the entry count and project the entire native result before publishing its token.
 
 This immutable metadata is owned data, not a data lease, live inode pin or live directory grant. It may outlive rename/chmod/unlink/GC; acquiring another snapshot requires current policy again. v1 has no invented metadata. It does not defend against an external writer violating single-owner/raw-backing constraints and does not bind Windows SIDs or OS callers.

@@ -166,11 +166,28 @@ int32_t pw_windows_directory_begin(uint64_t volume, int64_t directory, const PwC
  * A small buffer returns OK/zero, no partial record; the caller retries using
  * the same cookie. All failed outputs remain unchanged. Encoding and close
  * serialize under the owner mutex. Does not implement native pattern filtering
- * (WinFsp FSD performs it), fresh restart policy, ACL, directory GFI or mounting.
+ * (WinFsp FSD performs it), fresh restart policy, ACL or mounting. Current
+ * directory info and explicit replacement are separate calls below.
  */
 int32_t pw_windows_directory_read(uint64_t volume, uint64_t cursor, uint64_t next_offset,
                                  uint8_t *buffer, size_t capacity, size_t *out_read);
 int32_t pw_windows_directory_close(uint64_t volume, uint64_t cursor);
+/* Fresh trusted READ+SEARCH/ancestor authorization for CURRENT linked-directory
+ * attributes. Never return cached snapshot attributes as current. Removed ID
+ * returns NOT_FOUND; an old immutable listing remains readable. NULL caller
+ * returns INVALID, with no fallback. Not SID/ACL or open-inode fstat semantics. */
+int32_t pw_windows_directory_info(uint64_t volume, uint64_t cursor,
+                                 const PwCredentials *caller, PwWindowsFileInfo *out_info);
+/* Explicit replacement of that snapshot's SAME object identity. Never resolve
+ * its old name to a replacement inode. Count/convert/reserve before publication;
+ * failure leaves old token, bytes and outputs unchanged. Success invalidates
+ * old cursor, returns fresh token/current info; restart cookies at zero and
+ * discard old cookies. Credits only old cursor/entries at full shared limits;
+ * no other cursor/file pin is evicted. Not automatic kernel cache refresh.
+ * Outputs must be writable/aligned/mutually nonaliasing. */
+int32_t pw_windows_directory_refresh(uint64_t volume, uint64_t cursor,
+                                    const PwCredentials *caller, uint64_t *out_cursor,
+                                    PwWindowsFileInfo *out_info);
 
 typedef struct PwMetadataUpdate {
   uint64_t valid; /* only bits above; change time is maintained by the core */

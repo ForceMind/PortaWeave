@@ -19,9 +19,9 @@ cargo test --locked -p portaweave-partition-inspector
 
 GPT requires valid CRC32 header/entry tables; it reports damaged primary/backup as DEGRADED, does not repair anything, and refuses ambiguous hybrid MBR/GPT. MBR extended EBR logical partitions are not yet enumerated. A virtual partitionable block device (.pwdisk), physical device management and resize/clone/recovery are **planned, not implemented**. None of these claims weakens the standard Codex/Git working-volume release gates.
 
-## Status — 2026-10-26
+## Status — 2026-10-27
 
-**M0-T WinFsp directory/granted-file and M0-S laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-N descriptor metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-U WinFsp linked-directory observation/granted-file and M0-S laboratory FSVolume callbacks, unsigned macOS App/Extension build, experimental WinFsp dispatcher, and M1-N descriptor metadata core. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -96,7 +96,9 @@ Laboratory setattr now consumes a pre-commit projected reply for size, mixed and
 
 ## M0-T bounded directory enumeration
 
-WinFsp ReadDirectory now consumes a trusted, immutable metadata snapshot and emits pinned SDK directory records with UTF-16 names, ordinal cookies, complete pages and EOF. Windows/admin snapshots share cursor/entry admission; FSKit can reclaim only its own old LRU snapshots under pressure. Directory Open/current GFI/refresh, OS identity/ACL and real mount validation remain unfinished. See [M0-T](docs/IMPLEMENTATION-M0T.zh-CN.md) and [ADR 0013](docs/adr/0013-directory-snapshot-wire-and-admission.md).
+WinFsp ReadDirectory consumes a trusted, immutable metadata snapshot and emits pinned SDK directory records with UTF-16 names, ordinal cookies, complete pages and EOF. Windows/admin snapshots share cursor/entry admission; FSKit can reclaim only its own old LRU snapshots under pressure. Native directory Open, kernel refresh, OS identity/ACL and real mounts remain unfinished. See [M0-T](docs/IMPLEMENTATION-M0T.zh-CN.md) and [ADR 0013](docs/adr/0013-directory-snapshot-wire-and-admission.md).
+
+M0-U adds fresh linked-directory attributes after new trusted READ+SEARCH checks, used by the direct WinFsp GetFileInfo contract. Explicit snapshot replacement credits only its own old slot/entries, works at full admission, preserves the old token/outputs on failure and returns a fresh token on success. Removed directories return NotFound; no inode is pinned and no old pathname is reopened. NULL Marker still replays the same snapshot, not automatic kernel refresh. Full open-after-unlink directory lifetime requires a separate format/recovery decision; native security/Open/Flush stay closed. See [M0-U](docs/IMPLEMENTATION-M0U.zh-CN.md) and [ADR 0014](docs/adr/0014-current-directory-info-and-atomic-replacement.md).
 
 ## M0-S checked namespace identities
 

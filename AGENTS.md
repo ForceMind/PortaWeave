@@ -73,6 +73,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 46. M0-T directory snapshots capture authorized names/attributes before token publication and retain no live inode/data/path grant. Windows/admin cursor tables share 64 cursors and 100000 retained entries, including dots; keep them typed and in BUSY. WinFsp wire bytes must match pinned SDK static assertions, zero padding, ordinal 8-byte markers and EOF rules. Do not turn snapshot replay into a fresh listing or fake current directory GFI. FSKit may evict only its own LRU metadata snapshots, with ESTALE, never foreign cursors or file pins. Native caller/ACL/Open/Flush/mount gates remain closed; counts are not heap budgets.
 
+47. M0-U current directory info and explicit snapshot replacement require NEW trusted READ+SEARCH/all-ancestor checks on the captured object ID, never an old name or cached attributes. Removed directories return NotFound; this is not open-inode fstat/lifetime or Windows READ_ATTRIBUTES authorization. Replacement credits only its old slot/entries; project everything and reserve a fresh token before retirement. Failure keeps old bytes/token/outputs; success invalidates old token and requires callers to discard old ordinal cookies. ReadDirectory offset=0 still replays its existing snapshot. Old+prepared snapshots temporarily coexist, so retained-entry limits are not peak heap bounds. Do not persist orphan directories, relax v1/v2 verification, silently migrate formats or enable native gates to claim a live directory handle.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.
