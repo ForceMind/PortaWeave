@@ -270,3 +270,16 @@ Work Linux full default/all-feature workspace、clippy -D warnings、fmt、Pytho
 新实际SDK目录item生命周期/删除替换/当前属性/close与reclaim分离、4096额度下create与lookup拒绝/字段消费/父时间不变/释放恢复，必须由本增量准确CI执行；保留M1-O外部grant与SDK独立pin合同。枚举空目录的pack closure只是算法证据，不是packer系统分发。完整unsigned App/Extension、MSVC/Dispatcher、三平台core/native/旧reader与同一v1/v2/v3 artifact往返须读日志，不能从类型检查推断挂载。具体source/tree/Actions与最终main以对应PR为准。
 
 真实Windows挂载缺runtime/driver、macOS签名/系统授权、原生caller/ACL/共享/缓存/完整同步、符号链接/xattr/监听/mmap、真实卷开发工具/Codex正常沙盒及越界限制、物理exFAT/USB/断电仍BLOCKED/NOT_RUN，#1/#3不关闭。未操作用户本机、安装驱动、修改服务或放宽沙盒。
+
+
+## 2026-10-28 续研：M0-W FSKit 捕获式目录枚举
+
+GitHub连接重读main `433b0ce832c12894c82b66e6146ffd02455a25be` / tree `015cba5f52ed9ee9379d30beb7af74d5d54831c6`，主线14项全部completed/success、5工作流success，无开放PR；此前M0-V记录的主线单条check状态滞后现已更新成功。#1/#3/#28仍开放。清理后的Work目录从仓库恢复，固定Rust1.99.1与registry的既有ZIP/两个tar SHA256重新核验，无本机操作。
+
+Work Linux full default/all-feature workspace、clippy -D warnings、fmt、Python9、实际C11调用与独立C++17头/类型/链接检查通过。新core object_directory_snapshots all-feature3/default2，验证各格式一起捕获/无pin、当前父/空孤儿、预算拒绝与保护下只读；新native fskit_directory6（integration累计53/unit3），覆盖旧元数据在覆盖/unlink/最后GC后仍可读、显式新观察、父/root/dots、错误/EOF/小缓冲输出、typed/foreign/stale与非法cookie、64真实混合cursor抵扣、4真实读线程与替换竞争。既有降低到3-entry的预算unit加入第三表/2dots/增长拒绝/旧副本，不虚增unit数、不宣称100000实际名字/峰值内存压力。
+
+实际C caller在v1/v2/v3分别输出NATIVE_CAPTURED_DIRECTORY_ABI_OK，保持所有旧ABI标记；本地v3四阶段每站增加OBJECT_DIRECTORY_SNAPSHOT_HANDOVER_OK，内容/恢复/原件SHA256/UUID/硬链接与目录pin回归保留。这些阶段都在Linux。另行构建固定 a578785591976e9d71658dc5b93bf1c234c9db7f 的真实旧reader，对本轮v3完成容器两次拒绝UNSUPPORTED，失败输出及原件所有文件SHA256保持不变；未从旧版本推断新源码通过。
+
+SDK新增对已捕获child先覆盖/删名/close+reclaim后继续分页的合同，确保返回旧名字/属性且不阻止GC；新initial枚举换verifier、非零verifier稳定重放、失败重启保留旧数据、dots/root/parent/模式与invalidDirectoryCookie、pack拒绝重试、256新枚举/80目录LRU和满64混合cursor自身重建都需准确macOS CI。真实SDK对象/packing closure不等于FSDirectoryEntryPacker内核分发。完整App/Extension、MSVC/Dispatcher、三平台core/native/旧reader、实际v1/v2/v3 artifact返回须以本轮准确PR source/tree/日志验收，不预报平台成功。
+
+所有native caller/security/Open/Flush与FSKit access/probe/load/activate/mount门禁不变。runtime/driver、签名/授权隔离环境真挂载、OS身份/ACL/共享/缓存通知/完整同步、符号链接/xattr/mmap/执行、真卷开发工具与Codex正常沙盒/越界、物理exFAT/USB/断电仍BLOCKED/NOT_RUN，#1/#3保持开放。

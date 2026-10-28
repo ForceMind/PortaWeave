@@ -19,9 +19,9 @@ cargo test --locked -p portaweave-partition-inspector
 
 支持 512/4096 字节扇区、GPT 主备 CRC 校验和异常报告；MBR 只解析四个主分区，扩展 EBR 链暂不支持。只有一份 GPT 有效时报告 DEGRADED 并且绝不自动修复。后续独立规划逻辑子卷、动态块设备 .pwdisk 和受控真实磁盘管理，**不能用“分区 UI”掩盖当前尚未完成的双端工作盘、Codex/Git 验收**。
 
-## 当前状态（2026-10-27）
+## 当前状态（2026-10-28）
 
-**M0-V v3 FSKit 目录对象引用、M1-O 版本化 inode 生命周期、实验性 WinFsp/FSVolume 合同、macOS App/Extension 无签名构建与 WinFsp Dispatcher。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
+**M0-W FSKit 名字/属性一致枚举与 M0-V v3 目录对象引用、M1-O 版本化 inode 生命周期、实验性 WinFsp/FSVolume 合同、macOS App/Extension 无签名构建与 WinFsp Dispatcher。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
 
 实现范围见 [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md)、[M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md)、[M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md)，历史测试见[验证记录](docs/VALIDATION.zh-CN.md)。确切源码版本的测试结果记录在对应 PR；实现文档不是自动的通过声明。云端三系统核心测试不等于真实 exFAT、挂载盘或 Codex 已兼容。
 
@@ -35,6 +35,10 @@ FSKit/WinFsp 仍为待验收候选。核心硬链接不代表 WinFsp 接口限�
 ## M0-V FSKit 目录对象引用
 
 v3 实验 FSVolume 为每个缓存的非根目录持有独立 typed inode 引用。创建目录时先准入引用再提交名字，lookup 复用引用，删除/替换后保留原身份，reclaim 才释放；关闭 OpenModes 与回收缓存身份是两个生命周期。普通目录创建仍不占 pin，v1/v2 不变。这些是管理型适配操作，不认证 OS caller，也不代表有效权限或系统挂载。见 [M0-V](docs/IMPLEMENTATION-M0V.zh-CN.md) 与 [ADR 0016](docs/adr/0016-fskit-directory-item-references.md)。
+
+## M0-W 名字/属性一致的 FSKit 枚举
+
+实验 SDK 适配器现在一起捕获名字和投影后的属性。分页重放该副本，文件覆盖、删除并回收后也不会混入当前属性；新枚举明确重建自己的快照。同时处理无属性枚举的 dots、逻辑父/root、非法 cookie 与打包拒绝行重试。三类 typed cursor 共用预算/BUSY；v1/v2/v3 格式和原生安全/挂载入口不变。见 [M0-W](docs/IMPLEMENTATION-M0W.zh-CN.md) 与 [ADR 0017](docs/adr/0017-fskit-captured-directory-enumeration.md)。
 
 ### 原生接口（实验）
 

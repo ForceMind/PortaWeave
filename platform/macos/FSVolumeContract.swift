@@ -111,6 +111,193 @@ func replaceNativeName(_ volume: PortaWeaveVolume, _ from: String, _ to: String)
 
 @main
 struct FSVolumeContract {
+    static func directoryMetadataSnapshotContract(_ base: URL) throws {
+        for version in [1, 2, 3] {
+            let url = base.appendingPathExtension("v\(version)")
+            if version == 1 { try makeContainer(url) } else {
+                let path = Data(url.path.utf8)
+                var native: UInt64 = 0
+                var attributes = PwCreateAttributes(uid: 501, gid: 20, mode: 0o700, reserved: 0)
+                try pwCheck(path.withUnsafeBytes {
+                    version == 3 ? pw_volume_create_with_directory_lifetimes($0.bindMemory(to: UInt8.self).baseAddress,
+                        path.count, 134_217_728, &attributes, &native) :
+                        pw_volume_create_with_metadata($0.bindMemory(to: UInt8.self).baseAddress,
+                        path.count, 134_217_728, &attributes, &native)
+                })
+                try pwCheck(pw_volume_close(native))
+            }
+            let volume = try PortaWeaveVolume(laboratoryContainerURL: url)
+            let root = volume.session.rootItem
+            let first = try create(volume, "a", root)
+            let last = try create(volume, "b", root)
+            for item in [first, last] { try success { volume.openItem(item, modes: [.read, .write], replyHandler: $0) } }
+            try write(volume, first, "aaa")
+            try write(volume, last, "old")
+            let request = FSItem.GetAttributesRequest()
+            request.wantedAttributes = [.fileID, .size]
+            if version != 1 { request.wantedAttributes.formUnion([.uid, .mode, .modifyTime]) }
+            let before: FSItem.Attributes = try waitValue { volume.getAttributes(request, of: last, replyHandler: $0) }
+            var names: [String] = []
+            var cookie: UInt64 = 0
+            let token = try volume.session.synchronized {
+                try volume.session.enumerate(root, cookie: 0, verifier: 0, attributes: request) { name, _, _, next, values in
+                    guard names.isEmpty else { return false } // packer could not accept b
+                    try require(name.string == "a" && values?.size == 3, "first captured row is wrong")
+                    names.append(name.string!)
+                    cookie = next
+                    return true
+                }
+            }
+            try require(cookie == 1, "partial pack lost the last accepted cookie")
+            // Supported administrative calls, on the volume queue. No external
+            // backing-file edits, raw fork, second owner or OS auth assumption.
+            try volume.session.synchronized {
+                let data = Data("new content".utf8)
+                var count = 0
+                try pwCheck(data.withUnsafeBytes { pw_file_write(volume.session.volume, last.handle!, 0,
+                    $0.bindMemory(to: UInt8.self).baseAddress, data.count, &count) })
+                if version != 1 {
+                    var update = PwMetadataUpdate()
+                    update.valid = UInt64(PW_META_MODE | PW_META_UID)
+                    update.mode = 0
+                    update.uid = 200
+                    try pwCheck(pw_metadata_set(volume.session.volume, last.object, &update))
+                }
+                let name = Data("b".utf8)
+                try pwCheck(name.withUnsafeBytes { pw_remove_checked(volume.session.volume, 1,
+                    $0.bindMemory(to: UInt8.self).baseAddress, name.count, 0, last.object) })
+            }
+            try success { volume.closeItem(last, modes: [], replyHandler: $0) }
+            try success { volume.reclaimItem(last, replyHandler: $0) }
+            try volume.session.synchronized {
+                var stat = PwStat()
+                try require(pw_stat(volume.session.volume, last.object, &stat) == PW_NOT_FOUND, "snapshot pinned the removed child")
+                _ = try volume.session.enumerate(root, cookie: cookie, verifier: token, attributes: request) { name, _, id, _, values in
+                    try require(name.string == "b" && id.rawValue == UInt64(last.object) + 1 && values?.size == 3,
+                                "old name was paired with current/replacement attributes")
+                    if version == 1 {
+                        try require(values != nil && !values!.isValid(.uid) && !values!.isValid(.mode), "v1 metadata was invented")
+                    } else {
+                        try require(values?.uid == before.uid && values?.mode == before.mode &&
+                                    values?.modifyTime.tv_sec == before.modifyTime.tv_sec && values?.modifyTime.tv_nsec == before.modifyTime.tv_nsec,
+                                    "snapshot metadata changed after overwrite/unlink/GC")
+                    }
+                    names.append(name.string!)
+                    return true
+                }
+            }
+            try require(names == ["a", "b"], "partial pack retry skipped or duplicated an entry")
+            var freshNames: [String] = []
+            let fresh = try volume.session.synchronized {
+                try volume.session.enumerate(root, cookie: 0, verifier: 0, attributes: request) { name, _, _, _, _ in
+                    freshNames.append(name.string!); return true
+                }
+            }
+            try require(fresh != token && freshNames == ["a"], "new enumeration reused old captured names")
+            do {
+                _ = try volume.session.synchronized {
+                    try volume.session.enumerate(root, cookie: 0, verifier: token, attributes: request) { _, _, _, _, _ in true }
+                }
+                throw ContractFailure(message: "retired verifier accepted")
+            } catch let error as POSIXError { try require(error.code == .ESTALE, "wrong retired verifier error") }
+            for pair in [(UInt64(99), fresh), (UInt64(1), UInt64(0))] {
+                do {
+                    _ = try volume.session.synchronized {
+                        try volume.session.enumerate(root, cookie: pair.0, verifier: pair.1, attributes: request) { _, _, _, _, _ in true }
+                    }
+                    throw ContractFailure(message: "invalid directory cookie accepted")
+                } catch {
+                    let value = error as NSError
+                    try require(value.domain == NSPOSIXErrorDomain && value.code == FSError.Code.invalidDirectoryCookie.rawValue,
+                                "bad directory cookie used the wrong SDK error")
+                }
+            }
+            var dots: [String] = []
+            let dotToken = try volume.session.synchronized {
+                try volume.session.enumerate(root, cookie: 0, verifier: 0, attributes: nil) { name, type, id, _, values in
+                    if dots.count < 2 { try require(type == .directory && id.rawValue == 2, "root dots lost root identity") }
+                    try require(values == nil, "nil attribute enumeration packed attributes")
+                    dots.append(name.string!); return true
+                }
+            }
+            try require(dots == [".", "..", "a"], "nil-attribute dot ordering is wrong")
+            do {
+                _ = try volume.session.synchronized {
+                    try volume.session.enumerate(root, cookie: 0, verifier: dotToken, attributes: request) { _, _, _, _, _ in true }
+                }
+                throw ContractFailure(message: "changed dot mode reused ordinal cookies")
+            } catch let error as POSIXError { try require(error.code == .ESTALE, "wrong dot mode error") }
+            let parent = try create(volume, "parent", root, type: .directory)
+            let directory = try create(volume, "directory", parent, type: .directory)
+            var parentRows: [(String, UInt64)] = []
+            _ = try volume.session.synchronized {
+                try volume.session.enumerate(directory, cookie: 0, verifier: 0, attributes: nil) { name, _, id, _, _ in
+                    parentRows.append((name.string!, id.rawValue)); return true
+                }
+            }
+            try require(parentRows.count == 2 && parentRows[0].0 == "." && parentRows[0].1 == UInt64(directory.object) + 1 &&
+                        parentRows[1].0 == ".." && parentRows[1].1 == UInt64(parent.object) + 1, "logical parent dot identity is wrong")
+            try success { volume.removeItem(directory, named: FSFileName(string: "directory"), fromDirectory: parent, replyHandler: $0) }
+            try success { volume.reclaimItem(directory, replyHandler: $0) }
+            try success { volume.removeItem(parent, named: FSFileName(string: "parent"), fromDirectory: root, replyHandler: $0) }
+            try success { volume.reclaimItem(parent, replyHandler: $0) }
+            try success { volume.closeItem(first, modes: [], replyHandler: $0) }
+            try success { volume.reclaimItem(first, replyHandler: $0) }
+            try success { volume.deactivate(options: [], replyHandler: $0) }
+        }
+        print("FSVOLUME_CAPTURED_DIRECTORY_CONTRACT_OK (v1/v2/v3 names+metadata, GC, restart/dots/cookies/partial packing; no kernel dispatch/mount)")
+    }
+    static func directoryFailedRestartContract(_ url: URL) throws {
+        let path = Data(url.path.utf8)
+        var native: UInt64 = 0
+        var attributes = PwCreateAttributes(uid: 501, gid: 20, mode: 0o700, reserved: 0)
+        try pwCheck(path.withUnsafeBytes { pw_volume_create_with_metadata($0.bindMemory(to: UInt8.self).baseAddress,
+            path.count, 134_217_728, &attributes, &native) })
+        try pwCheck(pw_volume_close(native))
+        let volume = try PortaWeaveVolume(laboratoryContainerURL: url)
+        let directory = try create(volume, "directory", volume.session.rootItem, type: .directory)
+        var child: Int64 = 0
+        try volume.session.synchronized {
+            let name = Data("child".utf8)
+            try pwCheck(name.withUnsafeBytes { pw_file_create(volume.session.volume, directory.object,
+                $0.bindMemory(to: UInt8.self).baseAddress, name.count, &child) })
+        }
+        let request = FSItem.GetAttributesRequest()
+        request.wantedAttributes = [.fileID, .size]
+        let token = try volume.session.synchronized {
+            try volume.session.enumerate(directory, cookie: 0, verifier: 0, attributes: request) { _, _, _, _, _ in false }
+        }
+        try volume.session.synchronized {
+            let childName = Data("child".utf8)
+            let name = Data("directory".utf8)
+            try pwCheck(childName.withUnsafeBytes { pw_remove_checked(volume.session.volume, directory.object,
+                $0.bindMemory(to: UInt8.self).baseAddress, childName.count, 0, child) })
+            try pwCheck(name.withUnsafeBytes { pw_remove_checked(volume.session.volume, 1,
+                $0.bindMemory(to: UInt8.self).baseAddress, name.count, 1, directory.object) })
+            var replacement: Int64 = 0
+            try pwCheck(name.withUnsafeBytes { pw_directory_create(volume.session.volume, 1,
+                $0.bindMemory(to: UInt8.self).baseAddress, name.count, &replacement) })
+            try require(replacement != directory.object, "fixture reused a removed identity")
+        }
+        do {
+            _ = try volume.session.synchronized {
+                try volume.session.enumerate(directory, cookie: 0, verifier: 0, attributes: request) { _, _, _, _, _ in true }
+            }
+            throw ContractFailure(message: "restart followed the replacement name")
+        } catch let error as POSIXError { try require(error.code == .ENOENT, "wrong removed-directory restart error") }
+        var rows = 0
+        _ = try volume.session.synchronized {
+            try volume.session.enumerate(directory, cookie: 0, verifier: token, attributes: request) { name, _, id, _, values in
+                try require(name.string == "child" && id.rawValue == UInt64(child) + 1 && values?.size == 0,
+                            "failed restart destroyed old captured data")
+                rows += 1; return true
+            }
+        }
+        try require(rows == 1, "old verifier lost its rejected pack row")
+        try success { volume.reclaimItem(directory, replyHandler: $0) }
+        try success { volume.deactivate(options: [], replyHandler: $0) }
+        print("FSVOLUME_FAILED_DIRECTORY_RESTART_CONTRACT_OK (same captured ID, preserved verifier/data; no native mount)")
+    }
     static func directoryLifetimeContract(_ url: URL) throws {
         let path = Data(url.path.utf8)
         var native: UInt64 = 0
@@ -363,9 +550,11 @@ struct FSVolumeContract {
         let volume = try PortaWeaveVolume(laboratoryContainerURL: url)
         let cached = try create(volume, "cached", volume.session.rootItem, type: .directory)
         let fresh = try create(volume, "fresh", volume.session.rootItem, type: .directory)
-        let old = try volume.session.synchronized {
+        var old = try volume.session.synchronized {
             try volume.session.enumerate(cached, cookie: 0, verifier: 0, attributes: nil) {
-                _, _, _, _, _ in throw ContractFailure(message: "empty cached directory changed")
+                name, type, _, _, values in
+                    try require([".", ".."].contains(name.string ?? "") && type == .directory && values == nil, "empty directory dot row is invalid")
+                    return true
             }
         }
         var caller = PwCredentials(uid: 501, gid: 20, groups: nil, group_count: 0, reserved: 0)
@@ -379,9 +568,25 @@ struct FSVolumeContract {
             }
             try pwCheck(pw_dir_begin(volume.session.volume, cached.object, &administrative))
         }
+        let beforeRestart = old
+        old = try volume.session.synchronized {
+            try volume.session.enumerate(cached, cookie: 0, verifier: 0, attributes: nil) { name, _, _, _, _ in
+                try require([".", ".."].contains(name.string ?? ""), "restart changed empty directory")
+                return true
+            }
+        }
+        try require(old != beforeRestart, "full shared admission blocked atomic restart")
+        do {
+            _ = try volume.session.synchronized {
+                try volume.session.enumerate(cached, cookie: 0, verifier: beforeRestart, attributes: nil) { _, _, _, _, _ in true }
+            }
+            throw ContractFailure(message: "retired restart verifier accepted")
+        } catch let error as POSIXError { try require(error.code == .ESTALE, "wrong restart verifier error") }
         let current = try volume.session.synchronized {
             try volume.session.enumerate(fresh, cookie: 0, verifier: 0, attributes: nil) {
-                _, _, _, _, _ in throw ContractFailure(message: "empty fresh directory changed")
+                name, type, _, _, values in
+                    try require([".", ".."].contains(name.string ?? "") && type == .directory && values == nil, "empty directory dot row is invalid")
+                    return true
             }
         }
         try require(current != old, "new snapshot reused an evicted token")
@@ -861,7 +1066,7 @@ struct FSVolumeContract {
                 name, _, _, _, _ in names.append(name.string!); return true
             }
         }
-        try require(names == ["b", "c"], "directory pagination skipped/repeated a row")
+        try require(names == [".", "..", "b", "c"], "directory pagination skipped/repeated a row")
         let d = try create(volume, "d", root)
         do {
             _ = try volume.session.synchronized {
@@ -881,9 +1086,9 @@ struct FSVolumeContract {
                     name, _, _, _, _ in seen.append(name.string!); return true
                 }
             }
-            try require(seen == ["b", "c", "d"], "repeated listing lost entries")
-            if retainedVerifier == 0 { retainedVerifier = current }
-            try require(current == retainedVerifier, "unchanged listing did not reuse its snapshot")
+            try require(seen == [".", "..", "b", "c", "d"], "repeated listing lost entries")
+            try require(current != retainedVerifier, "new enumeration did not get a fresh verifier")
+            retainedVerifier = current
         }
         var firstDirectory: PortaWeaveItem?
         var firstVerifier: UInt64 = 0
@@ -894,7 +1099,9 @@ struct FSVolumeContract {
         for (index, directory) in directories.enumerated() {
             let token = try volume.session.synchronized {
                 try volume.session.enumerate(directory, cookie: 0, verifier: 0, attributes: nil) {
-                    _, _, _, _, _ in throw ContractFailure(message: "empty directory was not empty")
+                    name, type, _, _, values in
+                    try require([".", ".."].contains(name.string ?? "") && type == .directory && values == nil, "empty directory dot row is invalid")
+                    return true
                 }
             }
             if index == 0 { firstDirectory = directory; firstVerifier = token }
@@ -909,7 +1116,9 @@ struct FSVolumeContract {
         } catch let error as POSIXError { try require(error.code == .ESTALE, "wrong evicted verifier error") }
         _ = try volume.session.synchronized {
             try volume.session.enumerate(firstDirectory!, cookie: 0, verifier: 0, attributes: nil) {
-                _, _, _, _, _ in throw ContractFailure(message: "new empty-directory listing changed")
+                name, type, _, _, values in
+                    try require([".", ".."].contains(name.string ?? "") && type == .directory && values == nil, "empty directory dot row is invalid")
+                    return true
             }
         }
         try success { volume.synchronize(flags: .wait, replyHandler: $0) }
@@ -929,6 +1138,8 @@ struct FSVolumeContract {
         try directoryLifetimeContract(url.appendingPathExtension("directory-v3"))
         try directoryItemContract(url.appendingPathExtension("directory-items-v3"))
         try directoryAdmissionContract(url.appendingPathExtension("directory-admission-v3"))
+        try directoryMetadataSnapshotContract(url.appendingPathExtension("captured-directories"))
+        try directoryFailedRestartContract(url.appendingPathExtension("failed-directory-restart"))
         print("FSVOLUME_CALLBACK_CONTRACT_OK (SDK callbacks/core ABI; no installation or OS mount)")
     }
 }

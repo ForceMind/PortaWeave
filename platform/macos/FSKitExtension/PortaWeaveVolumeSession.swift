@@ -8,6 +8,9 @@ import PortaWeaveNative
 
 func pwCheck(_ status: Int32) throws {
     guard status != PW_OK else { return }
+    if status == PW_BAD_COOKIE {
+        throw NSError(domain: NSPOSIXErrorDomain, code: FSError.Code.invalidDirectoryCookie.rawValue)
+    }
     let code: POSIXErrorCode
     switch Int(status) {
     case PW_NOT_FOUND: code = .ENOENT
@@ -83,7 +86,7 @@ final class PortaWeaveVolumeSession {
     private let logger = Logger(subsystem: "dev.portaweave.fs", category: "Volume")
     private(set) var volume: UInt64 = 0
     private var items: [Int64: PortaWeaveItem] = [:]
-    private var cursors: [UInt64: (directory: Int64, cursor: UInt64)] = [:]
+    private var cursors: [UInt64: (directory: Int64, cursor: UInt64, dots: Bool)] = [:]
     private var cursorOrder: [UInt64] = []
     private let maximumCachedDirectorySnapshots = 32
     private(set) var capacity = PwSpace()
@@ -369,7 +372,7 @@ final class PortaWeaveVolumeSession {
 
     func invalidateEnumerations() {
         for value in cursors.values {
-            let status = pw_dir_close(volume, value.cursor)
+            let status = pw_fskit_directory_close(volume, value.cursor)
             if status != PW_OK { record(POSIXError(.EIO)) }
         }
         cursors.removeAll()
@@ -380,7 +383,7 @@ final class PortaWeaveVolumeSession {
         let item = try self.item(raw)
         guard item.modes.isEmpty else { throw POSIXError(.EBUSY) }
         for (key, value) in Array(cursors) where value.directory == item.object {
-            try pwCheck(pw_dir_close(volume, value.cursor))
+            try pwCheck(pw_fskit_directory_close(volume, value.cursor))
             cursors.removeValue(forKey: key)
             cursorOrder.removeAll { $0 == key }
         }
@@ -435,61 +438,75 @@ final class PortaWeaveVolumeSession {
             }
         }
         let token: UInt64
+        let dots = attributes == nil
         if verifier == 0 {
-            guard cookie == 0 else { throw POSIXError(.ESTALE) }
+            guard cookie == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: FSError.Code.invalidDirectoryCookie.rawValue) }
             if let existing = cursors.first(where: { $0.value.directory == directory.object }) {
-                // Each request seeks to its caller's own cookie. Independent
-                // listings can safely reuse this immutable namespace snapshot.
-                token = existing.key
+                // A NEW enumeration captures current names/attributes. Prepare
+                // before retiring the old verifier, even at shared admission.
+                var fresh: UInt64 = 0
+                var status = pw_fskit_directory_refresh(volume, existing.value.cursor, dots ? 1 : 0, &fresh)
+                while status == PW_RESOURCE,
+                      let oldest = cursorOrder.first(where: { $0 != existing.key }), let old = cursors[oldest] {
+                    try pwCheck(pw_fskit_directory_close(volume, old.cursor))
+                    cursors.removeValue(forKey: oldest)
+                    cursorOrder.removeAll { $0 == oldest }
+                    status = pw_fskit_directory_refresh(volume, existing.value.cursor, dots ? 1 : 0, &fresh)
+                }
+                try pwCheck(status)
+                cursors.removeValue(forKey: existing.key)
+                cursorOrder.removeAll { $0 == existing.key }
+                token = fresh
+                cursors[token] = (directory.object, fresh, dots)
             } else {
                 if cursors.count >= maximumCachedDirectorySnapshots,
                    let oldest = cursorOrder.first, let old = cursors[oldest] {
-                    try pwCheck(pw_dir_close(volume, old.cursor))
+                    try pwCheck(pw_fskit_directory_close(volume, old.cursor))
                     cursors.removeValue(forKey: oldest)
                     cursorOrder.removeFirst()
                     // An evicted verifier explicitly returns ESTALE on resume.
                 }
                 var cursor: UInt64 = 0
-                var status = pw_dir_begin(volume, directory.object, &cursor)
+                var status = pw_fskit_directory_begin(volume, directory.object, dots ? 1 : 0, &cursor)
                 // Native Windows/admin snapshots now share cursor/entry admission.
                 // Evict only this session's existing LRU snapshots and retry;
                 // foreign typed snapshots and live file pins are never evicted.
                 while status == PW_RESOURCE, let oldest = cursorOrder.first, let old = cursors[oldest] {
-                    try pwCheck(pw_dir_close(volume, old.cursor))
+                    try pwCheck(pw_fskit_directory_close(volume, old.cursor))
                     cursors.removeValue(forKey: oldest)
                     cursorOrder.removeFirst()
-                    status = pw_dir_begin(volume, directory.object, &cursor)
+                    status = pw_fskit_directory_begin(volume, directory.object, dots ? 1 : 0, &cursor)
                 }
                 try pwCheck(status)
                 token = cursor
-                cursors[token] = (directory.object, cursor)
+                cursors[token] = (directory.object, cursor, dots)
             }
         } else {
             token = verifier
         }
-        guard let snapshot = cursors[token], snapshot.directory == directory.object else {
+        guard let snapshot = cursors[token], snapshot.directory == directory.object, snapshot.dots == dots else {
             throw POSIXError(.ESTALE)
         }
         cursorOrder.removeAll { $0 == token }
         cursorOrder.append(token)
-        try pwCheck(pw_dir_seek(volume, snapshot.cursor, cookie))
+        try pwCheck(pw_fskit_directory_seek(volume, snapshot.cursor, cookie))
         var position = cookie
         while true {
             var bytes = [UInt8](repeating: 0, count: 255)
             var count = 0
             var object: Int64 = 0
-            let code = pw_dir_next(volume, snapshot.cursor, &bytes, bytes.count, &count, &object)
+            var captured = PwFsKitAttributes()
+            let code = pw_fskit_directory_next(volume, snapshot.cursor, &bytes, bytes.count, &count, &object, &captured)
             if code == PW_END { break }
             try pwCheck(code)
-            var stat = PwStat()
-            try pwCheck(pw_stat(volume, object, &stat))
-            let transient = PortaWeaveItem(owner: identity, object: object, kind: stat.kind)
+            let transient = PortaWeaveItem(owner: identity, object: object, kind: captured.kind)
+            let wireID = try transient.wireID()
             let values: FSItem.Attributes?
             if attributes != nil {
-                values = try storedAttributes(transient, stat: stat)
+                values = committedAttributes(captured, wireID: wireID)
             } else { values = nil }
             guard try pack(FSFileName(data: Data(bytes.prefix(count))), transient.itemType,
-                           transient.wireID(), position + 1, values) else { break }
+                           wireID, position + 1, values) else { break }
             position += 1
         }
         return token

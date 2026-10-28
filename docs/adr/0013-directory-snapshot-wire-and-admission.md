@@ -17,3 +17,5 @@ A synthetic directory context holds this snapshot only. Replaying its first page
 Test permissions and inherited search, exact names/metadata/parent and no live pins; Windows surrogate/max-name boundaries, every pagination size and EOF, invalid output/token/cookie, shared cursor/count limits, concurrent reads/close and projection rejection. Validate C/MSVC/SDK/bundle/artifact levels separately. Only an actual authorized OS mount plus developer workflows and normal Codex sandbox/escape tests can satisfy the development-volume contract.
 
 Primary pinned sources: WinFsp ddca7bd5481857a65ba552f643b8776fd070836f, inc/winfsp/{winfsp.h,fsctl.h}, src/dll/fsop.c and src/sys/dirctl.c. See IMPLEMENTATION-M0T for URLs, results and remaining limits.
+
+M0-W follow-up: [ADR 0017](0017-fskit-captured-directory-enumeration.md) applies frozen projected metadata to a separate ADMINISTRATIVE FSKit cursor table, sharing the same admission budget. Explicit SDK initial listings replace their own snapshot; nonzero verifier/cookie replay and WinFsp marker replay remain distinct. No caller authorization or native mount gate is enabled.

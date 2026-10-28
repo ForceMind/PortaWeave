@@ -23,7 +23,12 @@ pub use directories::{
     pw_posix_directory_open, pw_posix_directory_set_metadata_info,
     pw_volume_create_with_directory_lifetimes,
 };
+mod fskit_directory;
 mod windows_directory;
+pub use fskit_directory::{
+    pw_fskit_directory_begin, pw_fskit_directory_close, pw_fskit_directory_next,
+    pw_fskit_directory_refresh, pw_fskit_directory_seek,
+};
 pub use windows_directory::{
     pw_windows_directory_begin, pw_windows_directory_begin_granted, pw_windows_directory_close,
     pw_windows_directory_handle_info, pw_windows_directory_handle_set_basic_info,
@@ -67,6 +72,7 @@ const INTERNAL: i32 = -15;
 const BUFFER_TOO_SMALL: i32 = -16;
 const DENIED: i32 = -17;
 const STALE: i32 = -18;
+const BAD_COOKIE: i32 = -19;
 
 const MAX_STRING: usize = 32 * 1024;
 const MAX_SESSIONS: usize = 16;
@@ -135,6 +141,7 @@ struct Session {
     policy_views: BTreeMap<u64, PosixReadView>,
     dirs: BTreeMap<u64, Cursor>,
     windows_dirs: BTreeMap<u64, windows_directory::DirectoryCursor>,
+    fskit_dirs: BTreeMap<u64, fskit_directory::DirectoryCursor>,
     #[cfg(test)]
     directory_entry_ceiling: Option<usize>,
     views: BTreeMap<u64, ReadView>,
@@ -150,6 +157,7 @@ impl Session {
             policy_views: BTreeMap::new(),
             dirs: BTreeMap::new(),
             windows_dirs: BTreeMap::new(),
+            fskit_dirs: BTreeMap::new(),
             #[cfg(test)]
             directory_entry_ceiling: None,
             views: BTreeMap::new(),
@@ -167,7 +175,7 @@ impl Session {
         Ok(())
     }
     fn directory_admission(&self) -> FResult<usize> {
-        if self.dirs.len() + self.windows_dirs.len() >= MAX_CURSORS {
+        if self.dirs.len() + self.windows_dirs.len() + self.fskit_dirs.len() >= MAX_CURSORS {
             return Err(Fault::resource());
         }
         self.directory_entry_admission(0)
@@ -179,7 +187,8 @@ impl Session {
         #[cfg(test)]
         let limit = self.directory_entry_ceiling.unwrap_or(limit).min(limit);
         let used = self.dirs.values().map(|c| c.entries.len()).sum::<usize>()
-            + self.windows_dirs.values().map(|c| c.len()).sum::<usize>();
+            + self.windows_dirs.values().map(|c| c.len()).sum::<usize>()
+            + self.fskit_dirs.values().map(|c| c.len()).sum::<usize>();
         let retained = used
             .checked_sub(replacing_entries)
             .ok_or_else(Fault::resource)?;
@@ -1166,6 +1175,7 @@ pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
                 || !session.policy_views.is_empty()
                 || !session.dirs.is_empty()
                 || !session.windows_dirs.is_empty()
+                || !session.fskit_dirs.is_empty()
                 || !session.views.is_empty()
             {
                 return Err(Fault::busy());

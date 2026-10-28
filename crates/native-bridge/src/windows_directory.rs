@@ -400,7 +400,7 @@ mod tests {
     use std::ptr;
 
     #[test]
-    fn shared_entry_admission_counts_both_cursor_tables_and_synthetic_dots() {
+    fn shared_entry_admission_counts_all_cursor_tables_and_synthetic_dots() {
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -516,6 +516,55 @@ mod tests {
         );
         assert_eq!(pw_windows_directory_close(volume, windows), 0);
         assert_eq!(pw_dir_close(volume, admin), 0);
+        // The third typed table shares the SAME retained-entry budget. Actual
+        // lower-ceiling admission and replacement, not a separate approximation.
+        let mut fskit = 0;
+        assert_eq!(
+            unsafe { crate::pw_fskit_directory_begin(volume, empty, 1, &mut fskit) },
+            0
+        ); // 2 dots
+        assert_eq!(
+            unsafe { pw_windows_directory_begin(volume, empty, &caller, &mut refused) },
+            crate::RESOURCE
+        );
+        assert_eq!(
+            unsafe { pw_dir_begin(volume, 1, &mut refused) },
+            crate::RESOURCE
+        );
+        let old_fskit = fskit;
+        assert_eq!(
+            unsafe { crate::pw_fskit_directory_refresh(volume, fskit, 1, &mut fskit) },
+            0
+        );
+        assert_ne!(old_fskit, fskit);
+        assert_eq!(
+            crate::pw_fskit_directory_close(volume, old_fskit),
+            crate::INVALID
+        );
+        assert_eq!(
+            unsafe { pw_file_create(volume, empty, b"nested".as_ptr(), 6, &mut object) },
+            0
+        );
+        assert_eq!(
+            unsafe { crate::pw_fskit_directory_refresh(volume, fskit, 1, &mut fskit) },
+            0
+        ); // 3 entries
+        assert_eq!(
+            unsafe { pw_file_create(volume, empty, b"extra".as_ptr(), 5, &mut object) },
+            0
+        );
+        let saved_fskit = fskit;
+        assert_eq!(
+            unsafe { crate::pw_fskit_directory_refresh(volume, fskit, 1, &mut refused) },
+            crate::RESOURCE
+        );
+        assert_eq!(refused, 99);
+        with_session(volume, |s| {
+            assert_eq!(s.fskit_dirs.get(&saved_fskit).unwrap().len(), 3);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(crate::pw_fskit_directory_close(volume, fskit), 0);
         assert_eq!(pw_volume_close(volume), 0);
         std::fs::remove_dir_all(path).unwrap();
     }

@@ -14,11 +14,11 @@ pub struct PwFsKitAttributes {
     pub size: u64,
     pub kind: u32,
     pub links: u32,          // valid for regular files only
-    pub metadata_valid: u32, // 0=v1 missing; 1=v2 stored values
+    pub metadata_valid: u32, // 0=v1 missing; 1=v2/v3 stored values
     pub reserved: u32,
     pub metadata: PwMetadata,
 }
-fn project(info: ObjectInfo, expected: i64) -> Result<PwFsKitAttributes> {
+pub(super) fn project(info: ObjectInfo, expected: i64) -> Result<PwFsKitAttributes> {
     if info.stat.id.raw() != expected {
         return Err(Error::InvalidHandle);
     }

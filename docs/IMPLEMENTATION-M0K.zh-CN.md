@@ -27,3 +27,5 @@ Rust/C 回归覆盖保留别名拼写、根父边界和同一 cursor 重试/越�
 没有签名安装、启用扩展、Finder mount、Codex 或物理 exFAT 验收。Windows WinFsp 的权限/共享/缓存/硬链接阻断不因这些 macOS 回调解决。
 
 保留首轮 native/bundle run 40112544717 / 40112544675 的 Swift Int32/导入常量 Int 模式匹配失败，修正后再验证。代码审查另指出重复 listing 可能耗尽 cursor，已加入快照复用/LRU，并以 256 次不变目录枚举、80 个不同目录扫描、淘汰后 ESTALE 及从零重新开始回归验证；准确通过状态以修正源码的 CI 为准。
+
+后续 M0-W（2026-10-28）：[新范围](IMPLEMENTATION-M0W.zh-CN.md) 将 FSKit 自有游标改为一起捕获名字/属性。新 initial listing 原子替换旧快照并返回新 verifier，取代本阶段的同 verifier 复用；非零 verifier 的旧页仍只重放。32自有LRU/共64cursor不泄漏规则保留，增补dots/非法cookie；实际packer分发与挂载仍未验证。

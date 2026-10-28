@@ -67,3 +67,10 @@ Work Linux 全工作区 default/all-feature、clippy/fmt、C11/C++17、v3 本地
 M0-V（2026-10-27）接续重新核验的 main `0103619da1cee08ffc3eb3970296c4b06fb463aa`（14项成功，无开放PR）。实际 FSVolume 缓存 v3 非根目录现保留自己的 administrative typed pin 至 reclaim；OpenModes 的最后 close 只清访问，不释放缓存身份。新增独立 create_directory_with_pin / CreatedDirectory、C pw_directory_open/close 与 pw_fskit_directory_create_with_state / PwFsKitDirectoryCreated，预准入、事务内初始状态/投影、commit后维护前发布pin，普通创建/旧v1/v2不变，不迁移格式。目录删后/覆盖可保留原inode，禁止假dot/new child，root不多占pin，deactivate不强关owner；管理引用不是策略grant或OS身份。
 
 Work full default/all-feature/clippy/fmt、C11/C++17、Python9与本地v3交接/实际旧reader拒绝通过。新增core4/2（含两次实际exit86）、native4（integration47/unit3），强化原4096混合预算。实际SDK目录create/lookup/open/unlink/replace/close/reclaim及4096额度新合同、完整App/Extension、MSVC/Dispatcher、真实跨OS artifact与最终main CI必须按本增量PR准确source/tree核验。M0-V/ADR0016记录范围；后续原生身份/共享/缓存/同步/授权隔离环境真挂载与Codex门禁仍开放，没有本机/驱动/签名/沙盒改动。
+
+
+M0-W（2026-10-28）接续 main `433b0ce832c12894c82b66e6146ffd02455a25be`；GitHub重读确认此前滞后的主线检查已经14/14 completed/success、5工作流success，无开放PR，#1/#3/#28仍开放。工作区清理后从GitHub克隆，固定工具链/registry ZIP与两层tar的SHA256核验恢复，不使用用户本机。
+
+修复SDK name-only cursor后逐行查current stat/metadata的混合路径。新增管理型 ObjectDirectorySnapshot与独立FSKit typed metadata cursor（全部预投影），三表共同64/100000/BUSY；explicit initial verifier0/cookie0准备新token抵扣自己旧slot/entries，失败保留旧数据/position，非零verifier包括cookie0只重放。补dots/root/parent/empty-orphan、非法cookie SDK错误、模式混用/pack拒绝重试；32自有LRU保留且不驱逐替换目标/foreign cursor/pin。普通格式/旧API/Windows wire和所有安全/挂载入口不变，见M0-W/ADR0017/AGENTS50。
+
+Work full default/all-feature/clippy/fmt、Python9、C11/C++17和本地v3四阶段通过。新core3/2、native6（integration53/unit3），既有3-entry预算unit加入第三表与dots，不冒称100000真实名字压力。C caller三种格式有NATIVE_CAPTURED_DIRECTORY_ABI_OK，本地交接每站有OBJECT_DIRECTORY_SNAPSHOT_HANDOVER_OK；Linux阶段名不算另外两个OS。真实SDK分页/重启/拒绝保留/dots/cookie、App/Extension完整构建、MSVC/Dispatcher及实际跨OS artifact必须按本轮PR准确source/tree和日志验收。真挂载/原生身份/共享/缓存通知/同步/Codex和物理介质门禁保持开放，无本机/驱动/沙盒改动。

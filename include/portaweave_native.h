@@ -19,7 +19,8 @@ enum {
   PW_BUSY = -7, PW_NO_SPACE = -8, PW_QUOTA = -9, PW_READ_ONLY = -10,
   PW_UNSUPPORTED = -11, PW_CORRUPT = -12, PW_IO = -13, PW_RESOURCE = -14,
   PW_INTERNAL = -15, PW_BUFFER_TOO_SMALL = -16, PW_DENIED = -17,
-  PW_STALE = -18 /* checked namespace identity changed; no mutation/protection */
+  PW_STALE = -18, /* checked namespace identity changed; no mutation/protection */
+  PW_BAD_COOKIE = -19 /* valid FSKit snapshot token, invalid ordinal position */
 };
 
 typedef struct PwStat {
@@ -282,6 +283,27 @@ typedef struct PwFsKitAttributes {
   uint32_t kind, links, metadata_valid, reserved;
   PwMetadata metadata;
 } PwFsKitAttributes;
+/* Frozen ADMINISTRATIVE FSKit directory names AND projected attributes.
+ * No caller authentication, live inode/data pin or current attribute promise.
+ * v1 metadata_valid=0. All fields are captured/projected before publication.
+ * Shares 64 cursors/100000 entries with legacy admin/Windows cursors.
+ * include_dots is 0/1: linked/root snapshots include . and .. when 1;
+ * empty unlinked non-root directories NEVER invent dots or a parent.
+ * next returns PW_END at EOF. On EVERY refusal/END (including small buffers),
+ * all outputs and position stay unchanged. No terminator is written.
+ * seek replays the SAME snapshot; EOF=len is valid, out-of-range=BAD_COOKIE.
+ * refresh replaces the SAME directory, credits only its own slot/entries,
+ * prepares/projects/reserves before retirement. Failure keeps the old token,
+ * position/bytes/outputs; success invalidates old token/cookies. Restart at 0.
+ * The old/prepared copies coexist temporarily; counts are not heap/OOM bounds.
+ * Types are separate from files/policy grants/legacy and Windows snapshots.
+ */
+int32_t pw_fskit_directory_begin(uint64_t volume, int64_t directory, uint8_t include_dots, uint64_t *out_cursor);
+int32_t pw_fskit_directory_refresh(uint64_t volume, uint64_t cursor, uint8_t include_dots, uint64_t *out_cursor);
+int32_t pw_fskit_directory_next(uint64_t volume, uint64_t cursor, uint8_t *name, size_t capacity,
+                               size_t *out_name_len, int64_t *out_object, PwFsKitAttributes *out_attributes);
+int32_t pw_fskit_directory_seek(uint64_t volume, uint64_t cursor, uint64_t position);
+int32_t pw_fskit_directory_close(uint64_t volume, uint64_t cursor);
 int32_t pw_fskit_metadata_set(uint64_t volume, int64_t object,
                             const PwMetadataUpdate *update, PwFsKitAttributes *out_attributes);
 int32_t pw_fskit_file_set_attributes(uint64_t volume, uint64_t file, int64_t object, uint64_t size,
