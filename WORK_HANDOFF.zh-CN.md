@@ -74,3 +74,10 @@ M0-W（2026-10-28）接续 main `433b0ce832c12894c82b66e6146ffd02455a25be`；Git
 修复SDK name-only cursor后逐行查current stat/metadata的混合路径。新增管理型 ObjectDirectorySnapshot与独立FSKit typed metadata cursor（全部预投影），三表共同64/100000/BUSY；explicit initial verifier0/cookie0准备新token抵扣自己旧slot/entries，失败保留旧数据/position，非零verifier包括cookie0只重放。补dots/root/parent/empty-orphan、非法cookie SDK错误、模式混用/pack拒绝重试；32自有LRU保留且不驱逐替换目标/foreign cursor/pin。普通格式/旧API/Windows wire和所有安全/挂载入口不变，见M0-W/ADR0017/AGENTS50。
 
 Work full default/all-feature/clippy/fmt、Python9、C11/C++17和本地v3四阶段通过。新core3/2、native6（integration53/unit3），既有3-entry预算unit加入第三表与dots，不冒称100000真实名字压力。C caller三种格式有NATIVE_CAPTURED_DIRECTORY_ABI_OK，本地交接每站有OBJECT_DIRECTORY_SNAPSHOT_HANDOVER_OK；Linux阶段名不算另外两个OS。真实SDK分页/重启/拒绝保留/dots/cookie、App/Extension完整构建、MSVC/Dispatcher及实际跨OS artifact必须按本轮PR准确source/tree和日志验收。真挂载/原生身份/共享/缓存通知/同步/Codex和物理介质门禁保持开放，无本机/驱动/沙盒改动。
+
+
+## 2026-10-29 M1-P 协作范围锁续研
+
+GitHub重读main `0e1338591a04b970985d3aa866528331cb3f1df0` / tree `04ccaab734b616711b0636de4e113930b2bc23d4`，14/14检查及5工作流成功、无开放PR，#1/#3/#28开放；Work干净。新增inode/handle有界共享独占范围grant、typed policy C入口与关闭释放，详见M1-P/ADR0018/AGENTS51。初轮native测试fixture误用open access1/3而被既有ABI拒绝，修正为4/6后3项通过，未改生产校验；初轮日志保留。最终全量/真实C和跨OS CI按准确源码结果补记PR。所有真挂载、系统锁/共享、身份/ACL/缓存/同步/Codex/物理介质门禁不变，不操作用户本机或驱动。
+
+本轮Work最终完整回归：all-feature244通过/0失败、default204通过/0失败；原有4/1 ignored helper按既有父测试触发规则保留。clippy -D warnings、fmt、Python9、真实C11及独立C++17头/签名/链接调用通过。C输出NATIVE_ADVISORY_RANGE_LOCK_ABI_OK；本地v2四阶段逐站ADVISORY_RANGE_LOCK_HANDOVER_OK且UUID一致，均是Linux本地阶段，不冒充其他OS。完整source/main平台CI与确切SHA/环境清单以对应PR最终验收记录为准。

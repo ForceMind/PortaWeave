@@ -103,3 +103,5 @@ M1-O 显式 v3 只解决版本化核心目录引用与其直接平台消费合�
 M0-V 接入 v3 缓存目录自有 administrative pin 与原子目录引用创建；见 [范围](IMPLEMENTATION-M0V.zh-CN.md)。FSKit closeItem 只调整保留模式，reclaim 才释放身份；管理引用不等于 PosixDirectory grant，更不等于认证 native caller。旧 v1/v2 与所有真实挂载/权限/缓存/同步/沙盒门禁保持。
 
 M0-W 消除 SDK 分页时旧名字配当前属性的路径，使用单 owner 捕获与三表共享预算的元数据副本，见 [范围](IMPLEMENTATION-M0W.zh-CN.md)。副本不是inode/data grant、当前GFI或OS身份；实际kernel packer、通知/缓存一致性、权限和真挂载仍未验收。
+
+M1-P新增有界描述符协作范围锁，见 [范围](IMPLEMENTATION-M1P.zh-CN.md)。这是非阻塞token原语，不拦截普通I/O，不是OS锁、Windows共享模式或真卷SQLite证明；FS-08和DEV-07仍未验收。

@@ -175,7 +175,7 @@ struct ViewState {
     range: Option<std::ops::Range<u64>>,
 }
 static TOKENS: AtomicU64 = AtomicU64::new(1);
-fn token() -> Result<u64> {
+pub(crate) fn token() -> Result<u64> {
     let mut current = TOKENS.load(Ordering::Relaxed);
     loop {
         let next = current.checked_add(1).ok_or(Error::InvalidRange)?;
@@ -195,6 +195,7 @@ pub struct Volume {
     pub(crate) catalog_version: CatalogVersion,
     root: PathBuf,
     handles: BTreeMap<Handle, FileId>,
+    pub(crate) range_locks: BTreeMap<crate::RangeLock, crate::range_locks::LockState>,
     views: BTreeMap<ReadView, ViewState>,
     indexed_view_block_refs: usize,
     read_view_limits: ReadViewLimits,
@@ -368,6 +369,7 @@ impl Volume {
             catalog_version,
             root,
             handles: BTreeMap::new(),
+            range_locks: BTreeMap::new(),
             views: BTreeMap::new(),
             indexed_view_block_refs: 0,
             read_view_limits: ReadViewLimits::default(),
@@ -700,6 +702,7 @@ impl Volume {
     pub fn close_file(&mut self, handle: Handle) -> Result<()> {
         // Closing remains possible in protection mode, but does not run GC there.
         self.handles.remove(&handle).ok_or(Error::InvalidHandle)?;
+        self.range_locks.retain(|_, lock| lock.handle != handle);
         if self.protected.get() {
             return Ok(());
         }
