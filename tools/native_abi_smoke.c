@@ -205,6 +205,15 @@ int main(int argc, char **argv) {
     if (pw_posix_file_open(volume, 1, (const uint8_t *)"cap", 3, PW_ACCESS_READ | PW_ACCESS_WRITE, &other, &reader) != PW_DENIED || reader != 99) return 34;
     REQUIRE(pw_posix_file_open(volume, 1, (const uint8_t *)"cap", 3, PW_ACCESS_READ, &other, &reader));
     REQUIRE(pw_posix_file_open(volume, 1, (const uint8_t *)"cap", 3, PW_ACCESS_READ | PW_ACCESS_WRITE, &owner, &writer));
+    uint64_t reader_lock = 0, writer_lock = 99;
+    REQUIRE(pw_posix_file_lock_range(volume, reader, 0, 8, PW_LOCK_SHARED, &reader_lock));
+    if (pw_posix_file_lock_range(volume, writer, 7, 1, PW_LOCK_EXCLUSIVE, &writer_lock) != PW_LOCK_CONFLICT || writer_lock != 99 ||
+        pw_posix_file_unlock_range(volume, writer, reader_lock) != PW_INVALID ||
+        pw_posix_file_lock_range(volume, reader, 0, 1, PW_LOCK_EXCLUSIVE, &writer_lock) != PW_DENIED || writer_lock != 99 ||
+        pw_posix_file_lock_range(volume, writer, 0, 1, PW_LOCK_SHARED, NULL) != PW_INVALID) return 82;
+    REQUIRE(pw_posix_file_unlock_range(volume, reader, reader_lock));
+    REQUIRE(pw_posix_file_lock_range(volume, writer, 0, 8, PW_LOCK_EXCLUSIVE, &writer_lock));
+    if (pw_posix_file_unlock_range(volume, writer, reader_lock) != PW_INVALID) return 83;
     if (pw_volume_close(volume) != PW_BUSY) return 35;
     REQUIRE(pw_posix_file_write(volume, writer, 0, (const uint8_t *)"abcdef", 6, &count));
     PwFileInfo request_info;
@@ -271,6 +280,8 @@ int main(int argc, char **argv) {
     REQUIRE(pw_posix_file_close(volume, reader));
     if (pw_posix_file_close(volume, reader) != PW_INVALID) return 41;
     REQUIRE(pw_posix_file_close(volume, writer));
+    if (pw_posix_file_unlock_range(volume, writer, writer_lock) != PW_INVALID) return 84;
+    puts("NATIVE_ADVISORY_RANGE_LOCK_ABI_OK (trusted descriptor grants; no native lock dispatch or mandatory I/O)");
     if (pw_volume_close(volume) != PW_BUSY) return 42;
     count = 99;
     if (pw_posix_read_view_read(volume, policy_view, 0, buffer, 1, &count) != PW_INVALID || count != 99 ||

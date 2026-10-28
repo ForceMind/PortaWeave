@@ -25,6 +25,8 @@ pub enum Error {
     RecoveryLimit,
     ResourceLimit,
     Busy,
+    /// Nonblocking cooperative range admission conflict, not storage failure.
+    LockConflict,
     Cycle,
     UnsupportedFormat,
     UnsupportedOperation,

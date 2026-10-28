@@ -12,6 +12,7 @@ mod names;
 mod namespace;
 mod owner;
 mod permissions;
+mod range_locks;
 mod recovery;
 mod segment;
 mod segment_io;
@@ -31,6 +32,7 @@ pub use permissions::{
     FileWriteResult, MAX_POSIX_FILES, MAX_SUPPLEMENTARY_GROUPS, OpenDirectorySnapshot,
     PosixDirectory, PosixFile, PosixReadView, PosixSession,
 };
+pub use range_locks::{LockMode, MAX_RANGE_LOCKS, RangeLock};
 pub use recovery::{ExportLinks, ExportReport, Recovery, RecoveryLimits, RecoveryReport};
 #[cfg(feature = "fault-injection")]
 pub use segment_io::StorageFault;

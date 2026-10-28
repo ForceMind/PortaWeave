@@ -283,3 +283,10 @@ Work Linux full default/all-feature workspace、clippy -D warnings、fmt、Pytho
 SDK新增对已捕获child先覆盖/删名/close+reclaim后继续分页的合同，确保返回旧名字/属性且不阻止GC；新initial枚举换verifier、非零verifier稳定重放、失败重启保留旧数据、dots/root/parent/模式与invalidDirectoryCookie、pack拒绝重试、256新枚举/80目录LRU和满64混合cursor自身重建都需准确macOS CI。真实SDK对象/packing closure不等于FSDirectoryEntryPacker内核分发。完整App/Extension、MSVC/Dispatcher、三平台core/native/旧reader、实际v1/v2/v3 artifact返回须以本轮准确PR source/tree/日志验收，不预报平台成功。
 
 所有native caller/security/Open/Flush与FSKit access/probe/load/activate/mount门禁不变。runtime/driver、签名/授权隔离环境真挂载、OS身份/ACL/共享/缓存通知/完整同步、符号链接/xattr/mmap/执行、真卷开发工具与Codex正常沙盒/越界、物理exFAT/USB/断电仍BLOCKED/NOT_RUN，#1/#3保持开放。
+
+
+## 2026-10-29 M1-P 协作范围锁续研
+
+GitHub重读main `0e1338591a04b970985d3aa866528331cb3f1df0` / tree `04ccaab734b616711b0636de4e113930b2bc23d4`，14/14检查及5工作流成功、无开放PR，#1/#3/#28开放；Work干净。新增inode/handle有界共享独占范围grant、typed policy C入口与关闭释放，详见M1-P/ADR0018/AGENTS51。初轮native测试fixture误用open access1/3而被既有ABI拒绝，修正为4/6后3项通过，未改生产校验；初轮日志保留。最终全量/真实C和跨OS CI按准确源码结果补记PR。所有真挂载、系统锁/共享、身份/ACL/缓存/同步/Codex/物理介质门禁不变，不操作用户本机或驱动。
+
+本轮Work最终完整回归：all-feature244通过/0失败、default204通过/0失败；原有4/1 ignored helper按既有父测试触发规则保留。clippy -D warnings、fmt、Python9、真实C11及独立C++17头/签名/链接调用通过。C输出NATIVE_ADVISORY_RANGE_LOCK_ABI_OK；本地v2四阶段逐站ADVISORY_RANGE_LOCK_HANDOVER_OK且UUID一致，均是Linux本地阶段，不冒充其他OS。完整source/main平台CI与确切SHA/环境清单以对应PR最终验收记录为准。

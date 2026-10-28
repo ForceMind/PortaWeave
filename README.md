@@ -19,9 +19,9 @@ cargo test --locked -p portaweave-partition-inspector
 
 GPT requires valid CRC32 header/entry tables; it reports damaged primary/backup as DEGRADED, does not repair anything, and refuses ambiguous hybrid MBR/GPT. MBR extended EBR logical partitions are not yet enumerated. A virtual partitionable block device (.pwdisk), physical device management and resize/clone/recovery are **planned, not implemented**. None of these claims weakens the standard Codex/Git working-volume release gates.
 
-## Status — 2026-10-28
+## Status — 2026-10-29
 
-**M0-W captured FSKit directory enumeration and M0-V v3 item references, M1-O versioned inode lifetimes, laboratory WinFsp/FSVolume callbacks, unsigned macOS App/Extension build and experimental WinFsp dispatcher. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M1-P cooperative descriptor range grants, M0-W captured FSKit directory enumeration and M0-V v3 item references, M1-O versioned inode lifetimes, laboratory WinFsp/FSVolume callbacks, unsigned macOS App/Extension build and experimental WinFsp dispatcher. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -35,6 +35,10 @@ A NEW opt-in v3 container retains granted directory inodes across rename, permis
 ## M0-V FSKit directory item references
 
 The v3 laboratory FSVolume now owns a typed inode reference for each cached non-root directory. Atomic directory creation reserves the reference before namespace mutation; lookup reuses it, removed/replaced directories retain their original identity, and reclaim releases it. Closing open modes and releasing a cached item are separate lifetimes. Ordinary directory creation stays unpinned; v1/v2 are unchanged. These are administrative adapter operations, not OS caller authentication, effective permissions or system mounting. See [M0-V](docs/IMPLEMENTATION-M0V.zh-CN.md) and [ADR 0016](docs/adr/0016-fskit-directory-item-references.md).
+
+## M1-P cooperative range grants
+
+The serialized core and typed policy C ABI now coordinate shared/exclusive finite ranges by live file handle and inode, including hard-link aliases. Close releases its own grants; all raw/policy acquisitions share 4096 slots. These are advisory primitive grants, not system locks, Windows share modes, caller authentication or mounted SQLite certification. Ordinary I/O is not intercepted. See [M1-P](docs/IMPLEMENTATION-M1P.zh-CN.md) and [ADR 0018](docs/adr/0018-cooperative-descriptor-range-grants.md).
 
 ## M0-W captured FSKit directory enumeration
 

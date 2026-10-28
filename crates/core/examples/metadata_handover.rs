@@ -122,6 +122,31 @@ fn verify_creation(v: &mut Volume) -> TestResult {
     Ok(())
 }
 fn verify_policy(v: &mut Volume) -> TestResult {
+    // Independent handles on one inode, including its hard-link alias. This
+    // is serialized core coordination, not a mounted OS lock test.
+    let object = v.create_file(ROOT, "range-lock-file")?;
+    v.hard_link(object, ROOT, "range-lock-alias")?;
+    let first = v.open_file(object)?;
+    let second = v.open_file(v.lookup(ROOT, "range-lock-alias")?)?;
+    let lock = v.lock_file_range(first, 0, 8, portaweave_core::LockMode::Shared)?;
+    assert!(matches!(
+        v.lock_file_range(second, 7, 1, portaweave_core::LockMode::Exclusive),
+        Err(CoreError::LockConflict)
+    ));
+    v.unlink(ROOT, "range-lock-file")?;
+    v.unlink(ROOT, "range-lock-alias")?;
+    v.close_file(first)?; // atomically retires all first-handle grants
+    assert!(matches!(
+        v.unlock_file_range(second, lock),
+        Err(CoreError::InvalidHandle)
+    ));
+    let _lock = v.lock_file_range(second, 7, 1, portaweave_core::LockMode::Exclusive)?;
+    v.close_file(second)?;
+    assert_eq!(v.active_range_locks(), 0);
+    assert!(matches!(v.stat(object), Err(CoreError::NotFound)));
+    println!(
+        "ADVISORY_RANGE_LOCK_HANDOVER_OK (inode/alias conflicts and close release; no native locks/mount)"
+    );
     let before = v.metadata(ROOT)?;
     let snapshot = v
         .posix(Credentials::new(501, 50, &[])?)?

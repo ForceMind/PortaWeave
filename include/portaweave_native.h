@@ -20,7 +20,8 @@ enum {
   PW_UNSUPPORTED = -11, PW_CORRUPT = -12, PW_IO = -13, PW_RESOURCE = -14,
   PW_INTERNAL = -15, PW_BUFFER_TOO_SMALL = -16, PW_DENIED = -17,
   PW_STALE = -18, /* checked namespace identity changed; no mutation/protection */
-  PW_BAD_COOKIE = -19 /* valid FSKit snapshot token, invalid ordinal position */
+  PW_BAD_COOKIE = -19, /* valid FSKit snapshot token, invalid ordinal position */
+  PW_LOCK_CONFLICT = -20 /* cooperative nonblocking range conflict; not I/O */
 };
 
 typedef struct PwStat {
@@ -247,6 +248,17 @@ int32_t pw_posix_file_read(uint64_t volume, uint64_t file, uint64_t offset, uint
 int32_t pw_posix_file_write(uint64_t volume, uint64_t file, uint64_t offset, const uint8_t *data, size_t length, size_t *out_written);
 int32_t pw_posix_file_truncate(uint64_t volume, uint64_t file, uint64_t size);
 int32_t pw_posix_file_close(uint64_t volume, uint64_t file);
+/* Cooperative finite range grants; NOT OS locks, mandatory I/O or authentication.
+ * Shared needs granted READ, exclusive needs granted WRITE. Same file token may
+ * hold overlapping grants; tokens release individual acquisitions, no merging.
+ * 0 length/overflow invalid. Close releases all grants on that file token.
+ * Per-owner 4096 grants shared by raw/core and policy; no persistence or waiting.
+ * Failed output stays unchanged. Foreign/stale/wrong-file tokens INVALID.
+ * Locks do not block reads/writes/truncate/mmap/namespace or immutable leases. */
+enum { PW_LOCK_SHARED = 1, PW_LOCK_EXCLUSIVE = 2 };
+int32_t pw_posix_file_lock_range(uint64_t volume, uint64_t file,
+  uint64_t offset, uint64_t length, uint32_t mode, uint64_t *out_lock);
+int32_t pw_posix_file_unlock_range(uint64_t volume, uint64_t file, uint64_t lock);
 /* Immutable range leases require a granted READ file. Separate policy-view
  * tokens cannot be used by administrative lease APIs (or vice versa).
  * Bounds use absolute offsets and original EOF; no read outside the range.

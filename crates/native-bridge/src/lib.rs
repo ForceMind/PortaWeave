@@ -16,7 +16,9 @@ pub use windows::{
     pw_windows_file_set_basic_info, pw_windows_file_set_size, pw_windows_file_write,
 };
 mod namespace_ops;
+mod range_locks;
 pub use namespace_ops::{pw_remove_checked, pw_rename_checked};
+pub use range_locks::{pw_posix_file_lock_range, pw_posix_file_unlock_range};
 mod directories;
 pub use directories::{
     pw_directory_close, pw_directory_open, pw_posix_directory_close, pw_posix_directory_info,
@@ -73,6 +75,7 @@ const BUFFER_TOO_SMALL: i32 = -16;
 const DENIED: i32 = -17;
 const STALE: i32 = -18;
 const BAD_COOKIE: i32 = -19;
+const LOCK_CONFLICT: i32 = -20;
 
 const MAX_STRING: usize = 32 * 1024;
 const MAX_SESSIONS: usize = 16;
@@ -92,6 +95,7 @@ impl From<Error> for Fault {
             Error::IsDirectory => IS_DIR,
             Error::NotEmpty => NOT_EMPTY,
             Error::Busy => BUSY,
+            Error::LockConflict => LOCK_CONFLICT,
             Error::Quota => QUOTA,
             Error::HostSpace { .. } => NO_SPACE,
             Error::WriteProtected => READ_ONLY,
@@ -137,6 +141,7 @@ struct Session {
     files: BTreeMap<u64, Handle>,
     directory_pins: BTreeMap<u64, DirectoryHandle>,
     policy_files: BTreeMap<u64, PosixFile>,
+    range_locks: BTreeMap<u64, (u64, portaweave_core::RangeLock)>,
     policy_dirs: BTreeMap<u64, PosixDirectory>,
     policy_views: BTreeMap<u64, PosixReadView>,
     dirs: BTreeMap<u64, Cursor>,
@@ -153,6 +158,7 @@ impl Session {
             files: BTreeMap::new(),
             directory_pins: BTreeMap::new(),
             policy_files: BTreeMap::new(),
+            range_locks: BTreeMap::new(),
             policy_dirs: BTreeMap::new(),
             policy_views: BTreeMap::new(),
             dirs: BTreeMap::new(),
@@ -885,6 +891,7 @@ pub extern "C" fn pw_posix_file_close(volume: u64, file: u64) -> i32 {
                 .close(&mut s.volume)
                 .map_err(Fault::from)?;
             s.policy_files.remove(&file);
+            s.range_locks.retain(|_, (owner, _)| *owner != file);
             Ok(OK)
         })
     })
@@ -1171,6 +1178,7 @@ pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
             if !session.files.is_empty()
                 || !session.directory_pins.is_empty()
                 || !session.policy_files.is_empty()
+                || !session.range_locks.is_empty()
                 || !session.policy_dirs.is_empty()
                 || !session.policy_views.is_empty()
                 || !session.dirs.is_empty()

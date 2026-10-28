@@ -189,6 +189,27 @@ pub struct PosixFile {
     rights: Access,
 }
 impl PosixFile {
+    /// Cooperative finite-range grant, not fcntl/LockFileEx or mandatory I/O.
+    pub fn lock_range(
+        self,
+        volume: &mut Volume,
+        offset: u64,
+        length: u64,
+        mode: crate::LockMode,
+    ) -> Result<crate::RangeLock> {
+        self.object(
+            volume,
+            match mode {
+                crate::LockMode::Shared => Access::READ,
+                crate::LockMode::Exclusive => Access::WRITE,
+            },
+        )?;
+        volume.lock_file_range(self.handle, offset, length, mode)
+    }
+    pub fn unlock_range(self, volume: &mut Volume, lock: crate::RangeLock) -> Result<()> {
+        self.object(volume, Access::EXISTS)?;
+        volume.unlock_file_range(self.handle, lock)
+    }
     fn object(self, volume: &Volume, access: Access) -> Result<FileId> {
         let id = volume.object(self.handle)?;
         if self.rights.0 & access.0 != access.0 {
