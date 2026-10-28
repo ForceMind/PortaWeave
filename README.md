@@ -19,9 +19,9 @@ cargo test --locked -p portaweave-partition-inspector
 
 GPT requires valid CRC32 header/entry tables; it reports damaged primary/backup as DEGRADED, does not repair anything, and refuses ambiguous hybrid MBR/GPT. MBR extended EBR logical partitions are not yet enumerated. A virtual partitionable block device (.pwdisk), physical device management and resize/clone/recovery are **planned, not implemented**. None of these claims weakens the standard Codex/Git working-volume release gates.
 
-## Status — 2026-10-27
+## Status — 2026-10-28
 
-**M0-V v3 FSKit directory item references, M1-O versioned inode lifetimes, laboratory WinFsp/FSVolume callbacks, unsigned macOS App/Extension build and experimental WinFsp dispatcher. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M0-W captured FSKit directory enumeration and M0-V v3 item references, M1-O versioned inode lifetimes, laboratory WinFsp/FSVolume callbacks, unsigned macOS App/Extension build and experimental WinFsp dispatcher. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -35,6 +35,10 @@ A NEW opt-in v3 container retains granted directory inodes across rename, permis
 ## M0-V FSKit directory item references
 
 The v3 laboratory FSVolume now owns a typed inode reference for each cached non-root directory. Atomic directory creation reserves the reference before namespace mutation; lookup reuses it, removed/replaced directories retain their original identity, and reclaim releases it. Closing open modes and releasing a cached item are separate lifetimes. Ordinary directory creation stays unpinned; v1/v2 are unchanged. These are administrative adapter operations, not OS caller authentication, effective permissions or system mounting. See [M0-V](docs/IMPLEMENTATION-M0V.zh-CN.md) and [ADR 0016](docs/adr/0016-fskit-directory-item-references.md).
+
+## M0-W captured FSKit directory enumeration
+
+The laboratory SDK adapter now captures names and projected attributes together. Paging replays that copy even after a child is overwritten, deleted and collected; an initial enumeration explicitly refreshes its own snapshot. It also handles attribute-free dot entries, logical parent/root IDs, bad cookies and rejected pack rows. All three typed cursor tables share admission and BUSY. v1/v2/v3 formats and native authorization/mount gates are unchanged. See [M0-W](docs/IMPLEMENTATION-M0W.zh-CN.md) and [ADR 0017](docs/adr/0017-fskit-captured-directory-enumeration.md).
 
 ### Native adapter ABI (experimental)
 

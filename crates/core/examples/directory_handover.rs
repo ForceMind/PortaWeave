@@ -91,6 +91,37 @@ fn preserve_before_open(path: &Path, expected: u8) -> TestResult {
     Ok(()) // source owner is released BEFORE ordinary open
 }
 fn exercise(v: &mut Volume, stage: u8) -> TestResult {
+    let snapshot_dir = v.mkdir(ROOT, "snapshot-directory")?;
+    let snapshot_file = v.create_file(snapshot_dir, "entry")?;
+    let handle = v.open_file(snapshot_file)?;
+    v.write(handle, 0, b"old")?;
+    let snapshot = v.directory_object_snapshot(snapshot_dir, 1)?;
+    assert_eq!(
+        snapshot
+            .parent
+            .as_ref()
+            .ok_or("missing snapshot parent")?
+            .stat
+            .id,
+        ROOT
+    );
+    assert_eq!(snapshot.entries[0].info, v.object_info(snapshot_file)?);
+    v.write(handle, 0, b"new content")?;
+    v.unlink(snapshot_dir, "entry")?;
+    v.close_file(handle)?;
+    v.rmdir(ROOT, "snapshot-directory")?;
+    assert!(matches!(v.stat(snapshot_file), Err(CoreError::NotFound)));
+    assert_eq!(
+        (
+            snapshot.entries[0].info.stat.id,
+            snapshot.entries[0].info.stat.size
+        ),
+        (snapshot_file, 3)
+    );
+    assert_eq!(v.stats()?.open_handles, 0);
+    println!(
+        "OBJECT_DIRECTORY_SNAPSHOT_HANDOVER_OK stage={stage} (frozen metadata after GC; no data pin/mount)"
+    );
     let created = v.create_directory_with_pin(
         ROOT,
         "created-with-pin",

@@ -33,6 +33,21 @@ pub struct CreatedDirectory<T> {
     pub reply: T,
 }
 
+/// Administrative owned metadata. No caller authorization, inode/data pin or
+/// future path authority. v1 metadata stays explicitly absent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectDirectoryEntry {
+    pub name: String,
+    pub info: ObjectInfo,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectDirectorySnapshot {
+    pub directory: ObjectInfo,
+    /// Root points to itself; an unlinked empty non-root directory has no parent.
+    pub parent: Option<ObjectInfo>,
+    pub entries: Vec<ObjectDirectoryEntry>,
+}
+
 /// Trusted cached identities, not authorization. None requires an absent
 /// destination, except a case-only rename of the very same directory entry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -133,6 +148,46 @@ impl Volume {
                 return Err(Error::ResourceLimit);
             }
             self.list(parent)
+        })())
+    }
+    /// Capture names and object metadata in one serialized owner observation.
+    /// `maximum` bounds children before materialization, excluding adapter dots.
+    pub fn directory_object_snapshot(
+        &self,
+        directory: FileId,
+        maximum: usize,
+    ) -> Result<ObjectDirectorySnapshot> {
+        self.observe((|| {
+            self.directory(directory)?;
+            let info = ObjectInfo::at(&self.db, self.catalog_version, directory)?;
+            let unlinked = directory != ROOT && info.stat.links == 0;
+            let parent = if unlinked {
+                None
+            } else {
+                Some(ObjectInfo::at(
+                    &self.db,
+                    self.catalog_version,
+                    self.parent_directory(directory)?,
+                )?)
+            };
+            let entries = self.list_bounded(directory, maximum)?;
+            if unlinked && !entries.is_empty() {
+                return Err(Error::Corrupt("unlinked directory has children".into()));
+            }
+            let entries = entries
+                .into_iter()
+                .map(|entry| {
+                    Ok(ObjectDirectoryEntry {
+                        name: entry.name,
+                        info: ObjectInfo::at(&self.db, self.catalog_version, entry.id)?,
+                    })
+                })
+                .collect::<Result<_>>()?;
+            Ok(ObjectDirectorySnapshot {
+                directory: info,
+                parent,
+                entries,
+            })
         })())
     }
     pub fn list(&self, parent: FileId) -> Result<Vec<Entry>> {

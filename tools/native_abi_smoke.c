@@ -8,6 +8,47 @@
     if (status != PW_OK) { fprintf(stderr, "%s returned %d\n", #call, status); return 1; } \
 } while (0)
 
+static int CapturedDirectoryContract(uint64_t volume, uint32_t metadata_valid) {
+    const uint8_t directory_name[] = "snapshot-contract", file_name[] = "captured.bin";
+    int64_t directory = 0, object = 0, found = 0;
+    uint64_t file = 0, cursor = 0, dots = 0, refused = 99;
+    size_t count = 0;
+    uint8_t bytes[64] = {0};
+    PwFsKitAttributes attributes = {0};
+    PwStat stat = {0};
+    REQUIRE(pw_directory_create(volume, 1, directory_name, sizeof(directory_name) - 1, &directory));
+    REQUIRE(pw_file_create(volume, directory, file_name, sizeof(file_name) - 1, &object));
+    REQUIRE(pw_file_open(volume, object, &file));
+    REQUIRE(pw_file_write(volume, file, 0, (const uint8_t *)"old", 3, &count));
+    REQUIRE(pw_fskit_directory_begin(volume, directory, 0, &cursor));
+    REQUIRE(pw_fskit_directory_begin(volume, directory, 1, &dots));
+    REQUIRE(pw_file_write(volume, file, 0, (const uint8_t *)"new content", 11, &count));
+    REQUIRE(pw_remove(volume, directory, file_name, sizeof(file_name) - 1, 0));
+    REQUIRE(pw_file_close(volume, file));
+    REQUIRE(pw_remove(volume, 1, directory_name, sizeof(directory_name) - 1, 1));
+    if (pw_stat(volume, object, &stat) != PW_NOT_FOUND || pw_stat(volume, directory, &stat) != PW_NOT_FOUND) return 1;
+    REQUIRE(pw_fskit_directory_next(volume, cursor, bytes, sizeof(bytes), &count, &found, &attributes));
+    if (count != sizeof(file_name) - 1 || memcmp(bytes, file_name, count) || found != object ||
+        attributes.file_id != (uint64_t)object + 1 || attributes.size != 3 || attributes.links != 1 ||
+        attributes.kind != 0 || attributes.metadata_valid != metadata_valid) return 1;
+    count = 99; found = 99;
+    if (pw_fskit_directory_next(volume, cursor, bytes, sizeof(bytes), &count, &found, &attributes) != PW_END || count != 99 || found != 99) return 1;
+    if (pw_fskit_directory_seek(volume, cursor, 2) != PW_BAD_COOKIE ||
+        pw_fskit_directory_refresh(volume, cursor, 0, &refused) != PW_NOT_FOUND || refused != 99 ||
+        pw_dir_close(volume, cursor) != PW_INVALID) return 1;
+    REQUIRE(pw_fskit_directory_seek(volume, cursor, 0));
+    REQUIRE(pw_fskit_directory_next(volume, cursor, bytes, sizeof(bytes), &count, &found, &attributes));
+    if (attributes.size != 3) return 1;
+    REQUIRE(pw_fskit_directory_next(volume, dots, bytes, sizeof(bytes), &count, &found, &attributes));
+    if (count != 1 || bytes[0] != '.' || found != directory || attributes.kind != 1 || attributes.links != 0) return 1;
+    REQUIRE(pw_fskit_directory_next(volume, dots, bytes, sizeof(bytes), &count, &found, &attributes));
+    if (count != 2 || memcmp(bytes, "..", 2) || found != 1 || attributes.file_id != 2) return 1;
+    REQUIRE(pw_fskit_directory_close(volume, cursor));
+    REQUIRE(pw_fskit_directory_close(volume, dots));
+    printf("NATIVE_CAPTURED_DIRECTORY_ABI_OK metadata_valid=%u (frozen rows/GC/dots/cookies; no native mount)\n", (unsigned)metadata_valid);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) return 2;
     const char *path = argv[1];
@@ -82,6 +123,7 @@ int main(int argc, char **argv) {
     if (stat.kind != 0 || stat.size != 5 || stat.links != 1) return 8;
     if (pw_remove_checked(volume, 1, (const uint8_t *)"renamed.txt", 11, 0, node + 1000) != PW_STALE) return 63;
     REQUIRE(pw_remove_checked(volume, 1, (const uint8_t *)"renamed.txt", 11, 0, node));
+    if (CapturedDirectoryContract(volume, 0)) return 79;
     REQUIRE(pw_volume_close(volume));
     char metadata_path[32768];
     int path_size = snprintf(metadata_path, sizeof(metadata_path), "%s-metadata", path);
@@ -252,6 +294,7 @@ int main(int argc, char **argv) {
     if (fresh_directory_snapshot == directory_snapshot || pw_windows_directory_close(volume, directory_snapshot) != PW_INVALID) return 67;
     directory_snapshot = fresh_directory_snapshot;
     REQUIRE(pw_windows_directory_close(volume, directory_snapshot));
+    if (CapturedDirectoryContract(volume, 1)) return 80;
     REQUIRE(pw_volume_close(volume));
     path_size = snprintf(metadata_path, sizeof(metadata_path), "%s-directories", path);
     if (path_size < 0 || (size_t)path_size >= sizeof(metadata_path)) return 68;
@@ -304,6 +347,7 @@ int main(int argc, char **argv) {
     if (pw_stat(volume, directory_created.object, &stat) != PW_NOT_FOUND ||
         pw_directory_close(volume, administrative_directory) != PW_INVALID) return 78;
     puts("NATIVE_DIRECTORY_ITEM_REFERENCE_ABI_OK (atomic v3 administrative references; no native authorization/mount)");
+    if (CapturedDirectoryContract(volume, 1)) return 81;
     REQUIRE(pw_volume_close(volume));
     puts("NATIVE_V3_DIRECTORY_ABI_OK (trusted directory references; no native mount)");
     puts("NATIVE_C_ABI_OK");
