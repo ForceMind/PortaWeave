@@ -161,4 +161,3 @@ fn real_4096_limit_returns_resource_without_changing_output_and_close_frees_it()
         assert_eq!(pw_posix_file_close(f.v, b), 0);
     }
 }
-
