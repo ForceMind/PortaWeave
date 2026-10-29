@@ -1,6 +1,8 @@
 use portaweave_native::*;
 use std::{
-    fs, path::PathBuf, ptr,
+    fs,
+    path::PathBuf,
+    ptr,
     sync::atomic::{AtomicU64, Ordering},
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -159,3 +161,4 @@ fn real_4096_limit_returns_resource_without_changing_output_and_close_frees_it()
         assert_eq!(pw_posix_file_close(f.v, b), 0);
     }
 }
+
