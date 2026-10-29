@@ -33,6 +33,12 @@ jobs:
           export LD_LIBRARY_PATH="$PWD/target/debug"
           export DYLD_LIBRARY_PATH="$PWD/target/debug"
           target/debug/native_abi_smoke "$RUNNER_TEMP/portaweave-c-smoke-$GITHUB_RUN_ID"
+      - name: Exercise portable dispatcher lifecycle failures (no driver/mount)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror tools/dispatcher_lifecycle_smoke.c -o "$RUNNER_TEMP/pw-lifecycle"
+          "$RUNNER_TEMP/pw-lifecycle"
       - name: Compile and run real MSVC C caller (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

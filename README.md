@@ -185,3 +185,5 @@ Probes install no drivers, use no network, do not invoke Codex or alter permissi
 Top-level licensing has not yet been selected by the owner. Third-party licenses remain independent. The name does not imply trademark clearance.
 
 CI evidence can be checked offline with `tools/ci_evidence.py`; queued, cancelled, skipped or incomplete jobs cannot pass the snapshot audit. See [scope and limits](docs/CI-EVIDENCE.zh-CN.md).
+
+The WinFsp lab now prepares console control before dispatcher startup, propagates wait/cleanup errors and observes abnormal stops. Portable fault tests and native event self-tests are not driver/mount/safe-eject certification. See [M0-X](docs/IMPLEMENTATION-M0X.zh-CN.md).

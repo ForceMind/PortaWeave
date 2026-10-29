@@ -16,3 +16,5 @@
 CI 仅从 WinFsp 官方 GitHub 固定 commit `ddca7bd5481857a65ba552f643b8776fd070836f` 检出头文件进行编译，不安装或上传 WinFsp 驱动，也不把第三方源码放进本仓库。是否真实通过以对应 PR 所载精确 SHA / Actions 为准，本文件不预称已通过。
 
 后续 M0-N/R/T 已接入实验性的普通文件 I/O、基本时间设置和不可变目录 ReadDirectory 合同；本文件的未接线列表描述 M0-H 当时状态。当前目录 Open/当前 GFI/刷新及原生 ACL/共享/Flush/真实挂载仍未完成，见 IMPLEMENTATION-M0T；不能从新增函数表推断可用工作盘。
+
+M0-X后续修复信号准备/等待错误/异常停止与事件生命周期；Ctrl+C/Break仅为实验协作停止，窗口关闭/注销/关机不作为安全卸载。见IMPLEMENTATION-M0X。

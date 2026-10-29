@@ -81,3 +81,8 @@ Work full default/all-feature/clippy/fmt、Python9、C11/C++17和本地v3四阶�
 GitHub重读main `0e1338591a04b970985d3aa866528331cb3f1df0` / tree `04ccaab734b616711b0636de4e113930b2bc23d4`，14/14检查及5工作流成功、无开放PR，#1/#3/#28开放；Work干净。新增inode/handle有界共享独占范围grant、typed policy C入口与关闭释放，详见M1-P/ADR0018/AGENTS51。初轮native测试fixture误用open access1/3而被既有ABI拒绝，修正为4/6后3项通过，未改生产校验；初轮日志保留。最终全量/真实C和跨OS CI按准确源码结果补记PR。所有真挂载、系统锁/共享、身份/ACL/缓存/同步/Codex/物理介质门禁不变，不操作用户本机或驱动。
 
 本轮Work最终完整回归：all-feature244通过/0失败、default204通过/0失败；原有4/1 ignored helper按既有父测试触发规则保留。clippy -D warnings、fmt、Python9、真实C11及独立C++17头/签名/链接调用通过。C输出NATIVE_ADVISORY_RANGE_LOCK_ABI_OK；本地v2四阶段逐站ADVISORY_RANGE_LOCK_HANDOVER_OK且UUID一致，均是Linux本地阶段，不冒充其他OS。完整source/main平台CI与确切SHA/环境清单以对应PR最终验收记录为准。
+
+
+## 2026-10-29 M0-X WinFsp Dispatcher 生命周期
+
+GitHub重读main4766e945204def5e3ca0f7a31ddc79c60610e7a3 / tree1c542c5e023f86ca4db00a9e711cf247a45baa00，14检查成功、无开放PR。修复控制资源准备顺序、wait失败假成功、异常dispatcher停止未唤醒及event signal/close同步和owner隔离，见M0-X/AGENTS52。Work Linux C11严格编译、8种故障组合真实执行及Python15项通过；Windows真实Win32事件/handler/SRW和fake dispatcher测试等待准确source CI，不冒称driver/挂载/安全卸载通过。Ctrl+C/Break协作停止不等于窗口关闭/注销/关机安全。原生身份/ACL/共享/完整同步/系统锁和真实开发卷验收仍BLOCKED/NOT_RUN，无本机/驱动/服务配置或沙盒更改。

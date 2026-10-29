@@ -11,6 +11,7 @@
 #include <wctype.h>
 #include <stdlib.h>
 #include <strsafe.h>
+#include "../common/dispatcher_lifecycle_contract.h"
 
 typedef NTSTATUS (*PW_FS_CREATE)(PWSTR,
     const FSP_FSCTL_VOLUME_PARAMS *, const FSP_FILE_SYSTEM_INTERFACE *,
@@ -28,14 +29,113 @@ typedef struct {
     PW_FS_DELETE destroy;
 } PW_API;
 static HANDLE StopSignal = NULL;
+static SRWLOCK StopLock = SRWLOCK_INIT;
+static volatile LONG DispatcherAbnormal = 0;
+static BOOL PwSignalStop(void)
+{
+    BOOL result=FALSE;
+    AcquireSRWLockShared(&StopLock);
+    if (StopSignal) result=SetEvent(StopSignal);
+    ReleaseSRWLockShared(&StopLock);
+    return result;
+}
 static BOOL WINAPI PwConsoleCtrl(DWORD event)
 {
-    if (event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT ||
-        event == CTRL_CLOSE_EVENT || event == CTRL_SHUTDOWN_EVENT) {
-        if (StopSignal) SetEvent(StopSignal);
-        return TRUE;
+    /* Close/logoff/shutdown can terminate immediately when this handler
+     * returns. They are not a graceful asynchronous Ctrl+C path. */
+    if (event!=CTRL_C_EVENT && event!=CTRL_BREAK_EVENT) return FALSE;
+    return PwSignalStop();
+}
+static VOID PwDispatcherStopped(FSP_FILE_SYSTEM *fs, BOOLEAN normally)
+{
+    (void)fs;
+    if (!normally) InterlockedExchange(&DispatcherAbnormal,1);
+    /* Never recursively stop/delete from the dispatcher callback. */
+    (void)PwSignalStop();
+}
+static VOID PwServiceInterfaceInit(FSP_FILE_SYSTEM_INTERFACE *callbacks)
+{
+    PwInterfaceInit(callbacks);
+    callbacks->DispatcherStopped=PwDispatcherStopped;
+}
+static BOOL PwCloseStopSignal(HANDLE expected)
+{
+    BOOL ok=TRUE;
+    /* Wait for in-flight signal users before retiring the handle. */
+    AcquireSRWLockExclusive(&StopLock);
+    if (expected && StopSignal==expected) { ok=CloseHandle(StopSignal); StopSignal=NULL; }
+    else if (expected) ok=FALSE;
+    ReleaseSRWLockExclusive(&StopLock);
+    return ok;
+}
+typedef struct {
+    PW_API *api;
+    FSP_FILE_SYSTEM *fs;
+    BOOL registered;
+    HANDLE signal;
+} PW_DISPATCH_RUN;
+static int PwRunPrepare(void *ctx)
+{
+    PW_DISPATCH_RUN *run=ctx;
+    HANDLE signal=CreateEventW(NULL,TRUE,FALSE,NULL);
+    if (!signal) return 0;
+    AcquireSRWLockExclusive(&StopLock);
+    if (StopSignal) {
+        ReleaseSRWLockExclusive(&StopLock);
+        CloseHandle(signal); return 0;
     }
-    return FALSE;
+    StopSignal=signal;
+    run->signal=signal;
+    ReleaseSRWLockExclusive(&StopLock);
+    InterlockedExchange(&DispatcherAbnormal,0);
+    run->registered=SetConsoleCtrlHandler(PwConsoleCtrl,TRUE);
+    return run->registered;
+}
+static int PwRunStart(void *ctx)
+{
+    PW_DISPATCH_RUN *run=ctx;
+    NTSTATUS status=run->api->start(run->fs,1);
+    if (!NT_SUCCESS(status)) fwprintf(stderr,L"FspStart NTSTATUS 0x%08lX\n",(ULONG)status);
+    return NT_SUCCESS(status);
+}
+static int PwRunWait(void *ctx)
+{
+    PW_DISPATCH_RUN *run=ctx;
+    DWORD result;
+    /* Only the serial lifecycle thread retires StopSignal after this wait. */
+    result=WaitForSingleObject(run->signal,INFINITE);
+    if (result!=WAIT_OBJECT_0) {
+        fwprintf(stderr,L"Dispatcher wait failed: result=%lu error=%lu\n",result,GetLastError());
+        return 0;
+    }
+    return InterlockedCompareExchange(&DispatcherAbnormal,0,0)==0;
+}
+static void PwRunStop(void *ctx)
+{
+    PW_DISPATCH_RUN *run=ctx;
+    run->api->stop(run->fs);
+}
+static int PwRunRelease(void *ctx)
+{
+    PW_DISPATCH_RUN *run=ctx;
+    BOOL ok=TRUE;
+    if (run->registered) {
+        ok=SetConsoleCtrlHandler(PwConsoleCtrl,FALSE);
+        run->registered=FALSE;
+    }
+    if (!PwCloseStopSignal(run->signal)) ok=FALSE;
+    run->signal=NULL;
+    return ok;
+}
+static const PW_DISPATCHER_OPS PwRunOps={PwRunPrepare,PwRunStart,PwRunWait,PwRunStop,PwRunRelease};
+static unsigned PwRunService(PW_DISPATCH_RUN *run)
+{
+    unsigned result=PwDispatcherRun(&PwRunOps,run);
+    /* An abnormal stop may race a console wake-up after wait inspected it.
+     * Recheck after stop has returned; normally=TRUE must never clear it. */
+    if (InterlockedCompareExchange(&DispatcherAbnormal,0,0)!=0)
+        result |= PW_LIFE_WAIT;
+    return result;
 }
 static VOID PwUnload(PW_API *api) {
     if (api->lib) FreeLibrary(api->lib);
@@ -73,6 +173,51 @@ static BOOL PwLoadInstalled(PW_API *api)
 #undef GET
     return TRUE;
 }
+/* Real Win32 event/handler/SRW path, fake dispatcher only. No runtime/driver. */
+static unsigned PwTestStarts, PwTestStops, PwTestAbnormal;
+static NTSTATUS PwTestStart(FSP_FILE_SYSTEM *fs, ULONG threads)
+{
+    (void)threads;
+    ++PwTestStarts;
+    if (!StopSignal || PwConsoleCtrl(CTRL_CLOSE_EVENT) ||
+        PwConsoleCtrl(CTRL_LOGOFF_EVENT) || PwConsoleCtrl(CTRL_SHUTDOWN_EVENT))
+        return STATUS_INVALID_PARAMETER;
+    if (PwTestAbnormal==1) PwDispatcherStopped(fs,FALSE);
+    else if (!PwConsoleCtrl(CTRL_BREAK_EVENT)) return STATUS_INVALID_PARAMETER;
+    return STATUS_SUCCESS;
+}
+static VOID PwTestStop(FSP_FILE_SYSTEM *fs)
+{
+    ++PwTestStops;
+    PwDispatcherStopped(fs,PwTestAbnormal==2 ? FALSE : TRUE);
+}
+static int PwNativeLifecycleTest(void)
+{
+    PW_API api;
+    FSP_FILE_SYSTEM fs;
+    PW_DISPATCH_RUN run, foreign;
+    unsigned result, abnormal;
+    ZeroMemory(&api,sizeof(api)); ZeroMemory(&fs,sizeof(fs));
+    api.start=PwTestStart; api.stop=PwTestStop;
+    for (abnormal=0;abnormal<3;++abnormal) {
+        ZeroMemory(&run,sizeof(run)); run.api=&api; run.fs=&fs;
+        PwTestAbnormal=abnormal;
+        PwTestStarts=PwTestStops=0;
+        result=PwRunService(&run);
+        if (result!=(unsigned)(abnormal ? PW_LIFE_WAIT : 0) || PwTestStarts!=1 ||
+            PwTestStops!=1 || StopSignal || run.signal || run.registered ||
+            PwConsoleCtrl(CTRL_C_EVENT)) return 1;
+    }
+    /* A refused second owner must not retire the first owner's signal. */
+    ZeroMemory(&run,sizeof(run)); ZeroMemory(&foreign,sizeof(foreign));
+    if (!PwRunPrepare(&run)) return 1;
+    if (PwRunPrepare(&foreign) || !PwRunRelease(&foreign) ||
+        !PwConsoleCtrl(CTRL_C_EVENT) ||
+        WaitForSingleObject(run.signal,0)!=WAIT_OBJECT_0 || !PwRunRelease(&run)) return 1;
+    if (StopSignal || PwConsoleCtrl(CTRL_C_EVENT)) return 1;
+    puts("WINFSP_NATIVE_CONTROL_LIFECYCLE_OK (real Win32 events/handler, fake dispatcher; no driver/mount)");
+    return 0;
+}
 static int PwSelfTest(void)
 {
     FSP_FILE_SYSTEM_INTERFACE callbacks;
@@ -84,10 +229,11 @@ static int PwSelfTest(void)
     ZeroMemory(&dummy,sizeof(dummy));
     ZeroMemory(&owner,sizeof(owner));
     mock.UserContext=&owner;
-    PwInterfaceInit(&callbacks);
+    PwServiceInterfaceInit(&callbacks);
     PwVolumeParamsInit(&params);
     if (pw_abi_version()!=1 || callbacks.GetVolumeInfo!=PwGetVolumeInfo ||
         callbacks.Read!=PwRead || callbacks.Open!=PwOpen ||
+        callbacks.DispatcherStopped!=PwDispatcherStopped ||
         callbacks.GetSecurityByName!=PwGetSecurityByName ||
         callbacks.Flush!=PwFlush || callbacks.Create!=NULL ||
         callbacks.Write!=PwWrite || callbacks.GetFileInfo!=PwGetFileInfo ||
@@ -100,6 +246,7 @@ static int PwSelfTest(void)
         fwprintf(stderr,L"FAIL: unsafe callbacks enabled\n");
         return 1;
     }
+    if (PwLifecycleContract() || PwNativeLifecycleTest()) return 1;
     wprintf(L"WINFSP_SERVICE_SELFTEST_OK (no driver/mount)\n");
     return 0;
 }
@@ -146,7 +293,7 @@ static int PwLab(WCHAR *letter)
         fwprintf(stderr,L"Could not create new lab container\n");
         goto end;
     }
-    PwInterfaceInit(&callbacks);
+    PwServiceInterfaceInit(&callbacks);
     PwVolumeParamsInit(&options);
     status=api.create(L"" FSP_FSCTL_DISK_DEVICE_NAME,&options,&callbacks,&fs);
     if (!NT_SUCCESS(status)) {
@@ -159,24 +306,16 @@ static int PwLab(WCHAR *letter)
         fwprintf(stderr,L"FspMount NTSTATUS 0x%08lX\n",(ULONG)status);
         goto release;
     }
-    status=api.start(fs,1);
-    if (!NT_SUCCESS(status)) {
-        fwprintf(stderr,L"FspStart NTSTATUS 0x%08lX\n",(ULONG)status);
-        goto release;
+    {
+        PW_DISPATCH_RUN run={&api,fs,FALSE,NULL};
+        unsigned result;
+        wprintf(L"LAB ONLY: attempting dispatcher on %s. Backing: %s\n"
+                L"All opens DENIED. Ctrl+C/Break requests stop; window close is NOT safe eject.\n",letter,root);
+        result=PwRunService(&run);
+        if (result) fwprintf(stderr,L"Dispatcher lifecycle failed mask=0x%X\n",result);
+        rc=result ? 1 : 0;
     }
-    StopSignal=CreateEventW(NULL,TRUE,FALSE,NULL);
-    if (!StopSignal || !SetConsoleCtrlHandler(PwConsoleCtrl,TRUE)) {
-        api.stop(fs);
-        goto release;
-    }
-    wprintf(L"LAB ONLY: %s mounted with all file opens DENIED. Backing: %s\n"
-            L"Press Ctrl+C to stop; never store user data.\n",letter,root);
-    (void)WaitForSingleObject(StopSignal,INFINITE);
-    (void)SetConsoleCtrlHandler(PwConsoleCtrl,FALSE);
-    api.stop(fs);
-    rc=0;
 release:
-    if (StopSignal) {CloseHandle(StopSignal);StopSignal=NULL;}
     if (fs) api.destroy(fs);
     if (pw_volume_close(owner.volume)!=PW_OK) rc=1;
 end:
