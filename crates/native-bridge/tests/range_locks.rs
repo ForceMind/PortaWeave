@@ -1,5 +1,9 @@
 use portaweave_native::*;
-use std::{fs, path::PathBuf, ptr};
+use std::{
+    fs, path::PathBuf, ptr,
+    sync::atomic::{AtomicU64, Ordering},
+};
+static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Fixture {
     path: PathBuf,
     v: u64,
@@ -19,7 +23,11 @@ impl Fixture {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("pw-lock-abi-{}-{stamp}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "pw-lock-abi-{}-{stamp}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
         let bytes = path.to_str().unwrap().as_bytes();
         let a = PwCreateAttributes {
             uid: 100,
