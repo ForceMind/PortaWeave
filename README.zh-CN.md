@@ -183,3 +183,5 @@ python -m unittest discover -s tests -v
 探针不安装驱动、不联网、不启动 Codex、不改权限。通过不冒充挂载认证；正常沙盒、单一容器所有者、安全卸载和真实平台验证仍是门禁。
 
 顶层许可证尚未由所有者确定，第三方许可独立保留。名称不代表商标已核验。
+
+新增离线CI证据审计工具 `tools/ci_evidence.py`，排队、取消、跳过或缺失作业均拒绝通过，见 [范围与限制](docs/CI-EVIDENCE.zh-CN.md)。
