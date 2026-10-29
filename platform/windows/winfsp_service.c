@@ -128,6 +128,15 @@ static int PwRunRelease(void *ctx)
     return ok;
 }
 static const PW_DISPATCHER_OPS PwRunOps={PwRunPrepare,PwRunStart,PwRunWait,PwRunStop,PwRunRelease};
+static unsigned PwRunService(PW_DISPATCH_RUN *run)
+{
+    unsigned result=PwDispatcherRun(&PwRunOps,run);
+    /* An abnormal stop may race a console wake-up after wait inspected it.
+     * Recheck after stop has returned; normally=TRUE must never clear it. */
+    if (InterlockedCompareExchange(&DispatcherAbnormal,0,0)!=0)
+        result |= PW_LIFE_WAIT;
+    return result;
+}
 static VOID PwUnload(PW_API *api) {
     if (api->lib) FreeLibrary(api->lib);
     ZeroMemory(api, sizeof(*api));
@@ -165,7 +174,7 @@ static BOOL PwLoadInstalled(PW_API *api)
     return TRUE;
 }
 /* Real Win32 event/handler/SRW path, fake dispatcher only. No runtime/driver. */
-static unsigned PwTestStarts, PwTestStops;
+static unsigned PwTestStarts, PwTestStops, PwTestAbnormal;
 static NTSTATUS PwTestStart(FSP_FILE_SYSTEM *fs, ULONG threads)
 {
     (void)threads;
@@ -173,14 +182,14 @@ static NTSTATUS PwTestStart(FSP_FILE_SYSTEM *fs, ULONG threads)
     if (!StopSignal || PwConsoleCtrl(CTRL_CLOSE_EVENT) ||
         PwConsoleCtrl(CTRL_LOGOFF_EVENT) || PwConsoleCtrl(CTRL_SHUTDOWN_EVENT))
         return STATUS_INVALID_PARAMETER;
-    if (fs->UserContext) PwDispatcherStopped(fs,FALSE);
+    if (PwTestAbnormal==1) PwDispatcherStopped(fs,FALSE);
     else if (!PwConsoleCtrl(CTRL_BREAK_EVENT)) return STATUS_INVALID_PARAMETER;
     return STATUS_SUCCESS;
 }
 static VOID PwTestStop(FSP_FILE_SYSTEM *fs)
 {
     ++PwTestStops;
-    PwDispatcherStopped(fs,TRUE);
+    PwDispatcherStopped(fs,PwTestAbnormal==2 ? FALSE : TRUE);
 }
 static int PwNativeLifecycleTest(void)
 {
@@ -190,11 +199,11 @@ static int PwNativeLifecycleTest(void)
     unsigned result, abnormal;
     ZeroMemory(&api,sizeof(api)); ZeroMemory(&fs,sizeof(fs));
     api.start=PwTestStart; api.stop=PwTestStop;
-    for (abnormal=0;abnormal<2;++abnormal) {
+    for (abnormal=0;abnormal<3;++abnormal) {
         ZeroMemory(&run,sizeof(run)); run.api=&api; run.fs=&fs;
-        fs.UserContext=abnormal ? &api : NULL;
+        PwTestAbnormal=abnormal;
         PwTestStarts=PwTestStops=0;
-        result=PwDispatcherRun(&PwRunOps,&run);
+        result=PwRunService(&run);
         if (result!=(unsigned)(abnormal ? PW_LIFE_WAIT : 0) || PwTestStarts!=1 ||
             PwTestStops!=1 || StopSignal || run.signal || run.registered ||
             PwConsoleCtrl(CTRL_C_EVENT)) return 1;
@@ -302,7 +311,7 @@ static int PwLab(WCHAR *letter)
         unsigned result;
         wprintf(L"LAB ONLY: attempting dispatcher on %s. Backing: %s\n"
                 L"All opens DENIED. Ctrl+C/Break requests stop; window close is NOT safe eject.\n",letter,root);
-        result=PwDispatcherRun(&PwRunOps,&run);
+        result=PwRunService(&run);
         if (result) fwprintf(stderr,L"Dispatcher lifecycle failed mask=0x%X\n",result);
         rc=result ? 1 : 0;
     }
