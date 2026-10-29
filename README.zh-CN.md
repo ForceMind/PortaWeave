@@ -185,3 +185,5 @@ python -m unittest discover -s tests -v
 顶层许可证尚未由所有者确定，第三方许可独立保留。名称不代表商标已核验。
 
 新增离线CI证据审计工具 `tools/ci_evidence.py`，排队、取消、跳过或缺失作业均拒绝通过，见 [范围与限制](docs/CI-EVIDENCE.zh-CN.md)。
+
+WinFsp实验入口新增启动前控制事件准备、等待/清理错误传播及异常停止观察；可移植故障测试和Win32事件自测不代表驱动挂载或安全卸载通过。见 [M0-X](docs/IMPLEMENTATION-M0X.zh-CN.md)。

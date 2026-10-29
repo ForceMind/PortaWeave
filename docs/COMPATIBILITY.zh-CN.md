@@ -105,3 +105,5 @@ M0-V 接入 v3 缓存目录自有 administrative pin 与原子目录引用创建
 M0-W 消除 SDK 分页时旧名字配当前属性的路径，使用单 owner 捕获与三表共享预算的元数据副本，见 [范围](IMPLEMENTATION-M0W.zh-CN.md)。副本不是inode/data grant、当前GFI或OS身份；实际kernel packer、通知/缓存一致性、权限和真挂载仍未验收。
 
 M1-P新增有界描述符协作范围锁，见 [范围](IMPLEMENTATION-M1P.zh-CN.md)。这是非阻塞token原语，不拦截普通I/O，不是OS锁、Windows共享模式或真卷SQLite证明；FS-08和DEV-07仍未验收。
+
+M0-X补强Dispatcher启动/停止和错误传播，仍是无驱动合同与事件自测，不关闭FS-04/FS-14或真实挂载/Codex门禁，见IMPLEMENTATION-M0X。
