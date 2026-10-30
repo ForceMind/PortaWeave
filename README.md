@@ -189,3 +189,5 @@ CI evidence can be checked offline with `tools/ci_evidence.py`; queued, cancelle
 The WinFsp lab now prepares console control before dispatcher startup, propagates wait/cleanup errors and observes abnormal stops. Portable fault tests and native event self-tests are not driver/mount/safe-eject certification. See [M0-X](docs/IMPLEMENTATION-M0X.zh-CN.md).
 
 Native adapters now distinguish cooperative lock contention, stale observations and internal/protocol failures. Real-core error/retry contracts are separate from OS locks or mount certification. See [M0-Y](docs/IMPLEMENTATION-M0Y.zh-CN.md).
+
+Windows host probes now exercise actual Win32 share modes, enforced byte-range locks, delete-pending and replacement with open handles. Run the four `windows-*` cases only through the scratch harness; host results do not certify a PortaWeave mount. See [M0-Z](docs/IMPLEMENTATION-M0Z.zh-CN.md).

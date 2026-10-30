@@ -90,3 +90,7 @@ GitHub重读main4766e945204def5e3ca0f7a31ddc79c60610e7a3 / tree1c542c5e023f86ca4
 ## 2026-10-30 M0-Y 原生错误分类
 
 从已重新核验 14/14 成功的 main a9aff93fb09c57e917e8aa60bbe709cb10545df1 继续。Windows 内部/未知结果不再误报 INVALID_PARAMETER，协作冲突/stale 独立传播；FSKit pwCheck 增加 EAGAIN。新实际核心硬链接冲突与释放重试、权限拒绝、checked stale 名字保留/健康不变合同等待准确 source CI，详见 M0-Y/对应 PR。Work Python15、既有 C11 lifecycle8组合及 diff check 通过，本地无 Rust/Swift/MSVC。真正挂载、身份/ACL/共享/完整同步/系统锁/Codex和物理介质仍 BLOCKED/NOT_RUN，未更改本机、驱动或沙盒。
+
+## 2026-10-30 M0-Z 原生 Windows host probes
+
+从 PR #43 main8da34020c5b9ffde2abf4f0730d1470c0cdb85b5 继续，非停在错误分类。补实际 Win32 共享打开/双向冲突、LockFileEx 强制读写限制与释放重试、delete-pending 及打开文件 replacement，复用私有夹具/JSON报告；重命名 raw容器布局先拒绝且不触碰原件。Work Python17/py_compile/diff通过；Linux四项N/A而非PASS。Windows真实宿主结果及完整source/main以对应PR准确日志为准。仍无 WinFsp driver/mount、native身份/ACL/共享/锁认证、完整同步/Codex/物理exFAT通过声明，详见M0-Z。

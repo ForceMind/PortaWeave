@@ -189,3 +189,5 @@ python -m unittest discover -s tests -v
 WinFsp实验入口新增启动前控制事件准备、等待/清理错误传播及异常停止观察；可移植故障测试和Win32事件自测不代表驱动挂载或安全卸载通过。见 [M0-X](docs/IMPLEMENTATION-M0X.zh-CN.md)。
 
 原生适配层现区分协作锁冲突、过时名字观察和内部/协议故障；真实核心冲突释放重试合同不等于系统锁或挂载通过，见 [M0-Y](docs/IMPLEMENTATION-M0Y.zh-CN.md)。
+
+新增四项 `windows-*` 探针，真实调用 Win32 共享打开、强制字节锁、delete-pending 和打开目标替换；统一入口仅创建可丢弃夹具，宿主结果不证明 PortaWeave 挂载通过，见 [M0-Z](docs/IMPLEMENTATION-M0Z.zh-CN.md)。

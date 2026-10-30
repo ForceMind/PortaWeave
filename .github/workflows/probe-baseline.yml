@@ -7,6 +7,7 @@ permissions:
   contents: read
 jobs:
   harness:
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -21,7 +22,7 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Probe a native host directory, never claim this is a mounted container
         shell: bash
-        run: python tools/workspace_probe.py --root "$RUNNER_TEMP" --label "native-host-${{ runner.os }}" --cases io,mmap,replace,hardlink,names,exclusive,sqlite,git --report "host-${{ runner.os }}.json"
+        run: python tools/workspace_probe.py --root "$RUNNER_TEMP" --label "native-host-${{ runner.os }}" --cases io,mmap,replace,hardlink,names,exclusive,sqlite,git,windows-share,windows-lock,windows-delete,windows-replace --report "host-${{ runner.os }}.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

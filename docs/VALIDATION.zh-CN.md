@@ -299,3 +299,7 @@ GitHub重读main4766e945204def5e3ca0f7a31ddc79c60610e7a3 / tree1c542c5e023f86ca4
 ## 2026-10-30 M0-Y 原生错误传播
 
 GitHub 重读 main a9aff93fb09c57e917e8aa60bbe709cb10545df1 / tree4bcb5eee064a739fa14e28aec1b2dd72977d9aab，14/14 检查成功、无开放 PR。修复 Windows 内部/未知结果误报参数错误与两平台遗漏协作冲突分类；新增真实核心 alias contention→释放→重试、只读拒绝、checked stale 名字保留及输出/健康不变合同，见 M0-Y/AGENTS53。Work Python15、既有 portable lifecycle C11 严格编译执行及 diff check 通过；无本地 Rust/Swift/MSVC，新增平台合同和完整回归以准确 source CI/对应 PR 日志验收，不沿用旧 main 的通过结论。所有系统锁/原生权限/挂载/完整同步/Codex/物理介质门禁保持 BLOCKED/NOT_RUN，无本机/驱动/沙盒更改。
+
+## 2026-10-30 M0-Z Windows 原生探针
+
+接续 PR #43 main8da34020c5b9ffde2abf4f0730d1470c0cdb85b5，新增四项 actual Win32 共享/LockFileEx/打开删除替换 probe，并增强重命名 backing 布局原件拒绝；详见 M0-Z/AGENTS54。Work Linux Python17、py_compile/diff check 通过，四项 native Windows 测试实际 NOT_APPLICABLE，没有 Windows 本地成功声明。准确 source 云 Windows host JSON/log、三平台完整回归及 main 结果须按对应 PR 验收；host PASS 不能填作挂载/系统锁/ACL/Codex/物理介质通过。未安装驱动、操作用户本机、修改 ACL/注册表或降低沙盒。

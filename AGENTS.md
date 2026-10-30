@@ -87,6 +87,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 53. M0-Y native result adapters preserve contention, denial, stale observation and internal/protocol failure as distinct errors. WinFsp maps cooperative conflict to FILE_LOCK_CONFLICT, checked stale identity to RETRY (fresh observation required, no blind destructive retry), and internal/unknown/PW_END to INTERNAL_ERROR; invalid input stays INVALID_PARAMETER. FSKit pwCheck maps cooperative conflict to EAGAIN, independently of EACCES/ESTALE/EIO and its SDK invalid-directory-cookie special case. These are adapter decisions, not fcntl/LockFileEx dispatch, Windows share modes, OS retry guarantees or mount certification. Preserve failed outputs and healthy storage after ordinary contention.
 
+54. M0-Z Windows native probes use real CreateFileW/LockFileEx/MoveFileExW/DeleteFileW with explicitly typed ctypes, non-inheritable synchronous handles and FAIL_IMMEDIATELY locks. Run only in the harness-created private scratch directories; exclusive-create fixtures, close/unlock all handles, never alter ACLs/drivers/registry or use delayed reboot moves. Reject .pwvol suffixes AND raw format.json/catalog.sqlite ancestor layouts before creating fixtures. Host directory results and independent handles in one process do not prove mounted-volume, cross-process/identity, ACL, mmap-lock, power-loss or Codex compatibility; non-Windows cases are NOT_APPLICABLE, never PASS.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.
