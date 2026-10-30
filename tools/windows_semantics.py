@@ -11,6 +11,7 @@ from ctypes import wintypes as W
 from pathlib import Path
 
 READ, WRITE = 0x80000000, 0x40000000
+DELETE = 0x00010000
 SHARE_READ, SHARE_ALL = 1, 7
 SHARING_VIOLATION, LOCK_VIOLATION = 32, 33
 
@@ -27,6 +28,13 @@ class FileInformation(C.Structure):
                 ("links", W.DWORD), ("indexHigh", W.DWORD), ("indexLow", W.DWORD)]
 
 
+class RenameInformation(C.Structure):
+    # FileRenameInfoEx uses the DWORD Flags member of FILE_RENAME_INFO's
+    # leading union. RootDirectory alignment differs between x86 and x64.
+    _fields_ = [("Flags", W.DWORD), ("RootDirectory", W.HANDLE),
+                ("FileNameLength", W.DWORD), ("FileName", W.WCHAR * 1)]
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
@@ -34,6 +42,11 @@ def require(condition: bool, message: str) -> None:
 
 class Api:
     def __init__(self):
+        require(C.sizeof(W.DWORD) == 4 and C.sizeof(W.WCHAR) == 2 and
+                C.sizeof(FileInformation) == 52, "Unexpected Win32 wire types")
+        require(C.sizeof(Overlapped) == (32 if C.sizeof(C.c_void_p) == 8 else 20) and
+                RenameInformation.FileName.offset == (20 if C.sizeof(C.c_void_p) == 8 else 12),
+                "Unexpected Win32 pointer/rename alignment")
         self.dll = C.WinDLL("kernel32", use_last_error=True)
         self.invalid = C.c_void_p(-1).value
         signatures = {
@@ -48,6 +61,7 @@ class Api:
             "DeleteFileW": (W.BOOL, [W.LPCWSTR]),
             "MoveFileExW": (W.BOOL, [W.LPCWSTR, W.LPCWSTR, W.DWORD]),
             "GetFileInformationByHandle": (W.BOOL, [W.HANDLE, C.POINTER(FileInformation)]),
+            "SetFileInformationByHandle": (W.BOOL, [W.HANDLE, C.c_int, C.c_void_p, W.DWORD]),
         }
         for name, (result, arguments) in signatures.items():
             function = getattr(self.dll, name)
@@ -70,19 +84,31 @@ class Api:
         # are synchronous and non-inheritable, not async OVERLAPPED I/O.
         handle = self.dll.CreateFileW(str(path), access, share, None, 3, 128, None)
         if handle == self.invalid:
-            raise C.WinError(C.get_last_error())
+            error = C.get_last_error()
+            raise RuntimeError(f"CreateFileW({path.name}): Win32 {error}")
         try:
             yield handle
         finally:
             self.checked(self.dll.CloseHandle(handle))
 
-    def refused_open(self, path: Path, access: int, share: int, code: int):
+    def refused_open(self, path: Path, access: int, share: int, code: int | tuple[int, ...]) -> int:
         handle = self.dll.CreateFileW(str(path), access, share, None, 3, 128, None)
         error = C.get_last_error()
         if handle != self.invalid:
             self.checked(self.dll.CloseHandle(handle))
             raise RuntimeError("CreateFileW unexpectedly admitted a forbidden open")
-        require(error == code, f"CreateFileW: expected Win32 {code}, got {error}")
+        allowed = (code,) if isinstance(code, int) else code
+        require(error in allowed, f"CreateFileW: expected Win32 {code}, got {error}")
+        return error
+
+    def replace_posix(self, handle, target: Path):
+        encoded = str(target).encode("utf-16-le")
+        offset = RenameInformation.FileName.offset
+        data = C.create_string_buffer(max(C.sizeof(RenameInformation), offset + len(encoded)))
+        info = RenameInformation.from_buffer(data)
+        info.Flags, info.FileNameLength = 3, len(encoded)  # REPLACE_IF_EXISTS | POSIX_SEMANTICS
+        C.memmove(C.addressof(data) + offset, encoded, len(encoded))
+        self.checked(self.dll.SetFileInformationByHandle(handle, 22, data, C.sizeof(data)))  # FileRenameInfoEx
 
     def seek(self, handle, offset=0):
         self.checked(self.dll.SetFilePointerEx(handle, offset, None, 0))
@@ -177,28 +203,49 @@ def locking(path: Path) -> str:
 def delete_pending(path: Path) -> str:
     api, file = Api(), path / "delete.bin"
     seed(file)
-    with api.opened(file) as held:
+    with api.opened(file, READ | WRITE | DELETE) as held:
         identity = api.identity(held)
-        api.checked(api.dll.DeleteFileW(str(file)))
+        # Explicit legacy disposition, not DeleteFileW's OS-dependent
+        # POSIX-delete-then-fallback implementation. BOOLEAN is ONE byte.
+        disposition = C.c_ubyte(1)
+        api.checked(api.dll.SetFileInformationByHandle(held, 4, C.byref(disposition), C.sizeof(disposition)))
         api.refused_open(file, READ, SHARE_ALL, 5)  # documented ERROR_ACCESS_DENIED
         require(api.read(held) == b"original" and api.identity(held) == identity,
                 "Delete-pending handle lost content/identity")
     api.refused_open(file, READ, SHARE_ALL, 2)  # final close: ERROR_FILE_NOT_FOUND
-    return "WIN32_DELETE_PENDING_OK: share-delete, new-open denial, retained handle, final-close removal"
+    # Current DeleteFileW prefers POSIX unlink on supported filesystems; older
+    # implementations/fallbacks retain a delete-pending name. Record which
+    # happened, while always requiring old data/identity and final removal.
+    unlink = path / "unlink.bin"
+    seed(unlink)
+    with api.opened(unlink) as held:
+        identity = api.identity(held)
+        api.checked(api.dll.DeleteFileW(str(unlink)))
+        visibility = api.refused_open(unlink, READ, SHARE_ALL, (2, 5))
+        require(api.read(held) == b"original" and api.identity(held) == identity,
+                "DeleteFileW invalidated the held file")
+    api.refused_open(unlink, READ, SHARE_ALL, 2)
+    return f"WIN32_DELETE_PENDING_OK: explicit legacy disposition and DeleteFileW retained handles; DeleteFileW new-open Win32={visibility} (2=unlinked,5=pending)"
 
 
 def replace_open(path: Path) -> str:
     api, source, target = Api(), path / "source.bin", path / "target.bin"
     seed(source, b"new-data")
     seed(target, b"old-data")
-    with api.opened(source) as fresh, api.opened(target) as old:
+    moved = path / "moved.bin"
+    with api.opened(source, READ | WRITE | DELETE) as fresh, api.opened(target) as old:
         fresh_id, old_id = api.identity(fresh), api.identity(old)
         require(fresh_id != old_id, "Two new files have the same identity")
-        api.checked(api.dll.MoveFileExW(str(source), str(target), 1))  # REPLACE_EXISTING; never delayed/reboot/copy
+        # Legacy MoveFileEx can rename the open source to an absent name.
+        # Replacing an OPEN target needs the explicit modern POSIX contract.
+        api.checked(api.dll.MoveFileExW(str(source), str(moved), 0))
+        require(api.identity(fresh) == fresh_id, "MoveFileExW invalidated the source")
+        api.replace_posix(fresh, target)
         with api.opened(target, READ) as current:
             require(api.identity(current) == fresh_id and api.read(current) == b"new-data", "Replacement lost source identity/data")
         require(api.identity(old) == old_id and api.read(old) == b"old-data", "Replacement invalidated the old target handle")
         require(api.identity(fresh) == fresh_id and api.read(fresh) == b"new-data", "Rename invalidated the source handle")
         api.refused_open(source, READ, SHARE_ALL, 2)
+        api.refused_open(moved, READ, SHARE_ALL, 2)
     require(target.read_bytes() == b"new-data", "Replacement did not survive close/reopen")
-    return "WIN32_REPLACE_OPEN_OK: share-delete on both files, old target/source/new name identities retained"
+    return "WIN32_REPLACE_OPEN_OK: MoveFileExW open-source rename, FileRenameInfoEx POSIX replacement, old target/source/new name identities retained"

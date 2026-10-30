@@ -94,3 +94,5 @@ GitHub重读main4766e945204def5e3ca0f7a31ddc79c60610e7a3 / tree1c542c5e023f86ca4
 ## 2026-10-30 M0-Z 原生 Windows host probes
 
 从 PR #43 main8da34020c5b9ffde2abf4f0730d1470c0cdb85b5 继续，非停在错误分类。补实际 Win32 共享打开/双向冲突、LockFileEx 强制读写限制与释放重试、delete-pending 及打开文件 replacement，复用私有夹具/JSON报告；重命名 raw容器布局先拒绝且不触碰原件。Work Python17/py_compile/diff通过；Linux四项N/A而非PASS。Windows真实宿主结果及完整source/main以对应PR准确日志为准。仍无 WinFsp driver/mount、native身份/ACL/共享/锁认证、完整同步/Codex/物理exFAT通过声明，详见M0-Z。
+
+M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 push41033734714 为真实10PASS/2FAIL，保留日志：DeleteFileW 实际新打开错误2而非旧式预期5；旧 MoveFileExW 打开目标替换报5。按 Microsoft WIL/正式 API 合同区分显式 legacy disposition 与实际 unlink/pending，并改用 FileRenameInfoEx POSIX 打开目标替换；未放宽共享/锁/身份/数据条件，不预报修正 CI 成功，详见M0-Z/对应PR。

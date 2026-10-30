@@ -303,3 +303,5 @@ GitHub 重读 main a9aff93fb09c57e917e8aa60bbe709cb10545df1 / tree4bcb5eee064a73
 ## 2026-10-30 M0-Z Windows 原生探针
 
 接续 PR #43 main8da34020c5b9ffde2abf4f0730d1470c0cdb85b5，新增四项 actual Win32 共享/LockFileEx/打开删除替换 probe，并增强重命名 backing 布局原件拒绝；详见 M0-Z/AGENTS54。Work Linux Python17、py_compile/diff check 通过，四项 native Windows 测试实际 NOT_APPLICABLE，没有 Windows 本地成功声明。准确 source 云 Windows host JSON/log、三平台完整回归及 main 结果须按对应 PR 验收；host PASS 不能填作挂载/系统锁/ACL/Codex/物理介质通过。未安装驱动、操作用户本机、修改 ACL/注册表或降低沙盒。
+
+M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 push41033734714 为真实10PASS/2FAIL，保留日志：DeleteFileW 实际新打开错误2而非旧式预期5；旧 MoveFileExW 打开目标替换报5。按 Microsoft WIL/正式 API 合同区分显式 legacy disposition 与实际 unlink/pending，并改用 FileRenameInfoEx POSIX 打开目标替换；未放宽共享/锁/身份/数据条件，不预报修正 CI 成功，详见M0-Z/对应PR。
