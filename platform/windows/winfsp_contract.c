@@ -76,7 +76,17 @@ static NTSTATUS PwNtStatus(int32_t result)
     case PW_IO: return STATUS_IO_DEVICE_ERROR;
     case PW_RESOURCE: return STATUS_INSUFFICIENT_RESOURCES;
     case PW_BUFFER_TOO_SMALL: return STATUS_BUFFER_TOO_SMALL;
-    default: return STATUS_INVALID_PARAMETER;
+    case PW_INVALID:
+    case PW_BAD_COOKIE: return STATUS_INVALID_PARAMETER;
+    /* A checked name changed: obtain a fresh observation, never retry a
+     * destructive request blindly with the same stale expected identity. */
+    case PW_STALE: return STATUS_RETRY;
+    case PW_LOCK_CONFLICT: return STATUS_FILE_LOCK_CONFLICT;
+    case PW_INTERNAL: return STATUS_INTERNAL_ERROR;
+    /* PW_END belongs to cursor iteration, not this operation-result adapter.
+     * Unexpected positive/negative codes must not look like success or an
+     * invalid user argument. Preserve an internal/protocol failure. */
+    default: return STATUS_INTERNAL_ERROR;
     }
 }
 
@@ -347,6 +357,51 @@ static VOID PwInterfaceInit(FSP_FILE_SYSTEM_INTERFACE *callbacks)
     fprintf(stderr, "check failed: %s at line %d\n", #condition, __LINE__); \
     return 1; \
 } } while (0)
+/* Exercise real core refusals through the production error adapter. These
+ * grants are cooperative C primitives, NOT LockFileEx/WinFsp lock dispatch. */
+static int PwErrorPropagationContract(uint64_t volume, const PwCredentials *caller)
+{
+    int64_t object, aliasObject;
+    uint64_t writer, reader, held, refused = 99;
+    uint32_t maintenance = 99, protected = 99;
+    PwStat before, after;
+    PwMetadata oldMetadata, newMetadata;
+    REQUIRE(PW_OK == pw_posix_create(volume, 1, (const uint8_t *)"error-source", 12, 0, 0600, 0, caller, &object));
+    REQUIRE(PW_OK == pw_hard_link(volume, object, 1, (const uint8_t *)"error-alias", 11));
+    REQUIRE(PW_OK == pw_posix_file_open(volume, 1, (const uint8_t *)"error-source", 12, 6, caller, &writer));
+    REQUIRE(PW_OK == pw_posix_file_open(volume, 1, (const uint8_t *)"error-alias", 11, 4, caller, &reader));
+    REQUIRE(PW_OK == pw_stat(volume, object, &before));
+    REQUIRE(PW_OK == pw_metadata_get(volume, object, &oldMetadata));
+    REQUIRE(PW_OK == pw_posix_file_lock_range(volume, writer, 0, 8, PW_LOCK_EXCLUSIVE, &held));
+    REQUIRE(STATUS_FILE_LOCK_CONFLICT == PwNtStatus(pw_posix_file_lock_range(volume, reader, 0, 8, PW_LOCK_SHARED, &refused)));
+    REQUIRE(refused == 99);
+    /* Permission denial is distinct from a retryable conflict, even at the
+     * same range. A READ-only grant cannot acquire an exclusive lock. */
+    REQUIRE(STATUS_ACCESS_DENIED == PwNtStatus(pw_posix_file_lock_range(volume, reader, 0, 8, PW_LOCK_EXCLUSIVE, &refused)));
+    REQUIRE(refused == 99);
+    REQUIRE(PW_OK == pw_posix_file_unlock_range(volume, writer, held));
+    REQUIRE(STATUS_SUCCESS == PwNtStatus(pw_posix_file_lock_range(volume, reader, 0, 8, PW_LOCK_SHARED, &refused)));
+    REQUIRE(refused != 99 && PW_OK == pw_posix_file_unlock_range(volume, reader, refused));
+    /* A wrong cached identity must preserve the actual alias and metadata. */
+    REQUIRE(STATUS_RETRY == PwNtStatus(pw_remove_checked(volume, 1, (const uint8_t *)"error-alias", 11, 0, object + 1)));
+    REQUIRE(PW_OK == pw_lookup(volume, 1, (const uint8_t *)"error-alias", 11, &aliasObject) && aliasObject == object);
+    REQUIRE(PW_OK == pw_stat(volume, object, &after));
+    REQUIRE(before.kind == after.kind && before.size == after.size && before.links == after.links && before.generation == after.generation);
+    REQUIRE(PW_OK == pw_metadata_get(volume, object, &newMetadata));
+    REQUIRE(0 == memcmp(&oldMetadata, &newMetadata, sizeof(oldMetadata)));
+    REQUIRE(PW_OK == pw_health(volume, &maintenance, &protected) && !maintenance && !protected);
+    REQUIRE(PW_OK == pw_posix_file_close(volume, reader));
+    REQUIRE(PW_OK == pw_posix_file_close(volume, writer));
+    REQUIRE(PW_OK == pw_remove_checked(volume, 1, (const uint8_t *)"error-alias", 11, 0, object));
+    REQUIRE(PW_OK == pw_remove_checked(volume, 1, (const uint8_t *)"error-source", 12, 0, object));
+    REQUIRE(PwNtStatus(PW_INTERNAL) == STATUS_INTERNAL_ERROR);
+    REQUIRE(PwNtStatus(INT32_MIN) == STATUS_INTERNAL_ERROR && PwNtStatus(INT32_MAX) == STATUS_INTERNAL_ERROR);
+    REQUIRE(PwNtStatus(PW_END) == STATUS_INTERNAL_ERROR);
+    REQUIRE(PwNtStatus(PW_IO) == STATUS_IO_DEVICE_ERROR && PwNtStatus(PW_CORRUPT) == STATUS_DATA_ERROR);
+    REQUIRE(PwNtStatus(PW_BAD_COOKIE) == STATUS_INVALID_PARAMETER);
+    puts("WINFSP_ERROR_PROPAGATION_CONTRACT_OK (real core conflict/retry/denial; no OS lock/mount)");
+    return 0;
+}
 /* Independent SDK-typed consumer of bytes emitted by Rust, including unaligned
  * user buffers. No WinFsp DLL/helper implementation is copied or simulated. */
 static BOOL PwDecodeDirectory(const UINT8 *buffer, ULONG length, ULONG offset,
@@ -742,6 +797,7 @@ int main(int argc, char **argv)
     REQUIRE(STATUS_INVALID_PARAMETER == callbacks.GetFileInfo(&fs, &file, &fileInfo));
     REQUIRE(PwDirectoryContract(&fs, &callbacks, volume, &caller) == 0);
     REQUIRE(PwDirectoryObservationContract(&fs, &callbacks, volume, &caller) == 0);
+    REQUIRE(PwErrorPropagationContract(volume, &caller) == 0);
     REQUIRE(PW_OK == pw_volume_close(volume));
     REQUIRE(PwV3DirectoryGrantContract(argv[1], &callbacks) == 0);
     puts("WINFSP_BASIC_INFO_CONTRACT_OK (trusted current-owner policy; no Windows ACL/mount certification)");

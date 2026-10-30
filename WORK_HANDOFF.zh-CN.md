@@ -86,3 +86,7 @@ GitHub重读main `0e1338591a04b970985d3aa866528331cb3f1df0` / tree `04ccaab734b6
 ## 2026-10-29 M0-X WinFsp Dispatcher 生命周期
 
 GitHub重读main4766e945204def5e3ca0f7a31ddc79c60610e7a3 / tree1c542c5e023f86ca4db00a9e711cf247a45baa00，14检查成功、无开放PR。修复控制资源准备顺序、wait失败假成功、异常dispatcher停止未唤醒及event signal/close同步和owner隔离，见M0-X/AGENTS52。Work Linux C11严格编译、8种故障组合真实执行及Python15项通过；Windows真实Win32事件/handler/SRW和fake dispatcher测试等待准确source CI，不冒称driver/挂载/安全卸载通过。Ctrl+C/Break协作停止不等于窗口关闭/注销/关机安全。原生身份/ACL/共享/完整同步/系统锁和真实开发卷验收仍BLOCKED/NOT_RUN，无本机/驱动/服务配置或沙盒更改。
+
+## 2026-10-30 M0-Y 原生错误分类
+
+从已重新核验 14/14 成功的 main a9aff93fb09c57e917e8aa60bbe709cb10545df1 继续。Windows 内部/未知结果不再误报 INVALID_PARAMETER，协作冲突/stale 独立传播；FSKit pwCheck 增加 EAGAIN。新实际核心硬链接冲突与释放重试、权限拒绝、checked stale 名字保留/健康不变合同等待准确 source CI，详见 M0-Y/对应 PR。Work Python15、既有 C11 lifecycle8组合及 diff check 通过，本地无 Rust/Swift/MSVC。真正挂载、身份/ACL/共享/完整同步/系统锁/Codex和物理介质仍 BLOCKED/NOT_RUN，未更改本机、驱动或沙盒。

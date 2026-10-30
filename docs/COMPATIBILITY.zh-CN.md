@@ -107,3 +107,5 @@ M0-W 消除 SDK 分页时旧名字配当前属性的路径，使用单 owner 捕
 M1-P新增有界描述符协作范围锁，见 [范围](IMPLEMENTATION-M1P.zh-CN.md)。这是非阻塞token原语，不拦截普通I/O，不是OS锁、Windows共享模式或真卷SQLite证明；FS-08和DEV-07仍未验收。
 
 M0-X补强Dispatcher启动/停止和错误传播，仍是无驱动合同与事件自测，不关闭FS-04/FS-14或真实挂载/Codex门禁，见IMPLEMENTATION-M0X。
+
+M0-Y 补充原生错误分类：Windows 协作冲突 FILE_LOCK_CONFLICT、stale RETRY、内部/未知结果 INTERNAL_ERROR；FSKit 协作冲突 EAGAIN。直接核心/适配合同不验证系统锁或内核重试；真挂载与其他开发卷门禁仍 BLOCKED/NOT_RUN，见 [M0-Y](IMPLEMENTATION-M0Y.zh-CN.md)。
