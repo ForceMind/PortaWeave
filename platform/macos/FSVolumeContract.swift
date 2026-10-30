@@ -155,7 +155,7 @@ struct FSVolumeContract {
         try require(refused == 99, "denial published a lock token")
         try pwCheck(pw_posix_file_unlock_range(native, writer, held))
         try pwCheck(pw_posix_file_lock_range(native, reader, 0, 8, UInt32(PW_LOCK_SHARED), &refused))
-        try require(refused != 99, "released conflict did not admit a fresh grant")
+        try require(refused != 0 && refused != held, "released conflict did not admit a fresh grant")
         try pwCheck(pw_posix_file_unlock_range(native, reader, refused))
         try expectStatus(alias.withUnsafeBytes {
             pw_remove_checked(native, 1, $0.bindMemory(to: UInt8.self).baseAddress, alias.count, 0, object + 1)

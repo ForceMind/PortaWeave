@@ -381,7 +381,7 @@ static int PwErrorPropagationContract(uint64_t volume, const PwCredentials *call
     REQUIRE(refused == 99);
     REQUIRE(PW_OK == pw_posix_file_unlock_range(volume, writer, held));
     REQUIRE(STATUS_SUCCESS == PwNtStatus(pw_posix_file_lock_range(volume, reader, 0, 8, PW_LOCK_SHARED, &refused)));
-    REQUIRE(refused != 99 && PW_OK == pw_posix_file_unlock_range(volume, reader, refused));
+    REQUIRE(refused != 0 && refused != held && PW_OK == pw_posix_file_unlock_range(volume, reader, refused));
     /* A wrong cached identity must preserve the actual alias and metadata. */
     REQUIRE(STATUS_RETRY == PwNtStatus(pw_remove_checked(volume, 1, (const uint8_t *)"error-alias", 11, 0, object + 1)));
     REQUIRE(PW_OK == pw_lookup(volume, 1, (const uint8_t *)"error-alias", 11, &aliasObject) && aliasObject == object);
