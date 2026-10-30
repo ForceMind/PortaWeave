@@ -21,11 +21,8 @@ class Overlapped(C.Structure):
                 ("Offset", W.DWORD), ("OffsetHigh", W.DWORD), ("hEvent", W.HANDLE)]
 
 
-class FileInformation(C.Structure):
-    _fields_ = [("attributes", W.DWORD), ("created", W.FILETIME),
-                ("accessed", W.FILETIME), ("written", W.FILETIME),
-                ("volume", W.DWORD), ("sizeHigh", W.DWORD), ("sizeLow", W.DWORD),
-                ("links", W.DWORD), ("indexHigh", W.DWORD), ("indexLow", W.DWORD)]
+class FileIdentity(C.Structure):
+    _fields_ = [("volume", C.c_ulonglong), ("identifier", C.c_ubyte * 16)]
 
 
 class RenameInformation(C.Structure):
@@ -43,7 +40,7 @@ def require(condition: bool, message: str) -> None:
 class Api:
     def __init__(self):
         require(C.sizeof(W.DWORD) == 4 and C.sizeof(W.WCHAR) == 2 and
-                C.sizeof(FileInformation) == 52, "Unexpected Win32 wire types")
+                C.sizeof(FileIdentity) == 24, "Unexpected Win32 wire types")
         require(C.sizeof(Overlapped) == (32 if C.sizeof(C.c_void_p) == 8 else 20) and
                 RenameInformation.FileName.offset == (20 if C.sizeof(C.c_void_p) == 8 else 12),
                 "Unexpected Win32 pointer/rename alignment")
@@ -60,7 +57,7 @@ class Api:
             "UnlockFileEx": (W.BOOL, [W.HANDLE, W.DWORD, W.DWORD, W.DWORD, C.POINTER(Overlapped)]),
             "DeleteFileW": (W.BOOL, [W.LPCWSTR]),
             "MoveFileExW": (W.BOOL, [W.LPCWSTR, W.LPCWSTR, W.DWORD]),
-            "GetFileInformationByHandle": (W.BOOL, [W.HANDLE, C.POINTER(FileInformation)]),
+            "GetFileInformationByHandleEx": (W.BOOL, [W.HANDLE, C.c_int, C.c_void_p, W.DWORD]),
             "SetFileInformationByHandle": (W.BOOL, [W.HANDLE, C.c_int, C.c_void_p, W.DWORD]),
         }
         for name, (result, arguments) in signatures.items():
@@ -104,7 +101,9 @@ class Api:
     def replace_posix(self, handle, target: Path):
         encoded = str(target).encode("utf-16-le")
         offset = RenameInformation.FileName.offset
-        data = C.create_string_buffer(max(C.sizeof(RenameInformation), offset + len(encoded)))
+        # Keep an explicit NUL for the Win32 path consumer; FileNameLength
+        # counts only the UTF-16 bytes, not this additional terminator.
+        data = C.create_string_buffer(max(C.sizeof(RenameInformation), offset + len(encoded) + 2))
         info = RenameInformation.from_buffer(data)
         info.Flags, info.FileNameLength = 3, len(encoded)  # REPLACE_IF_EXISTS | POSIX_SEMANTICS
         C.memmove(C.addressof(data) + offset, encoded, len(encoded))
@@ -119,11 +118,14 @@ class Api:
         self.checked(self.dll.ReadFile(handle, data, length, C.byref(done), None))
         return data.raw[:done.value]
 
-    def identity(self, handle) -> tuple[int, int, int]:
-        info = FileInformation()
-        self.checked(self.dll.GetFileInformationByHandle(handle, C.byref(info)))
-        require(bool(info.indexHigh or info.indexLow), "File identity is zero")
-        return info.volume, info.indexHigh, info.indexLow
+    def identity(self, handle) -> tuple[int, str]:
+        # FileIdInfo=18 returns a full 128-bit ID plus volume serial. A 64-bit
+        # BY_HANDLE_FILE_INFORMATION ID is not guaranteed unique on ReFS.
+        info = FileIdentity()
+        self.checked(self.dll.GetFileInformationByHandleEx(handle, 18, C.byref(info), C.sizeof(info)))
+        identifier = bytes(info.identifier)
+        require(any(identifier), "File identity is zero")
+        return info.volume, identifier.hex()
 
     @contextmanager
     def locked(self, handle, offset=0, length=4, exclusive=True):
@@ -242,7 +244,11 @@ def replace_open(path: Path) -> str:
         require(api.identity(fresh) == fresh_id, "MoveFileExW invalidated the source")
         api.replace_posix(fresh, target)
         with api.opened(target, READ) as current:
-            require(api.identity(current) == fresh_id and api.read(current) == b"new-data", "Replacement lost source identity/data")
+            current_id, contents = api.identity(current), api.read(current)
+            require(current_id == fresh_id,
+                    f"Replacement identity {current_id} differs from source {fresh_id}; old={old_id}, "
+                    f"data={contents!r}, fixture names={sorted(p.name for p in path.iterdir())}")
+            require(contents == b"new-data", f"Replacement has wrong fixture data: {contents!r}")
         require(api.identity(old) == old_id and api.read(old) == b"old-data", "Replacement invalidated the old target handle")
         require(api.identity(fresh) == fresh_id and api.read(fresh) == b"new-data", "Rename invalidated the source handle")
         api.refused_open(source, READ, SHARE_ALL, 2)
