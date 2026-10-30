@@ -85,6 +85,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 52. M0-X dispatcher lifecycle must prepare control resources before start, preserve wait and cleanup errors, stop successful starts before releasing control state, and destroy the filesystem before closing its core owner/unloading the DLL. DispatcherStopped callbacks only signal/record abnormal state, never recursively stop/delete. Signal/close access must synchronize and release only its own event; a rejected second owner cannot retire another session. Console C/Break cooperation is not close/logoff/shutdown, flush or safe-eject certification. Portable/fake dispatcher and real Win32 event self-tests do not enable native gates or prove a mounted driver.
 
+53. M0-Y native result adapters preserve contention, denial, stale observation and internal/protocol failure as distinct errors. WinFsp maps cooperative conflict to FILE_LOCK_CONFLICT, checked stale identity to RETRY (fresh observation required, no blind destructive retry), and internal/unknown/PW_END to INTERNAL_ERROR; invalid input stays INVALID_PARAMETER. FSKit pwCheck maps cooperative conflict to EAGAIN, independently of EACCES/ESTALE/EIO and its SDK invalid-directory-cookie special case. These are adapter decisions, not fcntl/LockFileEx dispatch, Windows share modes, OS retry guarantees or mount certification. Preserve failed outputs and healthy storage after ordinary contention.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

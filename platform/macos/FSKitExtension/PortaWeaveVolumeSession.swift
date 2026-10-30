@@ -28,6 +28,9 @@ func pwCheck(_ status: Int32) throws {
     case PW_BUFFER_TOO_SMALL: code = .EOVERFLOW
     case PW_INVALID: code = .EINVAL
     case PW_STALE: code = .ESTALE
+    // Cooperative contention is retryable, not media I/O or authorization.
+    // This does not implement fcntl/flock or enable system lock dispatch.
+    case PW_LOCK_CONFLICT: code = .EAGAIN
     default: code = .EIO
     }
     throw POSIXError(code)

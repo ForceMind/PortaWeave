@@ -295,3 +295,7 @@ GitHub重读main `0e1338591a04b970985d3aa866528331cb3f1df0` / tree `04ccaab734b6
 ## 2026-10-29 M0-X WinFsp Dispatcher 生命周期
 
 GitHub重读main4766e945204def5e3ca0f7a31ddc79c60610e7a3 / tree1c542c5e023f86ca4db00a9e711cf247a45baa00，14检查成功、无开放PR。修复控制资源准备顺序、wait失败假成功、异常dispatcher停止未唤醒及event signal/close同步和owner隔离，见M0-X/AGENTS52。Work Linux C11严格编译、8种故障组合真实执行及Python15项通过；Windows真实Win32事件/handler/SRW和fake dispatcher测试等待准确source CI，不冒称driver/挂载/安全卸载通过。Ctrl+C/Break协作停止不等于窗口关闭/注销/关机安全。原生身份/ACL/共享/完整同步/系统锁和真实开发卷验收仍BLOCKED/NOT_RUN，无本机/驱动/服务配置或沙盒更改。
+
+## 2026-10-30 M0-Y 原生错误传播
+
+GitHub 重读 main a9aff93fb09c57e917e8aa60bbe709cb10545df1 / tree4bcb5eee064a739fa14e28aec1b2dd72977d9aab，14/14 检查成功、无开放 PR。修复 Windows 内部/未知结果误报参数错误与两平台遗漏协作冲突分类；新增真实核心 alias contention→释放→重试、只读拒绝、checked stale 名字保留及输出/健康不变合同，见 M0-Y/AGENTS53。Work Python15、既有 portable lifecycle C11 严格编译执行及 diff check 通过；无本地 Rust/Swift/MSVC，新增平台合同和完整回归以准确 source CI/对应 PR 日志验收，不沿用旧 main 的通过结论。所有系统锁/原生权限/挂载/完整同步/Codex/物理介质门禁保持 BLOCKED/NOT_RUN，无本机/驱动/沙盒更改。

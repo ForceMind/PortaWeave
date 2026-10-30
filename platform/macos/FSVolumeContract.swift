@@ -111,6 +111,78 @@ func replaceNativeName(_ volume: PortaWeaveVolume, _ from: String, _ to: String)
 
 @main
 struct FSVolumeContract {
+    // Real core failures passed through production pwCheck. No fcntl/flock,
+    // system callback dispatch, mounted volume or OS identity is involved.
+    static func errorPropagationContract(_ url: URL) throws {
+        func expectStatus(_ status: Int32, _ code: POSIXErrorCode) throws {
+            do {
+                try pwCheck(status)
+                throw ContractFailure(message: "native failure mapped to success: \(status)")
+            } catch let error as POSIXError {
+                try require(error.code == code, "native status \(status) mapped to \(error.code), expected \(code)")
+            }
+        }
+        var native: UInt64 = 0
+        var attributes = PwCreateAttributes(uid: 501, gid: 20, mode: 0o700, reserved: 0)
+        var caller = PwCredentials(uid: 501, gid: 20, groups: nil, group_count: 0, reserved: 0)
+        let path = Data(url.path.utf8)
+        try pwCheck(path.withUnsafeBytes {
+            pw_volume_create_with_metadata($0.bindMemory(to: UInt8.self).baseAddress,
+                                          path.count, 65536, &attributes, &native)
+        })
+        let name = Data("source".utf8), alias = Data("alias".utf8)
+        var object: Int64 = 0, actual: Int64 = 0
+        try pwCheck(name.withUnsafeBytes {
+            pw_posix_create(native, 1, $0.bindMemory(to: UInt8.self).baseAddress,
+                            name.count, 0, 0o600, 0, &caller, &object)
+        })
+        try pwCheck(alias.withUnsafeBytes {
+            pw_hard_link(native, object, 1, $0.bindMemory(to: UInt8.self).baseAddress, alias.count)
+        })
+        var writer: UInt64 = 0, reader: UInt64 = 0, held: UInt64 = 0, refused: UInt64 = 99
+        try pwCheck(name.withUnsafeBytes {
+            pw_posix_file_open(native, 1, $0.bindMemory(to: UInt8.self).baseAddress, name.count, 6, &caller, &writer)
+        })
+        try pwCheck(alias.withUnsafeBytes {
+            pw_posix_file_open(native, 1, $0.bindMemory(to: UInt8.self).baseAddress, alias.count, 4, &caller, &reader)
+        })
+        var before = PwFileInfo(), after = PwFileInfo()
+        try pwCheck(pw_posix_file_info(native, writer, &before))
+        try pwCheck(pw_posix_file_lock_range(native, writer, 0, 8, UInt32(PW_LOCK_EXCLUSIVE), &held))
+        try expectStatus(pw_posix_file_lock_range(native, reader, 0, 8, UInt32(PW_LOCK_SHARED), &refused), .EAGAIN)
+        try require(refused == 99, "conflict published a lock token")
+        try expectStatus(pw_posix_file_lock_range(native, reader, 0, 8, UInt32(PW_LOCK_EXCLUSIVE), &refused), .EACCES)
+        try require(refused == 99, "denial published a lock token")
+        try pwCheck(pw_posix_file_unlock_range(native, writer, held))
+        try pwCheck(pw_posix_file_lock_range(native, reader, 0, 8, UInt32(PW_LOCK_SHARED), &refused))
+        try require(refused != 0 && refused != held, "released conflict did not admit a fresh grant")
+        try pwCheck(pw_posix_file_unlock_range(native, reader, refused))
+        try expectStatus(alias.withUnsafeBytes {
+            pw_remove_checked(native, 1, $0.bindMemory(to: UInt8.self).baseAddress, alias.count, 0, object + 1)
+        }, .ESTALE)
+        try pwCheck(alias.withUnsafeBytes {
+            pw_lookup(native, 1, $0.bindMemory(to: UInt8.self).baseAddress, alias.count, &actual)
+        })
+        try require(actual == object, "stale refusal removed the actual alias")
+        try pwCheck(pw_posix_file_info(native, writer, &after))
+        try require(before.object == after.object && before.stat.generation == after.stat.generation &&
+                    before.stat.links == after.stat.links && before.stat.size == after.stat.size &&
+                    before.metadata.mode == after.metadata.mode && before.metadata.uid == after.metadata.uid &&
+                    before.metadata.gid == after.metadata.gid &&
+                    before.metadata.changed.seconds == after.metadata.changed.seconds &&
+                    before.metadata.changed.nanoseconds == after.metadata.changed.nanoseconds,
+                    "conflict/stale refusal changed inode state")
+        var maintenance: UInt32 = 99, protected: UInt32 = 99
+        try pwCheck(pw_health(native, &maintenance, &protected))
+        try require(maintenance == 0 && protected == 0, "contention poisoned storage health")
+        try pwCheck(pw_posix_file_close(native, reader))
+        try pwCheck(pw_posix_file_close(native, writer))
+        try pwCheck(pw_volume_close(native))
+        for status in [Int32(PW_INTERNAL), Int32(PW_IO), Int32(PW_CORRUPT), Int32(PW_END), Int32.min, Int32.max] {
+            try expectStatus(status, .EIO)
+        }
+        print("FSVOLUME_ERROR_PROPAGATION_CONTRACT_OK (real core conflict/retry/denial; no OS lock/mount)")
+    }
     static func directoryMetadataSnapshotContract(_ base: URL) throws {
         for version in [1, 2, 3] {
             let url = base.appendingPathExtension("v\(version)")
@@ -948,6 +1020,7 @@ struct FSVolumeContract {
         }
         guard CommandLine.arguments.count == 2 else { throw ContractFailure(message: "new scratch path required") }
         let url = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+        try errorPropagationContract(url.appendingPathExtension("errors"))
         let other = url.appendingPathExtension("other")
         try makeContainer(url)
         try makeContainer(other)
