@@ -261,11 +261,25 @@ def executable(p: Path) -> str:
     return "Direct executable-bit/shebang execution, not native compiler/dynamic-loader coverage"
 
 
+def windows_native(p: Path, operation: str) -> str:
+    if os.name != "nt":
+        raise NotApplicable("Actual Win32 API probe; Windows runner required")
+    if __package__:
+        from . import windows_semantics
+    else:
+        import windows_semantics
+    return getattr(windows_semantics, operation)(p)
+
+
 CASES: dict[str, Callable[[Path], str]] = {
     "io": io_roundtrip, "mmap": mapped_io, "replace": atomic_replace,
     "hardlink": hardlink, "symlink": symlink, "names": names,
     "exclusive": exclusive_create, "sqlite": sqlite_wal, "git": git_worktree,
     "node": node_watch, "venv": python_venv, "exec": executable,
+    "windows-share": lambda p: windows_native(p, "sharing"),
+    "windows-lock": lambda p: windows_native(p, "locking"),
+    "windows-delete": lambda p: windows_native(p, "delete_pending"),
+    "windows-replace": lambda p: windows_native(p, "replace_open"),
 }
 
 
@@ -273,6 +287,11 @@ def probe(root: Path, selected: list[str], label: str) -> dict:
     root = root.expanduser().resolve(strict=True)
     if not root.is_dir() or any(part.lower().endswith(".pwvol") for part in root.parts):
         raise ValueError("Use a disposable directory in the mounted volume, never the backing .pwvol")
+    # Containers may be renamed without the conventional suffix. Inspect only
+    # the backing layout's presence, never open its catalog or recover it.
+    if any((parent / "format.json").exists() and (parent / "catalog.sqlite").exists()
+           for parent in (root, *root.parents)):
+        raise ValueError("Refusing a raw container layout or its descendants")
     if not selected or len(set(selected)) != len(selected) or any(n not in CASES for n in selected):
         raise ValueError("Select nonempty, distinct, known case names")
     results = []
@@ -303,7 +322,7 @@ def probe(root: Path, selected: list[str], label: str) -> dict:
         "counts": counts, "results": results,
         "applicable_selected_cases_passed": not (counts.get("FAIL") or counts.get("NOT_RUN")),
         "not_covered": ["real PortaWeave mount identification", "Codex integration/sandbox enforcement",
-                        "Windows ACL/share modes", "native compilation/dynamic loading", "package installation",
+                        "Windows ACLs and mounted-volume share/lock semantics", "native compilation/dynamic loading", "package installation",
                         "GC", "power loss", "real exFAT", "macOS/Windows cross-system handover"],
     }
 

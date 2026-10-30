@@ -48,6 +48,32 @@ class ProbeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     probe.probe(Path(folder), cases, "invalid")
 
+    def test_reject_renamed_backing_layout_without_mutation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "format.json").write_bytes(b"do not parse me")
+            (root / "catalog.sqlite").write_bytes(b"do not open me")
+            child = root / "segments"
+            child.mkdir()
+            for path in (root, child):
+                with self.assertRaises(ValueError):
+                    probe.probe(path, ["windows-share"], "raw-renamed")
+            self.assertEqual((root / "format.json").read_bytes(), b"do not parse me")
+            self.assertEqual((root / "catalog.sqlite").read_bytes(), b"do not open me")
+            self.assertEqual(set(root.iterdir()), {root / "format.json", root / "catalog.sqlite", child})
+            self.assertEqual(list(child.iterdir()), [])
+
+    @unittest.skipIf(probe.os.name == "nt", "Real Win32 cases are run by the host baseline")
+    def test_windows_cases_never_pass_on_other_platforms(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            selected = [name for name in probe.CASES if name.startswith("windows-")]
+            report = probe.probe(root, selected, "not-windows")
+            self.assertEqual(report["counts"], {"NOT_APPLICABLE": 4})
+            self.assertFalse(report["mount_identity_verified"])
+            self.assertFalse(report["product_compatibility_certified"])
+            self.assertEqual(list(root.iterdir()), [])
+
     def test_report_never_overwrites_existing_file(self):
         with tempfile.TemporaryDirectory() as folder:
             report = Path(folder) / "report.json"

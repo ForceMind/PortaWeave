@@ -109,3 +109,5 @@ M1-P新增有界描述符协作范围锁，见 [范围](IMPLEMENTATION-M1P.zh-CN
 M0-X补强Dispatcher启动/停止和错误传播，仍是无驱动合同与事件自测，不关闭FS-04/FS-14或真实挂载/Codex门禁，见IMPLEMENTATION-M0X。
 
 M0-Y 补充原生错误分类：Windows 协作冲突 FILE_LOCK_CONFLICT、stale RETRY、内部/未知结果 INTERNAL_ERROR；FSKit 协作冲突 EAGAIN。直接核心/适配合同不验证系统锁或内核重试；真挂载与其他开发卷门禁仍 BLOCKED/NOT_RUN，见 [M0-Y](IMPLEMENTATION-M0Y.zh-CN.md)。
+
+M0-Z 为 FS-02/03/08 增加真实 Win32 探针，但 CI 首先在云宿主目录验证，不能填作真实卷通过；一个进程多个独立句柄不替代跨进程/token、ACL 或映射锁验证。四项 windows-* 在其他 OS 明确 NOT_APPLICABLE。真挂载/共享/系统锁门禁仍未验收，见 [M0-Z](IMPLEMENTATION-M0Z.zh-CN.md)。
