@@ -89,6 +89,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 54. M0-Z Windows native probes use real CreateFileW/LockFileEx/MoveFileExW/DeleteFileW and explicit FileDispositionInfo/FileRenameInfoEx contracts with typed ctypes/verified wire alignment, non-inheritable synchronous handles and FAIL_IMMEDIATELY locks. Run only in the harness-created private scratch directories; exclusive-create fixtures, close/unlock all handles, never alter ACLs/drivers/registry or use delayed reboot moves. Reject .pwvol suffixes AND raw format.json/catalog.sqlite ancestor layouts before creating fixtures. Distinguish legacy pending from DeleteFileW POSIX-unlink/fallback visibility and report the actual result; open-target replacement uses explicit POSIX rename, not a claim that legacy MoveFileEx replaces open targets. Host directory results and independent handles in one process do not prove mounted-volume, cross-process/identity, ACL, mmap-lock, power-loss or Codex compatibility; non-Windows cases are NOT_APPLICABLE, never PASS.
 
+55. The current core v1/v2/v3 backing marker is format.txt, not the proposed format.json. Probe guards must reject either marker with catalog.sqlite on any ancestor before fixture creation, even with unknown marker contents. Keep the original format.json layout rejection; neither existence checks nor fixture tests certify a hostile-namespace security boundary or an actual mount.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

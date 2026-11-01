@@ -191,3 +191,5 @@ The WinFsp lab now prepares console control before dispatcher startup, propagate
 Native adapters now distinguish cooperative lock contention, stale observations and internal/protocol failures. Real-core error/retry contracts are separate from OS locks or mount certification. See [M0-Y](docs/IMPLEMENTATION-M0Y.zh-CN.md).
 
 Windows host probes now exercise actual Win32 share modes, enforced byte-range locks, delete-pending and replacement with open handles. Run the four `windows-*` cases only through the scratch harness; host results do not certify a PortaWeave mount. See [M0-Z](docs/IMPLEMENTATION-M0Z.zh-CN.md).
+
+The probe now refuses both the actual core `format.txt` + catalog layout and the proposed `format.json` layout, including renamed containers and descendants, before creating fixtures. See the M0-Z erratum; this is a probe safety fix, not mount certification.

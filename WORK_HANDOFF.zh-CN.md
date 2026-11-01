@@ -96,3 +96,9 @@ GitHub重读main4766e945204def5e3ca0f7a31ddc79c60610e7a3 / tree1c542c5e023f86ca4
 从 PR #43 main8da34020c5b9ffde2abf4f0730d1470c0cdb85b5 继续，非停在错误分类。补实际 Win32 共享打开/双向冲突、LockFileEx 强制读写限制与释放重试、delete-pending 及打开文件 replacement，复用私有夹具/JSON报告；重命名 raw容器布局先拒绝且不触碰原件。Work Python17/py_compile/diff通过；Linux四项N/A而非PASS。Windows真实宿主结果及完整source/main以对应PR准确日志为准。仍无 WinFsp driver/mount、native身份/ACL/共享/锁认证、完整同步/Codex/物理exFAT通过声明，详见M0-Z。
 
 M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 push41033734714 为真实10PASS/2FAIL，保留日志：DeleteFileW 实际新打开错误2而非旧式预期5；旧 MoveFileExW 打开目标替换报5。按 Microsoft WIL/正式 API 合同区分显式 legacy disposition 与实际 unlink/pending，并改用 FileRenameInfoEx POSIX 打开目标替换；未放宽共享/锁/身份/数据条件，不预报修正 CI 成功，详见M0-Z/对应PR。
+
+## 2026-11-02 M0-Z 实际容器布局拒绝补正
+
+重新读取 GitHub：main 仍为 `06acc4ebc9b72332b4ef0aa313c45536033f7526` / tree `ef6d2f0f58c3e18d0a3807e41430433de1700f1a`，14 项检查成功、无开放 PR；#1/#3 保持开放。云端 184 文件逐个 Git blob SHA 校验恢复，Git 克隆入口无认证，本地无 Rust 工具链。检查回收缺口时发现探针只认设计的 format.json，而实际 v1/v2/v3 都写 format.txt。先修复此防误用缺陷，回收算法本轮尚未修改。
+
+新增回归先在旧实现真实失败：4 个格式子项到达夹具创建、CLI 错误返回0并写出报告；失败日志见 docs/evidence/2026-11-02-raw-layout-before.log。修复后 Work Python19项/py_compile通过；实际marker、未知损坏marker、根/深层目录均拒绝且内容和目录树不变，原format.json拒绝保留。不是恶意竞态安全边界；未打开catalog或恢复原件、未改格式或原生安全入口。新source/main平台CI须按对应PR独立核验，不沿用旧主线通过。实际挂载、原生权限/共享/同步、WinFsp硬链接缺口和卷内Codex仍BLOCKED/NOT_RUN，无本机/驱动/服务/沙盒修改。

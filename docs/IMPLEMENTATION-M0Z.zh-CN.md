@@ -36,3 +36,11 @@ python tools/workspace_probe.py --root /path/to/disposable-directory --cases win
 第二轮 source3e8b75c / treee7810df 的 push host41034153360/Windows job123990756585 为11PASS/1FAIL：显式legacy disposition与独立DeleteFileW验证通过，实际DeleteFileW新打开为2；POSIX replacement API成功但后续新名字的身份/数据核验失败。保留日志排查中为FILE_RENAME_INFO可变UTF-16缓冲明确保留末尾NUL，FileNameLength仍不含NUL；这不是已证实根因。另将身份/内容断言分开保留实际诊断值，并按正式FILE_ID_INFO改用完整128-bit ID加volume serial，避免旧64-bit ID在ReFS上不保证唯一的问题；没有用fallback或路径相等替代身份比较。准确修正source必须重新实测，未移除身份/内容检查，未将先前失败改记通过。
 
 当前身份检查使用 GetFileInformationByHandleEx(FileIdInfo=18) 的 FILE_ID_INFO（24 bytes，16-byte ID + volume serial）。依据 [Microsoft FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info) 与 [旧64-bit ID限制](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-by_handle_file_information)，不从盘符猜测宿主文件系统，不声称已确认ReFS是上述失败原因。
+
+## 2026-11-02 勘误：实际核心 marker 与设计布局不同
+
+本轮检查发现上文「去掉后缀仍拒绝」的已实现范围原先只覆盖 `format.json` + `catalog.sqlite`。实际 `Volume::create*` 写入 `format.txt`，v1/v2/v3均如此；因此不能将原断言理解为覆盖真实核心容器。新回归在旧代码复现：4种marker子项未在夹具创建前拒绝，CLI在一次性模拟布局执行io、生成报告并返回0（失败日志 `evidence/2026-11-02-raw-layout-before.log`）。这是由代码和实际执行确认的缺陷，不是推测。
+
+现当任一规范化祖先同时存在catalog.sqlite及format.txt或format.json时直接拒绝。只检查路径存在，不读取marker内容或打开catalog；未知/损坏marker同样拒绝，不以能解析已知格式为前提。不改存储格式、不移除旧设计布局保护。回归验证根、segments和更深路径均在TemporaryDirectory前拒绝，marker/catalog/WAL/段内容及目录树不变；CLI返回2且不输出新报告。Work共19项通过、py_compile通过。夹具字节不是完整真实容器，这些测试不宣称执行过Rust核心创建；marker文件名亦由volume.rs实际create/open源码核对。
+
+此保护仍是防误用，不是对恶意目录替换、链接竞态或物理设备的认证边界。原有失败记录和历史CI不改写，新source/main CI分别核验。没有Rust/Swift/MSVC本地测试或挂载声明，无驱动/本机/系统配置/沙盒改动。

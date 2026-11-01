@@ -289,7 +289,11 @@ def probe(root: Path, selected: list[str], label: str) -> dict:
         raise ValueError("Use a disposable directory in the mounted volume, never the backing .pwvol")
     # Containers may be renamed without the conventional suffix. Inspect only
     # the backing layout's presence, never open its catalog or recover it.
-    if any((parent / "format.json").exists() and (parent / "catalog.sqlite").exists()
+    # Existing v1/v2/v3 cores write format.txt; format.json is retained for the
+    # design layout. Marker contents, including unknown/damaged values, do not
+    # make a raw catalog safe for test fixtures.
+    if any((parent / "catalog.sqlite").exists() and
+           any((parent / marker).exists() for marker in ("format.txt", "format.json"))
            for parent in (root, *root.parents)):
         raise ValueError("Refusing a raw container layout or its descendants")
     if not selected or len(set(selected)) != len(selected) or any(n not in CASES for n in selected):
