@@ -18,6 +18,11 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+#[cfg(test)]
+mod compaction_tests {
+    include!("volume_compaction_tests.rs");
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct FileId(pub(crate) i64);
 
@@ -1139,17 +1144,32 @@ impl Volume {
         self.compact_one()?;
         self.dead_segments()
     }
-    /// One serialized compaction per mutation. Idle scheduling and I/O budgets
-    /// remain pending; no worker thread is implied by this prototype.
+    /// At most MAX_IO live bytes copied per mutation. Candidate selection streams
+    /// identities instead of materializing the whole candidate set. This bounds
+    /// Rust compaction payload/index admission, not SQLite work or tick latency;
+    /// orphan/dead cleanup and idle scheduling still have separate budgets pending.
     fn compact_one(&mut self) -> Result<()> {
         let pinned = self.pinned_segments();
-        let candidates: Vec<i64> = self.db.prepare("SELECT s.id FROM segments s JOIN blocks b ON b.segment=s.id GROUP BY s.id HAVING COUNT(*)*65536 <= (s.bytes-24)/2 ORDER BY s.id")?
-            .query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
-        let Some(id) = candidates.into_iter().find(|s| !pinned.contains(s)) else {
+        let selected = {
+            let mut statement = self.db.prepare("SELECT s.id FROM segments s JOIN blocks b ON b.segment=s.id GROUP BY s.id HAVING COUNT(*)*65536 <= (s.bytes-24)/2 ORDER BY s.id")?;
+            let candidates = statement.query_map([], |r| r.get::<_, i64>(0))?;
+            let mut selected = None;
+            for candidate in candidates {
+                let id = candidate?;
+                if !pinned.contains(&id) {
+                    selected = Some(id);
+                    break;
+                }
+            }
+            selected
+        };
+        let Some(id) = selected else {
             return Ok(());
         };
-        let records: Vec<(i64, BlockRef)> = self.db.prepare("SELECT object,block,offset,checksum FROM blocks WHERE segment=?1 ORDER BY object,block")?
-            .query_map([id], |r| Ok((r.get(0)?, BlockRef { index: r.get(1)?, segment: id, offset: r.get(2)?, checksum: r.get(3)? })))?
+        // Larger valid segments can be processed over successive requests. The
+        // old segment remains until EVERY current ref and old reader is gone.
+        let records: Vec<(i64, BlockRef)> = self.db.prepare("SELECT object,block,offset,checksum FROM blocks WHERE segment=?1 ORDER BY object,block LIMIT ?2")?
+            .query_map(params![id, (MAX_IO / BLOCK_SIZE) as i64], |r| Ok((r.get(0)?, BlockRef { index: r.get(1)?, segment: id, offset: r.get(2)?, checksum: r.get(3)? })))?
             .collect::<std::result::Result<_, _>>()?;
         let mut payload = Vec::with_capacity(records.len());
         for (_, old) in &records {

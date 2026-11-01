@@ -102,3 +102,7 @@ M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 pu
 重新读取 GitHub：main 仍为 `06acc4ebc9b72332b4ef0aa313c45536033f7526` / tree `ef6d2f0f58c3e18d0a3807e41430433de1700f1a`，14 项检查成功、无开放 PR；#1/#3 保持开放。云端 184 文件逐个 Git blob SHA 校验恢复，Git 克隆入口无认证，本地无 Rust 工具链。检查回收缺口时发现探针只认设计的 format.json，而实际 v1/v2/v3 都写 format.txt。先修复此防误用缺陷，回收算法本轮尚未修改。
 
 新增回归先在旧实现真实失败：4 个格式子项到达夹具创建、CLI 错误返回0并写出报告；失败日志见 docs/evidence/2026-11-02-raw-layout-before.log。修复后 Work Python19项/py_compile通过；实际marker、未知损坏marker、根/深层目录均拒绝且内容和目录树不变，原format.json拒绝保留。不是恶意竞态安全边界；未打开catalog或恢复原件、未改格式或原生安全入口。新source/main平台CI须按对应PR独立核验，不沿用旧主线通过。实际挂载、原生权限/共享/同步、WinFsp硬链接缺口和卷内Codex仍BLOCKED/NOT_RUN，无本机/驱动/服务/沙盒修改。
+
+## 2026-11-02 M1-Q 整理复制预算
+
+接续实际容器拒绝修复PR #45；新代码为compact_one增加独立256块/16MiB payload准入和流式候选ID选择，较大源分批提交后才在无引用/读者时删除。新增真实内部段writer的v1/v2/v3大段/旧lease/分批回收与提交前故障/重开回归，见IMPLEMENTATION-M1Q。无本地Rust工具链，新增测试必须以准确source CI验收，不能借PR45通过代替。未改格式/依赖/ABI或native安全入口；孤儿/dead全量清理、SQL执行/峰值内存、空闲调度/卸载中断、空间预约仍待推进，不宣称完整有界GC或挂载通过。

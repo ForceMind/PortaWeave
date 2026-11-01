@@ -193,3 +193,5 @@ Native adapters now distinguish cooperative lock contention, stale observations 
 Windows host probes now exercise actual Win32 share modes, enforced byte-range locks, delete-pending and replacement with open handles. Run the four `windows-*` cases only through the scratch harness; host results do not certify a PortaWeave mount. See [M0-Z](docs/IMPLEMENTATION-M0Z.zh-CN.md).
 
 The probe now refuses both the actual core `format.txt` + catalog layout and the proposed `format.json` layout, including renamed containers and descendants, before creating fixtures. See the M0-Z erratum; this is a probe safety fix, not mount certification.
+
+Compaction now admits at most 16 MiB of live payload per owner operation and streams candidate IDs. Larger valid segments retain their source across multiple committed batches. This does not bound all GC work or add an idle scheduler; see [M1-Q](docs/IMPLEMENTATION-M1Q.zh-CN.md).
