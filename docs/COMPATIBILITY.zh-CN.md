@@ -111,3 +111,5 @@ M0-X补强Dispatcher启动/停止和错误传播，仍是无驱动合同与事�
 M0-Y 补充原生错误分类：Windows 协作冲突 FILE_LOCK_CONFLICT、stale RETRY、内部/未知结果 INTERNAL_ERROR；FSKit 协作冲突 EAGAIN。直接核心/适配合同不验证系统锁或内核重试；真挂载与其他开发卷门禁仍 BLOCKED/NOT_RUN，见 [M0-Y](IMPLEMENTATION-M0Y.zh-CN.md)。
 
 M0-Z 为 FS-02/03/08 增加真实 Win32 探针，但 CI 首先在云宿主目录验证，不能填作真实卷通过；一个进程多个独立句柄不替代跨进程/token、ACL 或映射锁验证。四项 windows-* 在其他 OS 明确 NOT_APPLICABLE。真挂载/共享/系统锁门禁仍未验收，见 [M0-Z](IMPLEMENTATION-M0Z.zh-CN.md)。
+
+2026-11-02 M0-Z勘误：原防误用检查只覆盖设计format.json，未覆盖核心实际format.txt；已补两种marker的布局拒绝及回归。历史host PASS不证明该保护原先完整，更不证明真实挂载。详见M0-Z勘误和失败证据。

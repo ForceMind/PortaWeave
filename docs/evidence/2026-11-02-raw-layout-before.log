@@ -1,0 +1,151 @@
+test_reject_current_core_formats_before_creating_any_fixture (tests.test_workspace_probe.ProbeTests.test_reject_current_core_formats_before_creating_any_fixture) ... 
+  test_reject_current_core_formats_before_creating_any_fixture (tests.test_workspace_probe.ProbeTests.test_reject_current_core_formats_before_creating_any_fixture) (marker=b'experimental-m1a-block-v1') ... FAIL
+  test_reject_current_core_formats_before_creating_any_fixture (tests.test_workspace_probe.ProbeTests.test_reject_current_core_formats_before_creating_any_fixture) (marker=b'experimental-m1h-metadata-v2') ... FAIL
+  test_reject_current_core_formats_before_creating_any_fixture (tests.test_workspace_probe.ProbeTests.test_reject_current_core_formats_before_creating_any_fixture) (marker=b'experimental-m1o-directory-v3') ... FAIL
+  test_reject_current_core_formats_before_creating_any_fixture (tests.test_workspace_probe.ProbeTests.test_reject_current_core_formats_before_creating_any_fixture) (marker=b'unknown-or-damaged-marker') ... FAIL
+test_cli_rejects_current_raw_layout_without_emitting_report (tests.test_workspace_probe.ProbeTests.test_cli_rejects_current_raw_layout_without_emitting_report) ... FAIL
+
+======================================================================
+FAIL: test_reject_current_core_formats_before_creating_any_fixture (tests.test_workspace_probe.ProbeTests.test_reject_current_core_formats_before_creating_any_fixture) (marker=b'experimental-m1a-block-v1')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/a1b00020bd12/PortaWeave/tests/test_workspace_probe.py", line 90, in test_reject_current_core_formats_before_creating_any_fixture
+    probe.probe(target, ["io"], "renamed-current-core")
+  File "/workspace/scratch/a1b00020bd12/PortaWeave/tools/workspace_probe.py", line 298, in probe
+    with tempfile.TemporaryDirectory(prefix="portaweave-probe-", dir=root) as temp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1198, in _execute_mock_call
+    raise effect
+AssertionError: fixture admitted
+
+======================================================================
+FAIL: test_reject_current_core_formats_before_creating_any_fixture (tests.test_workspace_probe.ProbeTests.test_reject_current_core_formats_before_creating_any_fixture) (marker=b'experimental-m1h-metadata-v2')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/a1b00020bd12/PortaWeave/tests/test_workspace_probe.py", line 90, in test_reject_current_core_formats_before_creating_any_fixture
+    probe.probe(target, ["io"], "renamed-current-core")
+  File "/workspace/scratch/a1b00020bd12/PortaWeave/tools/workspace_probe.py", line 298, in probe
+    with tempfile.TemporaryDirectory(prefix="portaweave-probe-", dir=root) as temp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1198, in _execute_mock_call
+    raise effect
+AssertionError: fixture admitted
+
+======================================================================
+FAIL: test_reject_current_core_formats_before_creating_any_fixture (tests.test_workspace_probe.ProbeTests.test_reject_current_core_formats_before_creating_any_fixture) (marker=b'experimental-m1o-directory-v3')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/a1b00020bd12/PortaWeave/tests/test_workspace_probe.py", line 90, in test_reject_current_core_formats_before_creating_any_fixture
+    probe.probe(target, ["io"], "renamed-current-core")
+  File "/workspace/scratch/a1b00020bd12/PortaWeave/tools/workspace_probe.py", line 298, in probe
+    with tempfile.TemporaryDirectory(prefix="portaweave-probe-", dir=root) as temp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1198, in _execute_mock_call
+    raise effect
+AssertionError: fixture admitted
+
+======================================================================
+FAIL: test_reject_current_core_formats_before_creating_any_fixture (tests.test_workspace_probe.ProbeTests.test_reject_current_core_formats_before_creating_any_fixture) (marker=b'unknown-or-damaged-marker')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/a1b00020bd12/PortaWeave/tests/test_workspace_probe.py", line 90, in test_reject_current_core_formats_before_creating_any_fixture
+    probe.probe(target, ["io"], "renamed-current-core")
+  File "/workspace/scratch/a1b00020bd12/PortaWeave/tools/workspace_probe.py", line 298, in probe
+    with tempfile.TemporaryDirectory(prefix="portaweave-probe-", dir=root) as temp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/mock.py", line 1198, in _execute_mock_call
+    raise effect
+AssertionError: fixture admitted
+
+======================================================================
+FAIL: test_cli_rejects_current_raw_layout_without_emitting_report (tests.test_workspace_probe.ProbeTests.test_cli_rejects_current_raw_layout_without_emitting_report)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/a1b00020bd12/PortaWeave/tests/test_workspace_probe.py", line 101, in test_cli_rejects_current_raw_layout_without_emitting_report
+    self.assertEqual(probe.main(["--root", str(root), "--cases", "io",
+AssertionError: 0 != 2
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.028s
+
+FAILED (failures=5)
+{
+  "schema_version": 1,
+  "timestamp_utc": "2026-11-01T17:39:58.848288+00:00",
+  "scope": "filesystem-api-smoke-probe",
+  "label_unverified": "unverified-target",
+  "root": "/tmp/tmp861d_omh",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.39",
+  "python": "3.12.14",
+  "sqlite": "3.53.1",
+  "mount_identity_verified": false,
+  "product_compatibility_certified": false,
+  "selected_cases": [
+    "io"
+  ],
+  "not_selected": [
+    "mmap",
+    "replace",
+    "hardlink",
+    "symlink",
+    "names",
+    "exclusive",
+    "sqlite",
+    "git",
+    "node",
+    "venv",
+    "exec",
+    "windows-share",
+    "windows-lock",
+    "windows-delete",
+    "windows-replace"
+  ],
+  "counts": {
+    "PASS": 1
+  },
+  "results": [
+    {
+      "case": "io",
+      "status": "PASS",
+      "detail": "Random overwrite, fsync API, shrink and extension zero-fill; not power-loss proof",
+      "duration_seconds": 0.008
+    }
+  ],
+  "applicable_selected_cases_passed": true,
+  "not_covered": [
+    "real PortaWeave mount identification",
+    "Codex integration/sandbox enforcement",
+    "Windows ACLs and mounted-volume share/lock semantics",
+    "native compilation/dynamic loading",
+    "package installation",
+    "GC",
+    "power loss",
+    "real exFAT",
+    "macOS/Windows cross-system handover"
+  ]
+}
+

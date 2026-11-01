@@ -191,3 +191,5 @@ WinFsp实验入口新增启动前控制事件准备、等待/清理错误传播�
 原生适配层现区分协作锁冲突、过时名字观察和内部/协议故障；真实核心冲突释放重试合同不等于系统锁或挂载通过，见 [M0-Y](docs/IMPLEMENTATION-M0Y.zh-CN.md)。
 
 新增四项 `windows-*` 探针，真实调用 Win32 共享打开、强制字节锁、delete-pending 和打开目标替换；统一入口仅创建可丢弃夹具，宿主结果不证明 PortaWeave 挂载通过，见 [M0-Z](docs/IMPLEMENTATION-M0Z.zh-CN.md)。
+
+探针现会在创建夹具前拒绝实际核心的 `format.txt` + catalog 布局及设计中的 `format.json` 布局，包括改名容器和其后代目录。见 M0-Z 勘误；这是探针防误用修复，不是挂载通过。
