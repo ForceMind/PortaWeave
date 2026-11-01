@@ -113,3 +113,5 @@ M0-Y 补充原生错误分类：Windows 协作冲突 FILE_LOCK_CONFLICT、stale 
 M0-Z 为 FS-02/03/08 增加真实 Win32 探针，但 CI 首先在云宿主目录验证，不能填作真实卷通过；一个进程多个独立句柄不替代跨进程/token、ACL 或映射锁验证。四项 windows-* 在其他 OS 明确 NOT_APPLICABLE。真挂载/共享/系统锁门禁仍未验收，见 [M0-Z](IMPLEMENTATION-M0Z.zh-CN.md)。
 
 2026-11-02 M0-Z勘误：原防误用检查只覆盖设计format.json，未覆盖核心实际format.txt；已补两种marker的布局拒绝及回归。历史host PASS不证明该保护原先完整，更不证明真实挂载。详见M0-Z勘误和失败证据。
+
+M1-Q给整理payload增加独立16MiB批次准入并流式选择候选；不改变文件身份或格式。完整自动GC调度、SQL/清理预算和FS-13/DEV-09真卷验收仍未完成，见 [M1-Q](IMPLEMENTATION-M1Q.zh-CN.md)。

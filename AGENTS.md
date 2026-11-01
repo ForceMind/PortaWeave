@@ -91,6 +91,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 55. The current core v1/v2/v3 backing marker is format.txt, not the proposed format.json. Probe guards must reject either marker with catalog.sqlite on any ancestor before fixture creation, even with unknown marker contents. Keep the original format.json layout rejection; neither existence checks nor fixture tests certify a hostile-namespace security boundary or an actual mount.
 
+56. M1-Q compaction admits at most MAX_IO live payload bytes per batch and streams candidate identities. Preserve durable replacement/transactional reference switch/reader retirement before deleting the old segment; partial batches leave its remaining references valid. This is not a whole-GC latency/heap/SQLite budget or an idle scheduler. Keep orphan/dead cleanup and native lifecycle gates explicit.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

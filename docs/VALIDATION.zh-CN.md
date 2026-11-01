@@ -311,3 +311,7 @@ M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 pu
 基线 `06acc4ebc9b72332b4ef0aa313c45536033f7526` 的远端14项检查本轮重读为completed/success。恢复184文件均匹配Git blob SHA。新增两个安全回归在旧探针真实失败（4格式子项及CLI，共5处失败），见 `evidence/2026-11-02-raw-layout-before.log`。旧CLI在一次性format.txt+catalog夹具内执行io并创建报告，返回0，证实原format.json-only保护不覆盖现有核心布局。没有使用真实重要文件。
 
 修复后本地 `python3 -m unittest discover -s tests -v` 为19项通过，py_compile通过。测试覆盖v1/v2/v3实际marker及未知内容、根/segments/深层路径、拒绝先于TemporaryDirectory、文件字节和目录树不变、CLI退出2且不创建报告；设计format.json旧测试继续通过。这些是Python测试器防误用证据，本地无Rust/Swift/MSVC工具链，不代表核心重新执行、真实三平台挂载或数据盘验收。准确source和合并main的CI单独见本轮PR；排队不计通过。
+
+## 2026-11-02 M1-Q 整理复制准入
+
+新增core内部单owner大段fixture：514块中257活块，跨v1/v2/v3验证lease保护、首批256块保留原段、后批完成后删除、内容/元数据/身份保持；feature用例另测BeforeCompactionCommit保护和重开续办。fixture通过实际segment writer写入，不使用第二catalog连接，不代表公开write接受超过MAX_IO或物理断电。Work无Rust编译器，准确源码三平台执行结果待对应PR；不将代码已写当作测试通过。Python19项为独立探针证据。完整调度、内存/数据库时间预算及挂载/开发盘门禁未关闭。
