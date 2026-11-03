@@ -13,3 +13,10 @@ WinFsp scratch lab在core创建后显式启用30秒空闲/1秒间隔，并在销
 新增native单元逻辑测试区分单调quiet/backoff与真实StorageFull；新增integration通过公开Rust API产生129个持handle的已unlink文件，结束owner后C重开只清128，实际50ms/10ms worker在持续health/space/status轮询下自动清最后一项，再验证BUSY保持、stop/restart、成功close自动join及真正释放独占锁。该fixture不是safe-unmount或物理断电。C caller三格式实际start/status/stop/join并检查40-byte结构，输出 `NATIVE_MAINTENANCE_WORKER_LIFECYCLE_OK`；不等待默认30秒、不冒充实际驱动。
 
 本地仍无Rust工具链。已运行Python19、严格C11/C++17语法和diff检查；新Rust、线程真实执行与WinFsp/SDK/App/跨OS结果必须以本增量准确source CI及独立main记录为准。所有有效原生身份/ACL/共享/完整同步、硬链接后端、真实挂载与卷内Codex/物理exFAT门禁保持，未操作用户本机/驱动/服务/沙盒。后续需完整平台owner授权/生命周期、强同步与资源预算，不能从userland worker通过推导这些验收已完成。
+
+
+## 初轮静态检查与补充错误路径
+
+初始source572caf74e5180fc2eb93d21c08ec495bd971f712 / treef0b8264a99f0e3f2d6cfebe48f7541ebceaa5322保留。Linux125761509120、macOS125761509360的功能/default及线程实际测试通过，但run41589129062在clippy::while_let_loop失败；后续fmt步骤因此skipped，不计通过。改成等价while-let等待循环，不降低-D warnings；相关日志/源码与evidence JSON保留，修正source须完整重新验证。
+
+另补受控controller线程panic的unit：join失败经volume_close返回INTERNAL，原core owner仍注册且独占锁Busy，状态保留错误，后续显式close才释放。该panic刻意发生在registry/core之外，不冒充持锁core panic或恢复poisoned registry；后者仍拒绝服务。新增native unit合计2项，integration仍1项；无本地Rust通过声明。

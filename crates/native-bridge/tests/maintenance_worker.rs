@@ -11,8 +11,15 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn actual_idle_worker_continues_cleanup_and_joins_before_owner_release() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let root = std::env::temp_dir().join(format!("pw-worker-{}-{stamp}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "pw-worker-{}-{stamp}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
     let path = root.to_str().unwrap();
     let mut core = Volume::create(&root, 1 << 20).unwrap();
     let mut last = ROOT;
@@ -30,7 +37,12 @@ fn actual_idle_worker_continues_cleanup_and_joins_before_owner_release() {
         let mut stat = PwStat::default();
         assert_eq!(pw_stat(volume, last.raw(), &mut stat), 0); // one orphan remains
         let mut status = PwMaintenanceWorkerStatus::default();
-        let mut sentinel = PwMaintenanceWorkerStatus { running: 99, last_status: 99, ticks: 99, report: PwMaintenanceReport::default() };
+        let mut sentinel = PwMaintenanceWorkerStatus {
+            running: 99,
+            last_status: 99,
+            ticks: 99,
+            report: PwMaintenanceReport::default(),
+        };
         let before = sentinel;
         assert_eq!(pw_volume_maintenance_worker_status(u64::MAX, &mut sentinel), -1);
         assert_eq!(sentinel, before);
@@ -49,7 +61,9 @@ fn actual_idle_worker_continues_cleanup_and_joins_before_owner_release() {
             assert_eq!((health, protected), (0, 0));
             assert_eq!(pw_volume_space(volume, &mut space), 0);
             assert_eq!(pw_volume_maintenance_worker_status(volume, &mut status), 0);
-            if status.ticks > 0 { break; }
+            if status.ticks > 0 {
+                break;
+            }
             assert!(Instant::now() < deadline, "idle worker made no progress");
             thread::sleep(Duration::from_millis(5));
         }

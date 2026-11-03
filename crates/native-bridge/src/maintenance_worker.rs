@@ -61,7 +61,8 @@ impl State {
         let mut progress = false;
         match result {
             Ok(r) => {
-                progress = r.objects_removed != 0 || r.segments_removed != 0 || r.blocks_copied != 0;
+                progress =
+                    r.objects_removed != 0 || r.segments_removed != 0 || r.blocks_copied != 0;
                 self.report = PwMaintenanceReport {
                     orphan_candidates: r.orphan_candidates,
                     objects_removed: r.objects_removed,
@@ -108,11 +109,7 @@ impl Drop for State {
 }
 
 fn worker_loop(volume: u64, idle: Duration, interval: Duration, stop: mpsc::Receiver<()>) {
-    loop {
-        match stop.recv_timeout(interval) {
-            Err(mpsc::RecvTimeoutError::Timeout) => (),
-            _ => break,
-        }
+    while let Err(mpsc::RecvTimeoutError::Timeout) = stop.recv_timeout(interval) {
         let mut table = match sessions().try_lock() {
             Ok(table) => table,
             Err(TryLockError::WouldBlock) => continue,
@@ -216,17 +213,66 @@ mod tests {
         assert!(!state.due(base + idle, idle));
         assert!(state.due(base + Duration::from_secs(60), idle));
         let before = Instant::now();
-        assert!(state.complete(Ok(portaweave_core::MaintenanceReport::default()), idle, interval));
+        assert!(state.complete(
+            Ok(portaweave_core::MaintenanceReport::default()),
+            idle,
+            interval
+        ));
         assert_eq!(state.status().ticks, 1);
         assert!(state.next_due.unwrap() >= before + idle);
         state.note_activity();
         assert!(state.next_due.is_none());
         assert!(!state.due(state.activity, idle));
-        assert!(state.complete(Err(Error::HostSpace { available_bytes: 0, required_bytes: 1 }), idle, interval));
+        assert!(state.complete(
+            Err(Error::HostSpace {
+                available_bytes: 0,
+                required_bytes: 1,
+            }),
+            idle,
+            interval
+        ));
         assert_eq!(state.last_status, NO_SPACE);
         assert!(!state.complete(Err(Error::WriteProtected), idle, interval));
         assert_eq!(state.last_status, READ_ONLY);
-        assert!(!state.complete(Err(Error::Io(std::io::Error::from(std::io::ErrorKind::StorageFull))), idle, interval));
+        assert!(!state.complete(
+            Err(Error::Io(std::io::Error::from(
+                std::io::ErrorKind::StorageFull
+            ))),
+            idle,
+            interval
+        ));
         assert_eq!(state.last_status, NO_SPACE);
+    }
+
+    #[test]
+    fn failed_join_is_reported_without_releasing_the_core_owner() {
+        let volume = next_token().unwrap();
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "pw-join-{}-{stamp}-{volume}",
+            std::process::id()
+        ));
+        let core = Volume::create(&root, 1 << 20).unwrap();
+        let (stop, _receiver) = mpsc::channel();
+        // Controlled controller-thread failure OUTSIDE the registry/core.
+        // A panic while holding TABLE would instead poison/refuse that registry.
+        let join: JoinHandle<()> = thread::spawn(|| panic!("controlled join failure"));
+        with_table(|all| {
+            let mut session = Session::new(core);
+            session.maintenance.worker = Some(Worker { stop, join });
+            assert!(all.insert(volume, session).is_none());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(pw_volume_close(volume), INTERNAL);
+        assert!(matches!(Volume::open(&root), Err(Error::Busy)));
+        let status = with_session_untracked(volume, |s| Ok(s.maintenance.status())).unwrap();
+        assert_eq!((status.running, status.last_status), (0, INTERNAL));
+        assert_eq!(pw_volume_close(volume), OK);
+        Volume::open(&root).unwrap().verify().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
