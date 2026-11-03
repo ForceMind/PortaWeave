@@ -44,9 +44,15 @@ fn actual_idle_worker_continues_cleanup_and_joins_before_owner_release() {
             report: PwMaintenanceReport::default(),
         };
         let before = sentinel;
-        assert_eq!(pw_volume_maintenance_worker_status(u64::MAX, &mut sentinel), -1);
+        assert_eq!(
+            pw_volume_maintenance_worker_status(u64::MAX, &mut sentinel),
+            -1
+        );
         assert_eq!(sentinel, before);
-        assert_eq!(pw_volume_maintenance_worker_status(volume, std::ptr::null_mut()), -1);
+        assert_eq!(
+            pw_volume_maintenance_worker_status(volume, std::ptr::null_mut()),
+            -1
+        );
         assert_eq!(pw_volume_maintenance_worker_start(volume, 0, 10), -1);
         assert_eq!(pw_volume_maintenance_worker_start(volume, 50, 0), -1);
         assert_eq!(pw_volume_maintenance_worker_start(volume, 50, 10), 0);
@@ -72,7 +78,10 @@ fn actual_idle_worker_continues_cleanup_and_joins_before_owner_release() {
         assert_eq!(pw_stat(volume, last.raw(), &mut stat), -2);
         let mut object = 0;
         let mut file = 0;
-        assert_eq!(pw_file_create(volume, 1, b"held".as_ptr(), 4, &mut object), 0);
+        assert_eq!(
+            pw_file_create(volume, 1, b"held".as_ptr(), 4, &mut object),
+            0
+        );
         assert_eq!(pw_file_open(volume, object, &mut file), 0);
         assert_eq!(pw_volume_close(volume), -7);
         assert_eq!(pw_volume_maintenance_worker_status(volume, &mut status), 0);
@@ -85,7 +94,10 @@ fn actual_idle_worker_continues_cleanup_and_joins_before_owner_release() {
         assert_eq!(pw_file_close(volume, file), 0);
         assert_eq!(pw_volume_close(volume), 0); // stops/joins while registry is locked
         sentinel = before;
-        assert_eq!(pw_volume_maintenance_worker_status(volume, &mut sentinel), -1);
+        assert_eq!(
+            pw_volume_maintenance_worker_status(volume, &mut sentinel),
+            -1
+        );
         assert_eq!(sentinel, before);
         assert_eq!(pw_volume_maintenance_worker_stop(volume), -1);
     }

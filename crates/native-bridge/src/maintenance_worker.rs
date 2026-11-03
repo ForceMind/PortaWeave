@@ -76,7 +76,11 @@ impl State {
             Err(error) => self.last_status = Fault::from(error).0,
         }
         // Quiet/pinned/deferred work backs off rather than busy-polling SQL.
-        let delay = if progress { interval } else { interval.max(idle) };
+        let delay = if progress {
+            interval
+        } else {
+            interval.max(idle)
+        };
         self.next_due = Instant::now().checked_add(delay);
         retry
     }
@@ -251,10 +255,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "pw-join-{}-{stamp}-{volume}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("pw-join-{}-{stamp}-{volume}", std::process::id()));
         let core = Volume::create(&root, 1 << 20).unwrap();
         let (stop, _receiver) = mpsc::channel();
         // Controlled controller-thread failure OUTSIDE the registry/core.
