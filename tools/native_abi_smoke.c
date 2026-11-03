@@ -10,6 +10,7 @@
 
 /* Works with both the existing MSVC mode and strict Unix C11. */
 typedef char PwMaintenanceReportSize[(sizeof(PwMaintenanceReport) == 24) ? 1 : -1];
+typedef char PwMaintenanceWorkerStatusSize[(sizeof(PwMaintenanceWorkerStatus) == 40) ? 1 : -1];
 static int MaintenanceStepContract(uint64_t volume) {
     PwMaintenanceReport report = {99,99,99,99,99,99}, sentinel = report;
     if (pw_volume_maintenance_step(UINT64_MAX, &report) != PW_INVALID ||
@@ -20,6 +21,19 @@ static int MaintenanceStepContract(uint64_t volume) {
         report.dead_segment_candidates > 256 || report.segments_removed > report.dead_segment_candidates ||
         report.compaction_candidates > 128 || report.blocks_copied > 256) return 1;
     puts("NATIVE_MAINTENANCE_STEP_ABI_OK (existing owner; no idle timer/mount)");
+    {
+        PwMaintenanceWorkerStatus worker = {0};
+        if (pw_volume_maintenance_worker_start(volume,0,1000)!=PW_INVALID) return 1;
+        REQUIRE(pw_volume_maintenance_worker_start(volume,30000,1000));
+        if (pw_volume_maintenance_worker_start(volume,30000,1000)!=PW_BUSY) return 1;
+        REQUIRE(pw_volume_maintenance_worker_status(volume,&worker));
+        if (!worker.running || worker.last_status!=PW_OK) return 1;
+        REQUIRE(pw_volume_maintenance_worker_stop(volume));
+        REQUIRE(pw_volume_maintenance_worker_stop(volume));
+        REQUIRE(pw_volume_maintenance_worker_status(volume,&worker));
+        if (worker.running) return 1;
+        puts("NATIVE_MAINTENANCE_WORKER_LIFECYCLE_OK (real thread start/join; no mount)");
+    }
     return 0;
 }
 

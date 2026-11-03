@@ -112,3 +112,9 @@ M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 pu
 重新核验main b6498bc1add38fad54649486ed01fcb24fb3b6f4 / tree e14bbe6841f4cd548f6e06d60c709ac42c69414d，14检查成功，无开放PR。云目录清理后通过GitHub恢复187文件且逐blob核对。新增每步128孤儿/两阶段各128废弃段/128整理候选及原256复制块预算，固定高水位keyset公平回绕；同owner Rust/C maintenance_step不要求新业务变更，显式step自己的错误与成功业务后维护警告区分，失败输出不变且旧lease/BUSY保持。见M1-R/ADR0019/AGENTS57。
 
 本地Python19项、严格C11和C++17头语法通过，无本地Rust工具链；新6个core/1个native及真实C marker必须按准确source CI核验，不沿用旧main。无自动idle timer/worker，未承诺SQL/cascade/sync或完整GC时延/堆预算；下步是owner空闲调度/卸载生命周期、SQLite/WAL和空间预算。原生权限/挂载/硬链接后端/Codex门禁不变；未操作用户本机或驱动。
+
+## 2026-11-03 M1-S 原生空闲worker
+
+PR #47 source5e25ac3/treee338663完整17/17检查通过，正常合并main d76bd485b9534d053152d28b773be05ee2899ffe独立14/14/5工作流成功、完整证据审计PASS；首轮MSVC/格式失败保留。核验后继续M1-S：native显式start/stop/status，单调quiet/backoff、registry try_lock前台优先、health/space/status不延迟idle，唯HostSpace可重试，真正I/O故障停止；BUSY close保留worker，成功close/Drop先join再释放owner。WinFsp lab启用30s/1s且先stop后销毁，所有Open/ACL/Flush/FSKit资源/挂载门禁不变。
+
+新增真实短quiet timer清理ended-owner积压并持续监控的integration、逻辑时钟/错误分类unit和三格式C线程生命周期marker，见M1-S/ADR0020/AGENTS58。普通core/C create/open并未自动启用、FSKit也未启动。没有本地Rust执行声明，准确source/main须按对应PR；本地Python19和C11/C++17语法通过。SQL/cascade/sync硬时延、OS授权/完整同步与真挂载/开发工具仍待做，不修改本机/驱动或沙盒。

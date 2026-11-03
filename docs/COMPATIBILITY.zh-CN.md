@@ -117,3 +117,5 @@ M0-Z 为 FS-02/03/08 增加真实 Win32 探针，但 CI 首先在云宿主目录
 M1-Q给整理payload增加独立16MiB批次准入并流式选择候选；不改变文件身份或格式。完整自动GC调度、SQL/清理预算和FS-13/DEV-09真卷验收仍未完成，见 [M1-Q](IMPLEMENTATION-M1Q.zh-CN.md)。
 
 M1-R有界候选清理及同owner维护续办入口见 [实现](IMPLEMENTATION-M1R.zh-CN.md)。普通open只处理一批，零计数不代表无积压；不等于自动idle调度、硬时延/堆预算或DEV-09真卷验收。原生安全/挂载门禁保持。
+
+M1-S增加显式native idle worker和stop/join、WinFsp scratch lab调度接入，见 [实现](IMPLEMENTATION-M1S.zh-CN.md)。普通core创建/打开不隐式启动，FSKit仍无已授权live owner。userland timer/线程退出不是系统挂载、OS shutdown/safe-eject、完整缓存/同步或DEV-09/Codex认证。
