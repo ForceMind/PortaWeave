@@ -106,3 +106,9 @@ M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 pu
 ## 2026-11-02 M1-Q 整理复制预算
 
 接续实际容器拒绝修复PR #45；新代码为compact_one增加独立256块/16MiB payload准入和流式候选ID选择，较大源分批提交后才在无引用/读者时删除。新增真实内部段writer的v1/v2/v3大段/旧lease/分批回收与提交前故障/重开回归，见IMPLEMENTATION-M1Q。无本地Rust工具链，新增测试必须以准确source CI验收，不能借PR45通过代替。未改格式/依赖/ABI或native安全入口；孤儿/dead全量清理、SQL执行/峰值内存、空闲调度/卸载中断、空间预约仍待推进，不宣称完整有界GC或挂载通过。
+
+## 2026-11-03 M1-R 候选清理与owner续办
+
+重新核验main b6498bc1add38fad54649486ed01fcb24fb3b6f4 / tree e14bbe6841f4cd548f6e06d60c709ac42c69414d，14检查成功，无开放PR。云目录清理后通过GitHub恢复187文件且逐blob核对。新增每步128孤儿/两阶段各128废弃段/128整理候选及原256复制块预算，固定高水位keyset公平回绕；同owner Rust/C maintenance_step不要求新业务变更，显式step自己的错误与成功业务后维护警告区分，失败输出不变且旧lease/BUSY保持。见M1-R/ADR0019/AGENTS57。
+
+本地Python19项、严格C11和C++17头语法通过，无本地Rust工具链；新6个core/1个native及真实C marker必须按准确source CI核验，不沿用旧main。无自动idle timer/worker，未承诺SQL/cascade/sync或完整GC时延/堆预算；下步是owner空闲调度/卸载生命周期、SQLite/WAL和空间预算。原生权限/挂载/硬链接后端/Codex门禁不变；未操作用户本机或驱动。

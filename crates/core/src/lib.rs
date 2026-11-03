@@ -41,7 +41,8 @@ pub use space::{SpacePolicy, SpaceStatus};
 pub use volume::FaultPoint;
 pub use volume::{
     CapacitySnapshot, CheckpointStatus, DirectoryHandle, Entry, FileId, Handle, Kind,
-    MaintenanceStatus, ObjectInfo, ROOT, ReadView, ReadViewLimits, Stat, Stats, StorageSyncStatus,
+    MAINTENANCE_CANDIDATES, MaintenanceReport, MaintenanceStatus, ObjectInfo, ROOT, ReadView,
+    ReadViewLimits, Stat, Stats, StorageSyncStatus,
     Volume, WritePosition,
 };
 

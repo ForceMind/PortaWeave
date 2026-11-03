@@ -195,3 +195,5 @@ Windows host probes now exercise actual Win32 share modes, enforced byte-range l
 The probe now refuses both the actual core `format.txt` + catalog layout and the proposed `format.json` layout, including renamed containers and descendants, before creating fixtures. See the M0-Z erratum; this is a probe safety fix, not mount certification.
 
 Compaction now admits at most 16 MiB of live payload per owner operation and streams candidate IDs. Larger valid segments retain their source across multiple committed batches. This does not bound all GC work or add an idle scheduler; see [M1-Q](docs/IMPLEMENTATION-M1Q.zh-CN.md).
+
+Reclamation now admits finite candidate pages and provides `maintenance_step` on the existing owner, with explicit progress/error reporting. It does not add an automatic idle worker or bound SQLite/cascade/sync latency. See [M1-R](docs/IMPLEMENTATION-M1R.zh-CN.md).

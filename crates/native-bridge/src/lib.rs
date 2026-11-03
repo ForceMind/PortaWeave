@@ -1193,6 +1193,45 @@ pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
         })
     })
 }
+/// Completed work, not a drained/no-backlog certificate or a byte/time budget.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PwMaintenanceReport {
+    pub orphan_candidates: u32,
+    pub objects_removed: u32,
+    pub dead_segment_candidates: u32,
+    pub segments_removed: u32,
+    pub compaction_candidates: u32,
+    pub blocks_copied: u32,
+}
+/// Advance the existing administrative owner; never opens a second catalog.
+/// Explicit step errors propagate, even if earlier cleanup work committed.
+/// # Safety
+/// out_report must be writable, aligned, valid and non-aliasing. It is unchanged
+/// on failure; null is rejected before maintenance. No OS caller authentication.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_volume_maintenance_step(
+    volume: u64,
+    out_report: *mut PwMaintenanceReport,
+) -> i32 {
+    run(|| {
+        required(out_report)?;
+        with_session(volume, |s| {
+            let r = s.volume.maintenance_step().map_err(Fault::from)?;
+            unsafe {
+                out_report.write(PwMaintenanceReport {
+                    orphan_candidates: r.orphan_candidates,
+                    objects_removed: r.objects_removed,
+                    dead_segment_candidates: r.dead_segment_candidates,
+                    segments_removed: r.segments_removed,
+                    compaction_candidates: r.compaction_candidates,
+                    blocks_copied: r.blocks_copied,
+                });
+            }
+            Ok(OK)
+        })
+    })
+}
 /// # Safety
 /// out_stat must be valid writable memory for a PwStat.
 #[unsafe(no_mangle)]

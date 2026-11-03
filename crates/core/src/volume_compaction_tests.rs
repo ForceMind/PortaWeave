@@ -137,3 +137,34 @@ fn interrupted_chunk_keeps_old_references_and_reopen_resumes_safely() {
     v.verify().unwrap();
     v.close_file(h).unwrap();
 }
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn explicit_maintenance_reports_space_deferral_and_retries_same_source() {
+    let (_s, mut v, h, source) = seeded(2);
+    v.set_test_available_space(Some(0));
+    assert!(matches!(v.maintenance_step(), Err(Error::HostSpace { .. })));
+    assert!(matches!(v.maintenance_status(), MaintenanceStatus::DeferredSpace { .. }));
+    assert!(!v.is_write_protected());
+    assert_eq!(refs_left(&v, source), (MAX_IO / BLOCK_SIZE + 1) as i64);
+    v.set_test_available_space(None);
+    assert_eq!(v.maintenance_step().unwrap().blocks_copied, (MAX_IO / BLOCK_SIZE) as u32);
+    assert_eq!(refs_left(&v, source), 1);
+    assert_eq!(v.maintenance_step().unwrap().blocks_copied, 1);
+    assert!(!segment::path(&v.root, source).exists());
+    v.close_file(h).unwrap();
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn explicit_compaction_failure_is_an_error_not_a_business_success() {
+    let (_s, mut v, h, source) = seeded(3);
+    v.inject_once(FaultPoint::BeforeCompactionCommit);
+    assert!(matches!(v.maintenance_step(), Err(Error::Injected)));
+    assert!(matches!(v.maintenance_status(), MaintenanceStatus::Failed { .. }));
+    assert!(v.is_write_protected());
+    assert_eq!(refs_left(&v, source), (MAX_IO / BLOCK_SIZE + 1) as i64);
+    assert_eq!(v.read(h, MAX_IO as u64, 1).unwrap(), [37]);
+    assert!(matches!(v.maintenance_step(), Err(Error::WriteProtected)));
+    v.close_file(h).unwrap();
+}
