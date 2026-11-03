@@ -8,9 +8,10 @@
     if (status != PW_OK) { fprintf(stderr, "%s returned %d\n", #call, status); return 1; } \
 } while (0)
 
+/* Works with both the existing MSVC mode and strict Unix C11. */
+typedef char PwMaintenanceReportSize[(sizeof(PwMaintenanceReport) == 24) ? 1 : -1];
 static int MaintenanceStepContract(uint64_t volume) {
     PwMaintenanceReport report = {99,99,99,99,99,99}, sentinel = report;
-    _Static_assert(sizeof(PwMaintenanceReport) == 24, "maintenance report wire layout");
     if (pw_volume_maintenance_step(UINT64_MAX, &report) != PW_INVALID ||
         memcmp(&report, &sentinel, sizeof(report)) ||
         pw_volume_maintenance_step(volume, NULL) != PW_INVALID) return 1;

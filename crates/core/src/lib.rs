@@ -42,8 +42,7 @@ pub use volume::FaultPoint;
 pub use volume::{
     CapacitySnapshot, CheckpointStatus, DirectoryHandle, Entry, FileId, Handle, Kind,
     MAINTENANCE_CANDIDATES, MaintenanceReport, MaintenanceStatus, ObjectInfo, ROOT, ReadView,
-    ReadViewLimits, Stat, Stats, StorageSyncStatus,
-    Volume, WritePosition,
+    ReadViewLimits, Stat, Stats, StorageSyncStatus, Volume, WritePosition,
 };
 
 pub const BLOCK_SIZE: usize = 64 * 1024;

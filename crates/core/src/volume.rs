@@ -616,7 +616,10 @@ impl Volume {
         let result = self.maintain();
         self.record_maintenance(result)
     }
-    fn record_maintenance(&mut self, result: Result<MaintenanceReport>) -> Result<MaintenanceReport> {
+    fn record_maintenance(
+        &mut self,
+        result: Result<MaintenanceReport>,
+    ) -> Result<MaintenanceReport> {
         match &result {
             Ok(_) => self.maintenance = MaintenanceStatus::Healthy,
             Err(Error::HostSpace {
@@ -1170,10 +1173,16 @@ impl Volume {
     }
     fn dead_segments(&mut self, report: &mut MaintenanceReport) -> Result<()> {
         let pinned = self.pinned_segments();
-        if self.db.prepare("SELECT 1 FROM segments WHERE id<=0 LIMIT 1")?.exists([])? {
+        if self
+            .db
+            .prepare("SELECT 1 FROM segments WHERE id<=0 LIMIT 1")?
+            .exists([])?
+        {
             return Err(Error::Corrupt("invalid segment identity".into()));
         }
-        let high = self.dead_sweep.high(&self.db, "SELECT COALESCE(MAX(id),0) FROM segments")?;
+        let high = self
+            .dead_sweep
+            .high(&self.db, "SELECT COALESCE(MAX(id),0) FROM segments")?;
         let dead: Vec<i64> = self.db.prepare("SELECT id FROM segments WHERE id>?1 AND id<=?2 AND NOT EXISTS (SELECT 1 FROM blocks WHERE segment=segments.id) ORDER BY id LIMIT ?3")?
             .query_map(params![self.dead_sweep.after, high, MAINTENANCE_CANDIDATES], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
         report.dead_segment_candidates += dead.len() as u32;
@@ -1193,7 +1202,10 @@ impl Volume {
             self.db.execute("DELETE FROM segments WHERE id=?1", [id])?;
             report.segments_removed += 1;
         }
-        self.dead_sweep.advance(dead.last().copied(), dead.len() < MAINTENANCE_CANDIDATES as usize);
+        self.dead_sweep.advance(
+            dead.last().copied(),
+            dead.len() < MAINTENANCE_CANDIDATES as usize,
+        );
         Ok(())
     }
     fn maintain(&mut self) -> Result<MaintenanceReport> {
@@ -1207,11 +1219,16 @@ impl Volume {
         } else {
             "SELECT id FROM objects WHERE id<>1 AND kind=0 AND id>?1 AND id<=?2 AND NOT EXISTS (SELECT 1 FROM entries WHERE object=objects.id) ORDER BY id LIMIT ?3"
         };
-        let high = self.orphan_sweep.high(&self.db, "SELECT COALESCE(MAX(id),0) FROM objects")?;
+        let high = self
+            .orphan_sweep
+            .high(&self.db, "SELECT COALESCE(MAX(id),0) FROM objects")?;
         let orphan: Vec<i64> = self
             .db
             .prepare(orphan_sql)?
-            .query_map(params![self.orphan_sweep.after, high, MAINTENANCE_CANDIDATES], |r| r.get(0))?
+            .query_map(
+                params![self.orphan_sweep.after, high, MAINTENANCE_CANDIDATES],
+                |r| r.get(0),
+            )?
             .collect::<std::result::Result<_, _>>()?;
         let tx = self.db.transaction()?;
         let mut removed = 0;
@@ -1224,7 +1241,10 @@ impl Volume {
         tx.commit()?;
         report.orphan_candidates = orphan.len() as u32;
         report.objects_removed = removed;
-        self.orphan_sweep.advance(orphan.last().copied(), orphan.len() < MAINTENANCE_CANDIDATES as usize);
+        self.orphan_sweep.advance(
+            orphan.last().copied(),
+            orphan.len() < MAINTENANCE_CANDIDATES as usize,
+        );
         self.dead_segments(&mut report)?;
         self.compact_one(&mut report)?;
         self.dead_segments(&mut report)?;
@@ -1236,11 +1256,16 @@ impl Volume {
     /// a timed idle event loop and platform lifecycle integration remain pending.
     fn compact_one(&mut self, report: &mut MaintenanceReport) -> Result<()> {
         let pinned = self.pinned_segments();
-        let high = self.compact_sweep.high(&self.db, "SELECT COALESCE(MAX(id),0) FROM segments")?;
+        let high = self
+            .compact_sweep
+            .high(&self.db, "SELECT COALESCE(MAX(id),0) FROM segments")?;
         let mut last = None;
         let selected = {
             let mut statement = self.db.prepare("SELECT s.id FROM segments s JOIN blocks b ON b.segment=s.id WHERE s.id>?1 AND s.id<=?2 GROUP BY s.id HAVING COUNT(*)*65536 <= (s.bytes-24)/2 ORDER BY s.id LIMIT ?3")?;
-            let candidates = statement.query_map(params![self.compact_sweep.after, high, MAINTENANCE_CANDIDATES], |r| r.get::<_, i64>(0))?;
+            let candidates = statement.query_map(
+                params![self.compact_sweep.after, high, MAINTENANCE_CANDIDATES],
+                |r| r.get::<_, i64>(0),
+            )?;
             let mut selected = None;
             for candidate in candidates {
                 let id = candidate?;
@@ -1254,7 +1279,8 @@ impl Volume {
             selected
         };
         let Some(id) = selected else {
-            self.compact_sweep.advance(last, report.compaction_candidates < MAINTENANCE_CANDIDATES);
+            self.compact_sweep
+                .advance(last, report.compaction_candidates < MAINTENANCE_CANDIDATES);
             return Ok(());
         };
         // Larger valid segments can be processed over successive requests. The

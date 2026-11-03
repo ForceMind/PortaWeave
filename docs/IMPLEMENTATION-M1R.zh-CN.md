@@ -13,3 +13,10 @@
 新增native回归覆盖三格式、旧lease/Busy、无效owner/已关闭owner/NULL输出和输出哨兵；实际C11 caller在三格式打印 `NATIVE_MAINTENANCE_STEP_ABI_OK` 并检查24-byte wire/计数/拒绝。本地Python19项、严格C11语法和C++17公共头语法通过；无本地Rust执行或新ABI实际链接成功声明。准确source平台测试、C/SDK/WinFsp、完整App与跨OS交接及独立合并main CI须依据对应PR最终记录。
 
 这不是自动空闲timer/worker。下一步需owner事件循环的间隔、前台优先、退出/卸载中断与平台生命周期接入，以及SQLite/WAL维护/空间预约。所有native caller/ACL/Open/Flush/access/load/mount、WinFsp硬链接后端和实际卷Git/SQLite/依赖/Codex正常沙盒/物理exFAT门禁仍BLOCKED/NOT_RUN，无本机、驱动、服务、系统配置或沙盒变更。
+
+
+## 首轮失败与修正记录
+
+初始source `0d51abc5af729e13b3c2cac2aa7f9d15fe2e0dce` / tree `40075561d5eb9e729e76bf42d9b3352897c814e2`保留。Windows native run41586220271/job125752227372真实失败：新增_Static_assert在现有未启用C11模式的MSVC命令下成为C4013，并按既有/WX拒绝。改为file-scope负长度typedef的同等24-byte编译期断言，严格C11本地复验通过，不放宽编译选项。首轮没有生成Windows环境清单，不能拿旧artifact代替。
+
+Linux core125752227600和macOS core125752227382的功能/default/clippy完成，但格式步骤失败；按固定CI rustfmt输出修正3个文件。新增6项core的Linux实际通过日志已记录，但整项job仍计FAIL。本地无Rust/rustfmt，不伪报本地执行。细节见evidence/2026-11-03-m1r-initial-failures.json；原source、失败run/job保留，没有取消或重跑同源码掩盖。修正后准确source须重新接受完整CI。
