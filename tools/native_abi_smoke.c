@@ -8,6 +8,21 @@
     if (status != PW_OK) { fprintf(stderr, "%s returned %d\n", #call, status); return 1; } \
 } while (0)
 
+/* Works with both the existing MSVC mode and strict Unix C11. */
+typedef char PwMaintenanceReportSize[(sizeof(PwMaintenanceReport) == 24) ? 1 : -1];
+static int MaintenanceStepContract(uint64_t volume) {
+    PwMaintenanceReport report = {99,99,99,99,99,99}, sentinel = report;
+    if (pw_volume_maintenance_step(UINT64_MAX, &report) != PW_INVALID ||
+        memcmp(&report, &sentinel, sizeof(report)) ||
+        pw_volume_maintenance_step(volume, NULL) != PW_INVALID) return 1;
+    REQUIRE(pw_volume_maintenance_step(volume, &report));
+    if (report.orphan_candidates > 128 || report.objects_removed > report.orphan_candidates ||
+        report.dead_segment_candidates > 256 || report.segments_removed > report.dead_segment_candidates ||
+        report.compaction_candidates > 128 || report.blocks_copied > 256) return 1;
+    puts("NATIVE_MAINTENANCE_STEP_ABI_OK (existing owner; no idle timer/mount)");
+    return 0;
+}
+
 static int CapturedDirectoryContract(uint64_t volume, uint32_t metadata_valid) {
     const uint8_t directory_name[] = "snapshot-contract", file_name[] = "captured.bin";
     int64_t directory = 0, object = 0, found = 0;
@@ -16,6 +31,7 @@ static int CapturedDirectoryContract(uint64_t volume, uint32_t metadata_valid) {
     uint8_t bytes[64] = {0};
     PwFsKitAttributes attributes = {0};
     PwStat stat = {0};
+    if (MaintenanceStepContract(volume)) return 1;
     REQUIRE(pw_directory_create(volume, 1, directory_name, sizeof(directory_name) - 1, &directory));
     REQUIRE(pw_file_create(volume, directory, file_name, sizeof(file_name) - 1, &object));
     REQUIRE(pw_file_open(volume, object, &file));

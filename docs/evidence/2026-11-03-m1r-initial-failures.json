@@ -1,0 +1,39 @@
+{
+  "source_commit": "0d51abc5af729e13b3c2cac2aa7f9d15fe2e0dce",
+  "tree": "40075561d5eb9e729e76bf42d9b3352897c814e2",
+  "scope": "preserved initial-source failures, not product certification",
+  "windows": {
+    "run": 41586220271,
+    "job": 125752227372,
+    "error": "MSVC C4013 _Static_assert undefined (C2220 warning treated as error); existing native smoke command does not enable C11 mode",
+    "correction": "file-scope negative-size typedef assertion preserves 24-byte compile-time gate in existing MSVC mode and strict C11; no compiler flags relaxed",
+    "inventory": "not produced because compilation failed before the inventory step"
+  },
+  "formatting": {
+    "run": 41586220200,
+    "linux_job": 125752227600,
+    "macos_job": 125752227382,
+    "files": [
+      "crates/core/src/lib.rs",
+      "crates/core/src/volume.rs",
+      "crates/native-bridge/tests/maintenance.rs"
+    ],
+    "correction": "applied pinned CI rustfmt output; no local Rust compiler/formatter available"
+  },
+  "functional_linux": {
+    "new_test_lines": [
+      "2026-11-03T05:50:56.1582218Z test volume::compaction_tests::explicit_compaction_failure_is_an_error_not_a_business_success ... ok",
+      "2026-11-03T05:50:57.1655320Z test volume::compaction_tests::explicit_maintenance_reports_space_deferral_and_retries_same_source ... ok",
+      "2026-11-03T05:50:57.5513176Z test volume::maintenance_tests::finite_frontier_revisits_released_low_ids_despite_new_high_ids ... ok",
+      "2026-11-03T05:50:59.1672027Z test volume::maintenance_tests::protected_owner_refuses_explicit_maintenance_without_clearing_health ... ok",
+      "2026-11-03T05:51:00.1700417Z test volume::maintenance_tests::multi_page_dead_segments_keep_old_reader_and_drain_after_release ... ok",
+      "2026-11-03T05:51:00.9289127Z test volume::maintenance_tests::bounded_abandoned_cleanup_continues_without_new_business_mutations ... ok",
+      "2026-11-03T05:51:25.8641983Z test volume::maintenance_tests::finite_frontier_revisits_released_low_ids_despite_new_high_ids ... ok",
+      "2026-11-03T05:51:25.8771496Z test volume::maintenance_tests::protected_owner_refuses_explicit_maintenance_without_clearing_health ... ok",
+      "2026-11-03T05:51:27.9177529Z test volume::maintenance_tests::multi_page_dead_segments_keep_old_reader_and_drain_after_release ... ok",
+      "2026-11-03T05:51:29.6639190Z test volume::maintenance_tests::bounded_abandoned_cleanup_continues_without_new_business_mutations ... ok"
+    ],
+    "status": "new tests passed, full job failed formatting; NOT counted as a passing job"
+  },
+  "retention": "Original commits and failed Actions runs/jobs remain, no cancellation or rerun used to hide failures. Corrected source must independently pass all required checks."
+}

@@ -195,3 +195,5 @@ WinFsp实验入口新增启动前控制事件准备、等待/清理错误传播�
 探针现会在创建夹具前拒绝实际核心的 `format.txt` + catalog 布局及设计中的 `format.json` 布局，包括改名容器和其后代目录。见 M0-Z 勘误；这是探针防误用修复，不是挂载通过。
 
 整理现逐项读取候选ID，每次owner操作最多复制16MiB活数据，较大段跨批提交且保留旧源。全量清理预算和空闲调度尚未完成，见 [M1-Q](docs/IMPLEMENTATION-M1Q.zh-CN.md)。
+
+回收现按有界候选页推进，并提供现有owner的 `maintenance_step` 续办入口及真实计数/错误。尚无自动空闲worker，SQLite/cascade/同步时延仍未硬性限额，见 [M1-R](docs/IMPLEMENTATION-M1R.zh-CN.md)。

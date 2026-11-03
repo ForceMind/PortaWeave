@@ -115,3 +115,5 @@ M0-Z 为 FS-02/03/08 增加真实 Win32 探针，但 CI 首先在云宿主目录
 2026-11-02 M0-Z勘误：原防误用检查只覆盖设计format.json，未覆盖核心实际format.txt；已补两种marker的布局拒绝及回归。历史host PASS不证明该保护原先完整，更不证明真实挂载。详见M0-Z勘误和失败证据。
 
 M1-Q给整理payload增加独立16MiB批次准入并流式选择候选；不改变文件身份或格式。完整自动GC调度、SQL/清理预算和FS-13/DEV-09真卷验收仍未完成，见 [M1-Q](IMPLEMENTATION-M1Q.zh-CN.md)。
+
+M1-R有界候选清理及同owner维护续办入口见 [实现](IMPLEMENTATION-M1R.zh-CN.md)。普通open只处理一批，零计数不代表无积压；不等于自动idle调度、硬时延/堆预算或DEV-09真卷验收。原生安全/挂载门禁保持。

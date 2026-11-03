@@ -315,3 +315,9 @@ M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 pu
 ## 2026-11-02 M1-Q 整理复制准入
 
 新增core内部单owner大段fixture：514块中257活块，跨v1/v2/v3验证lease保护、首批256块保留原段、后批完成后删除、内容/元数据/身份保持；feature用例另测BeforeCompactionCommit保护和重开续办。fixture通过实际segment writer写入，不使用第二catalog连接，不代表公开write接受超过MAX_IO或物理断电。Work无Rust编译器，准确源码三平台执行结果待对应PR；不将代码已写当作测试通过。Python19项为独立探针证据。完整调度、内存/数据库时间预算及挂载/开发盘门禁未关闭。
+
+## 2026-11-03 M1-R 候选预算和owner step
+
+基线main b6498bc1add38fad54649486ed01fcb24fb3b6f4 的14项检查重读成功，无开放PR；187个恢复文件Git blob SHA全部一致。本地Python19项和严格C11/C++17语法通过；无Rust/Swift/MSVC工具链，不声称新增Rust测试已本地执行或新ABI已实际链接。
+
+新增core默认4/feature2、native1及真实C marker，具体夹具/边界见M1-R。候选数量、130旧段lease和300孤儿/300段实际批次、固定高水位、公平回绕/延期重试/显式错误/失败输出为验证目标；准确source CI与合并main分别在对应PR记录。零report/Healthy不认证无积压，候选预算不认证SQL/cascade/fsync时延，owner step不认证自动空闲调度或真实挂载/断电。

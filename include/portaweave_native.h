@@ -388,6 +388,21 @@ int32_t pw_node_create_with_metadata(uint64_t volume, int64_t parent, const uint
                                     uint8_t directory, const PwCreateAttributes *attributes, int64_t *out_object);
 int32_t pw_volume_open(const uint8_t *path, size_t path_len, uint64_t *out_volume);
 int32_t pw_volume_close(uint64_t volume);
+/* Administrative continuation on the existing serialized owner, no worker or
+ * OS authorization. Per step: <=128 orphan candidates, <=256 dead candidates
+ * (two phases), <=128 compaction candidates, <=256 copied 64KiB blocks.
+ * Counters are completed work, NOT a drained/no-backlog or fsync certificate.
+ * SQL scans/sorts/cascades, sync latency and exact heap costs are not bounded.
+ * NULL output is rejected before work; failure leaves output unchanged, but
+ * earlier cleanup transactions/deletions may already have completed. Query
+ * pw_health; space deferral does not poison, genuine maintenance errors do.
+ * This API does not create idle scheduling or change volume_close behavior. */
+typedef struct PwMaintenanceReport {
+  uint32_t orphan_candidates, objects_removed;
+  uint32_t dead_segment_candidates, segments_removed;
+  uint32_t compaction_candidates, blocks_copied;
+} PwMaintenanceReport;
+int32_t pw_volume_maintenance_step(uint64_t volume, PwMaintenanceReport *out_report);
 int32_t pw_stat(uint64_t volume, int64_t object, PwStat *out_stat);
 int32_t pw_lookup(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, int64_t *out_object);
 /* Stored spelling for this alias; on BUFFER_TOO_SMALL only out_name_len changes. */

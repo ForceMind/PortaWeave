@@ -93,6 +93,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 56. M1-Q compaction admits at most MAX_IO live payload bytes per batch and streams candidate identities. Preserve durable replacement/transactional reference switch/reader retirement before deleting the old segment; partial batches leave its remaining references valid. This is not a whole-GC latency/heap/SQLite budget or an idle scheduler. Keep orphan/dead cleanup and native lifecycle gates explicit.
 
+57. M1-R foreground and explicit maintenance_step share candidate budgets: 128 orphans, two 128-dead-segment phases, 128 mixed candidates and the existing 256 copied blocks. Fixed high-water keyset sweeps are volatile scheduling hints; wrap/revisit pinned lower IDs despite new higher allocations, retain partial sources and retry deferred selections. Explicit step errors propagate and preserve C outputs, but prior cleanup may have committed. Foreground business success still survives maintenance failure. Zero report/Healthy is not drained; candidate counts are not SQL/cascade/sync/heap/latency budgets. No automatic idle timer, second owner, forced pin retirement or native gate opening follows from this entry point.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

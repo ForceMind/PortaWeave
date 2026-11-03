@@ -23,6 +23,55 @@ mod compaction_tests {
     include!("volume_compaction_tests.rs");
 }
 
+#[cfg(test)]
+mod maintenance_tests {
+    include!("volume_maintenance_tests.rs");
+}
+
+/// Returned candidate rows per cleanup phase, not SQLite instructions/time.
+pub const MAINTENANCE_CANDIDATES: u32 = 128;
+
+/// Work completed by one serialized owner step. Zero does NOT mean no backlog;
+/// candidates can be pinned or behind the current finite sweep frontier.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MaintenanceReport {
+    pub orphan_candidates: u32,
+    pub objects_removed: u32,
+    pub dead_segment_candidates: u32,
+    pub segments_removed: u32,
+    pub compaction_candidates: u32,
+    pub blocks_copied: u32,
+}
+
+// Volatile keyset progress, never a second durable transaction authority.
+// A fixed high-water mark prevents newly allocated IDs from postponing wrap
+// forever, so pinned/skipped lower IDs can be reconsidered after release.
+#[derive(Clone, Copy, Default)]
+struct ReclaimSweep {
+    after: i64,
+    high: Option<i64>,
+}
+impl ReclaimSweep {
+    fn high(&mut self, db: &Connection, sql: &str) -> Result<i64> {
+        if let Some(high) = self.high {
+            return Ok(high);
+        }
+        let high: i64 = db.query_row(sql, [], |row| row.get(0))?;
+        if high < 0 {
+            return Err(Error::Corrupt("invalid sweep frontier".into()));
+        }
+        self.high = Some(high);
+        Ok(high)
+    }
+    fn advance(&mut self, last: Option<i64>, exhausted: bool) {
+        if exhausted || last == self.high {
+            *self = Self::default();
+        } else if let Some(last) = last {
+            self.after = last;
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct FileId(pub(crate) i64);
 
@@ -206,6 +255,9 @@ pub struct Volume {
     read_view_limits: ReadViewLimits,
     protected: Cell<bool>,
     maintenance: MaintenanceStatus,
+    orphan_sweep: ReclaimSweep,
+    dead_sweep: ReclaimSweep,
+    compact_sweep: ReclaimSweep,
     space: SpaceGate,
     io_control: IoControl,
     #[cfg(feature = "fault-injection")]
@@ -380,6 +432,9 @@ impl Volume {
             read_view_limits: ReadViewLimits::default(),
             protected: Cell::new(false),
             maintenance: MaintenanceStatus::Healthy,
+            orphan_sweep: ReclaimSweep::default(),
+            dead_sweep: ReclaimSweep::default(),
+            compact_sweep: ReclaimSweep::default(),
             space: SpaceGate::default(),
             io_control: IoControl::default(),
             #[cfg(feature = "fault-injection")]
@@ -550,23 +605,30 @@ impl Volume {
     pub fn maintenance_status(&self) -> &MaintenanceStatus {
         &self.maintenance
     }
-    // Only business errors are returned as operation errors. A failing commit
-    // itself can still be indeterminate; Err never promises universal rollback.
-    pub(crate) fn mutate<T>(&mut self, action: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+    /// Advance reclamation on this live owner without a new user mutation.
+    /// A future owner event loop may call this when idle. No worker, sleep,
+    /// checkpoint, OS flush, safe-eject or second catalog owner is created.
+    /// Unlike post-business maintenance, an explicit step returns its error.
+    pub fn maintenance_step(&mut self) -> Result<MaintenanceReport> {
         if self.protected.get() {
             return Err(Error::WriteProtected);
         }
-        let result = action(self);
-        let value = self.observe(result)?;
-        match self.hit(2).and_then(|_| self.maintain()) {
-            Ok(()) => self.maintenance = MaintenanceStatus::Healthy,
+        let result = self.maintain();
+        self.record_maintenance(result)
+    }
+    fn record_maintenance(
+        &mut self,
+        result: Result<MaintenanceReport>,
+    ) -> Result<MaintenanceReport> {
+        match &result {
+            Ok(_) => self.maintenance = MaintenanceStatus::Healthy,
             Err(Error::HostSpace {
                 available_bytes,
                 required_bytes,
             }) => {
                 self.maintenance = MaintenanceStatus::DeferredSpace {
-                    available_bytes,
-                    required_bytes,
+                    available_bytes: *available_bytes,
+                    required_bytes: *required_bytes,
                 };
             }
             Err(error) => {
@@ -576,6 +638,18 @@ impl Volume {
                 };
             }
         }
+        result
+    }
+    // Only business errors are returned as operation errors. A failing commit
+    // itself can still be indeterminate; Err never promises universal rollback.
+    pub(crate) fn mutate<T>(&mut self, action: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        if self.protected.get() {
+            return Err(Error::WriteProtected);
+        }
+        let result = action(self);
+        let value = self.observe(result)?;
+        let result = self.hit(2).and_then(|_| self.maintain());
+        let _ = self.record_maintenance(result);
         Ok(value)
     }
     #[cfg(feature = "fault-injection")]
@@ -1097,11 +1171,22 @@ impl Volume {
             .flat_map(|v| v.blocks.iter().map(|b| b.segment))
             .collect()
     }
-    fn dead_segments(&mut self) -> Result<()> {
+    fn dead_segments(&mut self, report: &mut MaintenanceReport) -> Result<()> {
         let pinned = self.pinned_segments();
-        let dead: Vec<i64> = self.db.prepare("SELECT id FROM segments WHERE NOT EXISTS (SELECT 1 FROM blocks WHERE segment=segments.id)")?
-            .query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
-        for id in dead {
+        if self
+            .db
+            .prepare("SELECT 1 FROM segments WHERE id<=0 LIMIT 1")?
+            .exists([])?
+        {
+            return Err(Error::Corrupt("invalid segment identity".into()));
+        }
+        let high = self
+            .dead_sweep
+            .high(&self.db, "SELECT COALESCE(MAX(id),0) FROM segments")?;
+        let dead: Vec<i64> = self.db.prepare("SELECT id FROM segments WHERE id>?1 AND id<=?2 AND NOT EXISTS (SELECT 1 FROM blocks WHERE segment=segments.id) ORDER BY id LIMIT ?3")?
+            .query_map(params![self.dead_sweep.after, high, MAINTENANCE_CANDIDATES], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
+        report.dead_segment_candidates += dead.len() as u32;
+        for &id in &dead {
             if pinned.contains(&id) {
                 continue;
             }
@@ -1115,47 +1200,77 @@ impl Volume {
                 Err(e) => return Err(e.into()),
             }
             self.db.execute("DELETE FROM segments WHERE id=?1", [id])?;
+            report.segments_removed += 1;
         }
+        self.dead_sweep.advance(
+            dead.last().copied(),
+            dead.len() < MAINTENANCE_CANDIDATES as usize,
+        );
         Ok(())
     }
-    fn maintain(&mut self) -> Result<()> {
+    fn maintain(&mut self) -> Result<MaintenanceReport> {
+        let mut report = MaintenanceReport::default();
         let directory_lifetimes = self.supports_directory_lifetimes();
         if directory_lifetimes && self.db.prepare("SELECT 1 FROM objects o WHERE o.id<>1 AND o.kind=1 AND NOT EXISTS (SELECT 1 FROM entries WHERE object=o.id) AND (o.size<>0 OR EXISTS (SELECT 1 FROM entries WHERE parent=o.id) OR EXISTS (SELECT 1 FROM blocks WHERE object=o.id)) LIMIT 1")?.exists([])? {
             return Err(Error::Corrupt("invalid unlinked directory during reclamation".into()));
         }
         let orphan_sql = if directory_lifetimes {
-            "SELECT id FROM objects WHERE id<>1 AND NOT EXISTS (SELECT 1 FROM entries WHERE object=objects.id)"
+            "SELECT id FROM objects WHERE id<>1 AND id>?1 AND id<=?2 AND NOT EXISTS (SELECT 1 FROM entries WHERE object=objects.id) ORDER BY id LIMIT ?3"
         } else {
-            "SELECT id FROM objects WHERE id<>1 AND kind=0 AND NOT EXISTS (SELECT 1 FROM entries WHERE object=objects.id)"
+            "SELECT id FROM objects WHERE id<>1 AND kind=0 AND id>?1 AND id<=?2 AND NOT EXISTS (SELECT 1 FROM entries WHERE object=objects.id) ORDER BY id LIMIT ?3"
         };
+        let high = self
+            .orphan_sweep
+            .high(&self.db, "SELECT COALESCE(MAX(id),0) FROM objects")?;
         let orphan: Vec<i64> = self
             .db
             .prepare(orphan_sql)?
-            .query_map([], |r| r.get(0))?
+            .query_map(
+                params![self.orphan_sweep.after, high, MAINTENANCE_CANDIDATES],
+                |r| r.get(0),
+            )?
             .collect::<std::result::Result<_, _>>()?;
         let tx = self.db.transaction()?;
-        for id in orphan {
+        let mut removed = 0;
+        for &id in &orphan {
             if !self.handles.values().any(|p| p.0 == id) {
                 tx.execute("DELETE FROM objects WHERE id=?1", [id])?;
+                removed += 1;
             }
         }
         tx.commit()?;
-        self.dead_segments()?;
-        self.compact_one()?;
-        self.dead_segments()
+        report.orphan_candidates = orphan.len() as u32;
+        report.objects_removed = removed;
+        self.orphan_sweep.advance(
+            orphan.last().copied(),
+            orphan.len() < MAINTENANCE_CANDIDATES as usize,
+        );
+        self.dead_segments(&mut report)?;
+        self.compact_one(&mut report)?;
+        self.dead_segments(&mut report)?;
+        Ok(report)
     }
     /// At most MAX_IO live bytes copied per mutation. Candidate selection streams
     /// identities instead of materializing the whole candidate set. This bounds
-    /// Rust compaction payload/index admission, not SQLite work or tick latency;
-    /// orphan/dead cleanup and idle scheduling still have separate budgets pending.
-    fn compact_one(&mut self) -> Result<()> {
+    /// Rust candidate/payload admission, not SQL/cascade work or tick latency;
+    /// a timed idle event loop and platform lifecycle integration remain pending.
+    fn compact_one(&mut self, report: &mut MaintenanceReport) -> Result<()> {
         let pinned = self.pinned_segments();
+        let high = self
+            .compact_sweep
+            .high(&self.db, "SELECT COALESCE(MAX(id),0) FROM segments")?;
+        let mut last = None;
         let selected = {
-            let mut statement = self.db.prepare("SELECT s.id FROM segments s JOIN blocks b ON b.segment=s.id GROUP BY s.id HAVING COUNT(*)*65536 <= (s.bytes-24)/2 ORDER BY s.id")?;
-            let candidates = statement.query_map([], |r| r.get::<_, i64>(0))?;
+            let mut statement = self.db.prepare("SELECT s.id FROM segments s JOIN blocks b ON b.segment=s.id WHERE s.id>?1 AND s.id<=?2 GROUP BY s.id HAVING COUNT(*)*65536 <= (s.bytes-24)/2 ORDER BY s.id LIMIT ?3")?;
+            let candidates = statement.query_map(
+                params![self.compact_sweep.after, high, MAINTENANCE_CANDIDATES],
+                |r| r.get::<_, i64>(0),
+            )?;
             let mut selected = None;
             for candidate in candidates {
                 let id = candidate?;
+                last = Some(id);
+                report.compaction_candidates += 1;
                 if !pinned.contains(&id) {
                     selected = Some(id);
                     break;
@@ -1164,6 +1279,8 @@ impl Volume {
             selected
         };
         let Some(id) = selected else {
+            self.compact_sweep
+                .advance(last, report.compaction_candidates < MAINTENANCE_CANDIDATES);
             return Ok(());
         };
         // Larger valid segments can be processed over successive requests. The
@@ -1187,6 +1304,13 @@ impl Volume {
         }
         Self::interrupt(before)?;
         tx.commit()?;
+        report.blocks_copied = records.len() as u32;
+        if records.len() == MAX_IO / BLOCK_SIZE {
+            // Resume a possibly partial immutable source before advancing.
+            self.compact_sweep.after = id - 1;
+        } else {
+            self.compact_sweep.advance(Some(id), false);
+        }
         Ok(())
     }
     pub fn stats(&self) -> Result<Stats> {
