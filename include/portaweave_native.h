@@ -403,6 +403,28 @@ typedef struct PwMaintenanceReport {
   uint32_t compaction_candidates, blocks_copied;
 } PwMaintenanceReport;
 int32_t pw_volume_maintenance_step(uint64_t volume, PwMaintenanceReport *out_report);
+/* Opt-in native session worker. Creation/open do not silently spawn threads.
+ * idle_ms: 10..600000; interval_ms: 10..60000; lab defaults 30000/1000.
+ * Foreground operations reset the quiet period AFTER completion. Worker only
+ * TRY-locks the existing registry; health/space/worker-status polling and the
+ * explicit step do not reset quiet time. No-work/pinned/HostSpace outcomes back
+ * off by max(idle,interval). Only preflight HostSpace retries; genuine errors
+ * stop and remain visible through pw_health and last_status. A finished worker
+ * still requires stop before restart. last report is the last SUCCESSFUL step,
+ * not a rollback or drained certificate; ticks counts attempts (saturating).
+ * stop is idempotent and JOINS, even while holding the registry lock: worker
+ * never waits for that lock. Busy close leaves worker/pins alive; successful
+ * volume_close stops/joins BEFORE dropping the core owner. Close all owners
+ * before unloading the native library. No OS flush/safe-eject guarantee. */
+typedef struct PwMaintenanceWorkerStatus {
+  uint32_t running;
+  int32_t last_status;
+  uint64_t ticks;
+  PwMaintenanceReport report;
+} PwMaintenanceWorkerStatus;
+int32_t pw_volume_maintenance_worker_start(uint64_t volume, uint32_t idle_ms, uint32_t interval_ms);
+int32_t pw_volume_maintenance_worker_stop(uint64_t volume);
+int32_t pw_volume_maintenance_worker_status(uint64_t volume, PwMaintenanceWorkerStatus *out_status);
 int32_t pw_stat(uint64_t volume, int64_t object, PwStat *out_stat);
 int32_t pw_lookup(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len, int64_t *out_object);
 /* Stored spelling for this alias; on BUFFER_TOO_SMALL only out_name_len changes. */

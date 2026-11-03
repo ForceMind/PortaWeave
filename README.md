@@ -197,3 +197,5 @@ The probe now refuses both the actual core `format.txt` + catalog layout and the
 Compaction now admits at most 16 MiB of live payload per owner operation and streams candidate IDs. Larger valid segments retain their source across multiple committed batches. This does not bound all GC work or add an idle scheduler; see [M1-Q](docs/IMPLEMENTATION-M1Q.zh-CN.md).
 
 Reclamation now admits finite candidate pages and provides `maintenance_step` on the existing owner, with explicit progress/error reporting. It does not add an automatic idle worker or bound SQLite/cascade/sync latency. See [M1-R](docs/IMPLEMENTATION-M1R.zh-CN.md).
+
+Native sessions now have an opt-in idle maintenance worker with foreground priority and explicit stop/join before owner release; the scratch WinFsp lab opts in without opening access gates. Ordinary core create/open and gated FSKit loading do not auto-start it. See [M1-S](docs/IMPLEMENTATION-M1S.zh-CN.md).

@@ -1,0 +1,18 @@
+{
+  "source_commit": "c2344e879b5ed8e54e837da04d2e5fb9ac7fcaac",
+  "tree": "40192a10d3a0d422d38e044329fc7948926600f0",
+  "run": 41589933220,
+  "linux_job": 125764085673,
+  "macos_job": 125764085402,
+  "status": "FAIL formatting; functional/default/clippy passed, not a successful job",
+  "correction": "Applied the pinned CI rustfmt output for two worker files without changing behavior",
+  "test_lines": [
+    "2026-11-03T06:27:41.0318178Z test maintenance_worker::tests::monotonic_idle_and_backoff_do_not_treat_zero_work_as_drained ... ok",
+    "2026-11-03T06:27:41.0459067Z test maintenance_worker::tests::failed_join_is_reported_without_releasing_the_core_owner ... ok",
+    "2026-11-03T06:27:42.8636317Z test actual_idle_worker_continues_cleanup_and_joins_before_owner_release ... ok",
+    "2026-11-03T06:28:02.3787413Z test maintenance_worker::tests::monotonic_idle_and_backoff_do_not_treat_zero_work_as_drained ... ok",
+    "2026-11-03T06:28:02.3931043Z test maintenance_worker::tests::failed_join_is_reported_without_releasing_the_core_owner ... ok",
+    "2026-11-03T06:28:04.2163986Z test actual_idle_worker_continues_cleanup_and_joins_before_owner_release ... ok"
+  ],
+  "retention": "Original source/run/job retained; no same-source retry or cancellation. Fresh source must pass."
+}

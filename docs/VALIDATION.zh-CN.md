@@ -321,3 +321,7 @@ M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 pu
 基线main b6498bc1add38fad54649486ed01fcb24fb3b6f4 的14项检查重读成功，无开放PR；187个恢复文件Git blob SHA全部一致。本地Python19项和严格C11/C++17语法通过；无Rust/Swift/MSVC工具链，不声称新增Rust测试已本地执行或新ABI已实际链接。
 
 新增core默认4/feature2、native1及真实C marker，具体夹具/边界见M1-R。候选数量、130旧段lease和300孤儿/300段实际批次、固定高水位、公平回绕/延期重试/显式错误/失败输出为验证目标；准确source CI与合并main分别在对应PR记录。零report/Healthy不认证无积压，候选预算不认证SQL/cascade/fsync时延，owner step不认证自动空闲调度或真实挂载/断电。
+
+## 2026-11-03 M1-S 空闲线程生命周期
+
+前置M1-R main d76bd485b9534d053152d28b773be05ee2899ffe 已独立14/14检查和5工作流成功，完整run/job/step审计PASS后续研。M1-S新增2个native unit（单调决策/受控join panic）、1个实际50ms/10ms idle/后台清理/BUSY/stop/restart/close-join integration、三格式C线程start/join及40-byte布局marker。逻辑unit使用构造Instant验证决策，integration才是真实clock/thread；二者都不是内核挂载证据。Work Python19/C11/C++17语法/diff通过，无本地Rust工具链，新执行结果见准确source及合并main的PR记录；不拿M1-R通过替代。

@@ -295,6 +295,11 @@ static int PwLab(WCHAR *letter)
     }
     PwServiceInterfaceInit(&callbacks);
     PwVolumeParamsInit(&options);
+    /* Opt-in lab owner only. No native access gate is opened. */
+    if (pw_volume_maintenance_worker_start(owner.volume,30000,1000)!=PW_OK) {
+        fwprintf(stderr,L"Could not start lab owner maintenance worker\n");
+        goto release;
+    }
     status=api.create(L"" FSP_FSCTL_DISK_DEVICE_NAME,&options,&callbacks,&fs);
     if (!NT_SUCCESS(status)) {
         fwprintf(stderr,L"FspCreate NTSTATUS 0x%08lX\n",(ULONG)status);
@@ -316,6 +321,8 @@ static int PwLab(WCHAR *letter)
         rc=result ? 1 : 0;
     }
 release:
+    /* Quiesce/join background work before destroying platform state/core owner. */
+    if (pw_volume_maintenance_worker_stop(owner.volume)!=PW_OK) rc=1;
     if (fs) api.destroy(fs);
     if (pw_volume_close(owner.volume)!=PW_OK) rc=1;
 end:

@@ -1,0 +1,17 @@
+{
+  "source_commit": "572caf74e5180fc2eb93d21c08ec495bd971f712",
+  "tree": "f0b8264a99f0e3f2d6cfebe48f7541ebceaa5322",
+  "run": 41589129062,
+  "linux_job": 125761509120,
+  "macos_job": 125761509360,
+  "scope": "initial source; full job FAIL, not accepted",
+  "failure": "clippy::while_let_loop under unchanged -D warnings; formatting step skipped after clippy failure",
+  "correction": "equivalent while-let timeout loop; added controlled join-failure/owner-retention unit; reviewed formatting",
+  "actual_linux_tests": [
+    "2026-11-03T06:20:10.3529325Z test maintenance_worker::tests::monotonic_idle_and_backoff_do_not_treat_zero_work_as_drained ... ok",
+    "2026-11-03T06:20:14.0031212Z test actual_idle_worker_continues_cleanup_and_joins_before_owner_release ... ok",
+    "2026-11-03T06:20:43.1629348Z test maintenance_worker::tests::monotonic_idle_and_backoff_do_not_treat_zero_work_as_drained ... ok",
+    "2026-11-03T06:20:46.4721262Z test actual_idle_worker_continues_cleanup_and_joins_before_owner_release ... ok"
+  ],
+  "retention": "Original source and failed runs/jobs retained; no cancellation or unchanged-source rerun. Corrected source requires complete independent CI."
+}

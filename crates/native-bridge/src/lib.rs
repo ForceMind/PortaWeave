@@ -15,8 +15,13 @@ pub use windows::{
     PwWindowsBasicInfo, PwWindowsFileInfo, PwWindowsWriteResult, pw_windows_file_info,
     pw_windows_file_set_basic_info, pw_windows_file_set_size, pw_windows_file_write,
 };
+mod maintenance_worker;
 mod namespace_ops;
 mod range_locks;
+pub use maintenance_worker::{
+    PwMaintenanceWorkerStatus, pw_volume_maintenance_worker_start,
+    pw_volume_maintenance_worker_status, pw_volume_maintenance_worker_stop,
+};
 pub use namespace_ops::{pw_remove_checked, pw_rename_checked};
 pub use range_locks::{pw_posix_file_lock_range, pw_posix_file_unlock_range};
 mod directories;
@@ -137,6 +142,8 @@ struct Cursor {
     position: usize,
 }
 struct Session {
+    // Stop/join before dropping the volume, including unwinding/registry removal.
+    maintenance: maintenance_worker::State,
     volume: Volume,
     files: BTreeMap<u64, Handle>,
     directory_pins: BTreeMap<u64, DirectoryHandle>,
@@ -154,6 +161,7 @@ struct Session {
 impl Session {
     fn new(volume: Volume) -> Self {
         Self {
+            maintenance: maintenance_worker::State::new(),
             volume,
             files: BTreeMap::new(),
             directory_pins: BTreeMap::new(),
@@ -223,6 +231,15 @@ fn with_table<T>(op: impl FnOnce(&mut BTreeMap<u64, Session>) -> FResult<T>) -> 
     op(&mut lock)
 }
 fn with_session<T>(id: u64, op: impl FnOnce(&mut Session) -> FResult<T>) -> FResult<T> {
+    with_session_untracked(id, |session| {
+        session.maintenance.note_activity();
+        let result = op(session);
+        session.maintenance.note_activity();
+        result
+    })
+}
+// Control/health polling must not postpone idle work by polling itself.
+fn with_session_untracked<T>(id: u64, op: impl FnOnce(&mut Session) -> FResult<T>) -> FResult<T> {
     with_table(|all| {
         let session = all.get_mut(&id).ok_or_else(Fault::invalid)?;
         op(session)
@@ -1188,6 +1205,10 @@ pub extern "C" fn pw_volume_close(volume: u64) -> i32 {
             {
                 return Err(Fault::busy());
             }
+            all.get_mut(&volume)
+                .ok_or_else(Fault::invalid)?
+                .maintenance
+                .stop()?;
             all.remove(&volume);
             Ok(OK)
         })
@@ -1216,7 +1237,7 @@ pub unsafe extern "C" fn pw_volume_maintenance_step(
 ) -> i32 {
     run(|| {
         required(out_report)?;
-        with_session(volume, |s| {
+        with_session_untracked(volume, |s| {
             let r = s.volume.maintenance_step().map_err(Fault::from)?;
             unsafe {
                 out_report.write(PwMaintenanceReport {
@@ -1781,7 +1802,7 @@ pub extern "C" fn pw_dir_seek(volume: u64, cursor: u64, position: u64) -> i32 {
 pub unsafe extern "C" fn pw_volume_space(volume: u64, out_space: *mut PwSpace) -> i32 {
     run(|| {
         required(out_space)?;
-        with_session(volume, |s| {
+        with_session_untracked(volume, |s| {
             let info = s.volume.capacity().map_err(Fault::from)?;
             unsafe {
                 out_space.write(PwSpace {
@@ -1848,7 +1869,7 @@ pub unsafe extern "C" fn pw_health(
     run(|| {
         required(out_maintenance)?;
         required(out_protected)?;
-        with_session(volume, |s| {
+        with_session_untracked(volume, |s| {
             let status = match s.volume.maintenance_status() {
                 MaintenanceStatus::Healthy => 0,
                 MaintenanceStatus::DeferredSpace { .. } => 1,
