@@ -118,3 +118,9 @@ M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 pu
 PR #47 source5e25ac3/treee338663完整17/17检查通过，正常合并main d76bd485b9534d053152d28b773be05ee2899ffe独立14/14/5工作流成功、完整证据审计PASS；首轮MSVC/格式失败保留。核验后继续M1-S：native显式start/stop/status，单调quiet/backoff、registry try_lock前台优先、health/space/status不延迟idle，唯HostSpace可重试，真正I/O故障停止；BUSY close保留worker，成功close/Drop先join再释放owner。WinFsp lab启用30s/1s且先stop后销毁，所有Open/ACL/Flush/FSKit资源/挂载门禁不变。
 
 新增真实短quiet timer清理ended-owner积压并持续监控的integration、逻辑时钟/错误分类unit和三格式C线程生命周期marker，见M1-S/ADR0020/AGENTS58。普通core/C create/open并未自动启用、FSKit也未启动。没有本地Rust执行声明，准确source/main须按对应PR；本地Python19和C11/C++17语法通过。SQL/cascade/sync硬时延、OS授权/完整同步与真挂载/开发工具仍待做，不修改本机/驱动或沙盒。
+
+## 2026-11-11 M0-AA Windows 硬链接后端阻断
+
+恢复并核验基线 `7ac24692abdcd23cc63b8564c96c5f827dc23a70`，无开放 PR。固定 WinFsp 2.1 及所审阅上游提交均在内核层拒绝链接创建，Dokany 所审阅提交缺用户态分发。保留 WinFsp 通用回调研发，同时把有文档化硬链接回调的 CBFS Connect 2026 原生组件列为隔离环境备选。驱动和授权仍待具备，详见 [M0-AA](docs/IMPLEMENTATION-M0AA.zh-CN.md)。
+
+同一个 `hardlink` 用例现在在 Windows 走原生创建、卷能力、完整身份、链接数、跨别名共享和写入、删源重开存活检查。沿用私有目录与原始布局拒绝。Windows 宿主与准确源/主线 CI 分别见对应 PR，真实挂载、系统跨进程语义与卷内工作流仍为独立验收。

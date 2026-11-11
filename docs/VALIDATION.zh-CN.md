@@ -325,3 +325,7 @@ M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 pu
 ## 2026-11-03 M1-S 空闲线程生命周期
 
 前置M1-R main d76bd485b9534d053152d28b773be05ee2899ffe 已独立14/14检查和5工作流成功，完整run/job/step审计PASS后续研。M1-S新增2个native unit（单调决策/受控join panic）、1个实际50ms/10ms idle/后台清理/BUSY/stop/restart/close-join integration、三格式C线程start/join及40-byte布局marker。逻辑unit使用构造Instant验证决策，integration才是真实clock/thread；二者都不是内核挂载证据。Work Python19/C11/C++17语法/diff通过，无本地Rust工具链，新执行结果见准确source及合并main的PR记录；不拿M1-R通过替代。
+
+## 2026-11-11 M0-AA Windows 硬链接探针
+
+现有宿主工作流的 `hardlink` 用例在 Windows 调用原生 API。通过的报告包含 `WIN32_HARDLINK_OK`、文件系统名称和 `FILE_SUPPORTS_HARD_LINKS=1`。复制替身必须因身份不同失败。非 Windows 仍执行原有硬链接用例。准确源码和合并主线的结果按对应 PR 单独记录。PortaWeave 卷的 FS-07 保持 BLOCKED，Windows 后端源码检查与将来的实际卷运行步骤见 [M0-AA](IMPLEMENTATION-M0AA.zh-CN.md)。

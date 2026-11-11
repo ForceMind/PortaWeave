@@ -14,6 +14,7 @@ READ, WRITE = 0x80000000, 0x40000000
 DELETE = 0x00010000
 SHARE_READ, SHARE_ALL = 1, 7
 SHARING_VIOLATION, LOCK_VIOLATION = 32, 33
+FILE_SUPPORTS_HARD_LINKS = 0x00400000
 
 
 class Overlapped(C.Structure):
@@ -23,6 +24,11 @@ class Overlapped(C.Structure):
 
 class FileIdentity(C.Structure):
     _fields_ = [("volume", C.c_ulonglong), ("identifier", C.c_ubyte * 16)]
+
+
+class FileStandardInformation(C.Structure):
+    _fields_ = [("AllocationSize", C.c_longlong), ("EndOfFile", C.c_longlong),
+                ("NumberOfLinks", W.DWORD), ("DeletePending", C.c_ubyte), ("Directory", C.c_ubyte)]
 
 
 class RenameInformation(C.Structure):
@@ -40,7 +46,9 @@ def require(condition: bool, message: str) -> None:
 class Api:
     def __init__(self):
         require(C.sizeof(W.DWORD) == 4 and C.sizeof(W.WCHAR) == 2 and
-                C.sizeof(FileIdentity) == 24, "Unexpected Win32 wire types")
+                C.sizeof(FileIdentity) == 24 and C.sizeof(FileStandardInformation) == 24 and
+                FileStandardInformation.NumberOfLinks.offset == 16 and
+                FileStandardInformation.Directory.offset == 21, "Unexpected Win32 wire types")
         require(C.sizeof(Overlapped) == (32 if C.sizeof(C.c_void_p) == 8 else 20) and
                 RenameInformation.FileName.offset == (20 if C.sizeof(C.c_void_p) == 8 else 12),
                 "Unexpected Win32 pointer/rename alignment")
@@ -56,9 +64,13 @@ class Api:
             "LockFileEx": (W.BOOL, [W.HANDLE, W.DWORD, W.DWORD, W.DWORD, W.DWORD, C.POINTER(Overlapped)]),
             "UnlockFileEx": (W.BOOL, [W.HANDLE, W.DWORD, W.DWORD, W.DWORD, C.POINTER(Overlapped)]),
             "DeleteFileW": (W.BOOL, [W.LPCWSTR]),
+            "CreateHardLinkW": (W.BOOL, [W.LPCWSTR, W.LPCWSTR, C.c_void_p]),
             "MoveFileExW": (W.BOOL, [W.LPCWSTR, W.LPCWSTR, W.DWORD]),
             "GetFileInformationByHandleEx": (W.BOOL, [W.HANDLE, C.c_int, C.c_void_p, W.DWORD]),
             "SetFileInformationByHandle": (W.BOOL, [W.HANDLE, C.c_int, C.c_void_p, W.DWORD]),
+            "GetVolumeInformationByHandleW": (
+                W.BOOL, [W.HANDLE, W.LPWSTR, W.DWORD, C.POINTER(W.DWORD), C.POINTER(W.DWORD),
+                         C.POINTER(W.DWORD), W.LPWSTR, W.DWORD]),
         }
         for name, (result, arguments) in signatures.items():
             function = getattr(self.dll, name)
@@ -127,6 +139,20 @@ class Api:
         require(any(identifier), "File identity is zero")
         return info.volume, identifier.hex()
 
+    def link_count(self, handle) -> int:
+        info = FileStandardInformation()
+        self.checked(self.dll.GetFileInformationByHandleEx(handle, 1, C.byref(info), C.sizeof(info)))  # FileStandardInfo
+        return info.NumberOfLinks
+
+    def filesystem(self, handle) -> tuple[str, int]:
+        name, flags = C.create_unicode_buffer(256), W.DWORD()
+        self.checked(self.dll.GetVolumeInformationByHandleW(handle, None, 0, None, None,
+                                                           C.byref(flags), name, len(name)))
+        return name.value, flags.value
+
+    def create_hard_link(self, source: Path, alias: Path):
+        self.checked(self.dll.CreateHardLinkW(str(alias), str(source), None))
+
     @contextmanager
     def locked(self, handle, offset=0, length=4, exclusive=True):
         overlap = Overlapped(Offset=offset)
@@ -153,6 +179,43 @@ class Api:
 def seed(path: Path, contents=b"original"):
     with path.open("xb") as file:  # never overwrite even in the private fixture
         file.write(contents)
+
+
+def hardlink(path: Path) -> str:
+    api = Api()
+    source, directory = path / "original.bin", path / "links"
+    directory.mkdir()
+    alias = directory / "alias.bin"
+    seed(source)
+    with api.opened(source, READ) as original:
+        identity = api.identity(original)
+        require(api.link_count(original) == 1, "Fresh file did not have exactly one link")
+        filesystem, flags = api.filesystem(original)
+    advertises_links = bool(flags & FILE_SUPPORTS_HARD_LINKS)
+    volume = f"filesystem={filesystem!r}, FILE_SUPPORTS_HARD_LINKS={int(advertises_links)}"
+    try:
+        api.create_hard_link(source, alias)
+    except OSError as error:
+        raise RuntimeError(f"CreateHardLinkW failed ({volume}): {error}") from error
+    require(advertises_links, f"CreateHardLinkW succeeded without advertised support ({volume})")
+    with api.opened(source, READ, SHARE_READ) as original:
+        with api.opened(alias, READ) as linked:
+            require(api.identity(original) == api.identity(linked) == identity,
+                    "Hard link does not share the source file identity")
+            require(api.link_count(original) == api.link_count(linked) == 2,
+                    "Both names must report exactly two links")
+        api.refused_open(alias, WRITE, SHARE_ALL, SHARING_VIOLATION)
+    with api.opened(source, READ) as original, api.opened(alias, WRITE) as linked:
+        updated, written = b"modified", W.DWORD()
+        api.checked(api.dll.WriteFile(linked, C.create_string_buffer(updated), len(updated), C.byref(written), None))
+        require(written.value == len(updated) and api.read(original) == updated,
+                "Write through the alias was not visible through the original handle")
+    api.checked(api.dll.DeleteFileW(str(source)))
+    api.refused_open(source, READ, SHARE_ALL, 2)  # ERROR_FILE_NOT_FOUND
+    with api.opened(alias, READ) as remaining:
+        require(api.identity(remaining) == identity and api.link_count(remaining) == 1 and
+                api.read(remaining) == updated, "Removing the source changed the surviving link")
+    return f"WIN32_HARDLINK_OK: {volume}; cross-directory ID, exact link counts, shared writes and sharing, surviving alias"
 
 
 def sharing(path: Path) -> str:

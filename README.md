@@ -199,3 +199,5 @@ Compaction now admits at most 16 MiB of live payload per owner operation and str
 Reclamation now admits finite candidate pages and provides `maintenance_step` on the existing owner, with explicit progress/error reporting. It does not add an automatic idle worker or bound SQLite/cascade/sync latency. See [M1-R](docs/IMPLEMENTATION-M1R.zh-CN.md).
 
 Native sessions now have an opt-in idle maintenance worker with foreground priority and explicit stop/join before owner release; the scratch WinFsp lab opts in without opening access gates. Ordinary core create/open and gated FSKit loading do not auto-start it. See [M1-S](docs/IMPLEMENTATION-M1S.zh-CN.md).
+
+On Windows the `hardlink` probe uses `CreateHardLinkW` and checks the volume flag, full file identity, link counts, shared writes and sharing conflicts across names, and the surviving alias after unlink. WinFsp hard links remain blocked at kernel dispatch. See [Windows backend evidence and FS-07 procedure](docs/IMPLEMENTATION-M0AA.zh-CN.md).

@@ -100,6 +100,8 @@ def atomic_replace(p: Path) -> str:
 
 
 def hardlink(p: Path) -> str:
+    if os.name == "nt":
+        return windows_native(p, "hardlink")
     a, b = p / "original", p / "alias"
     a.write_bytes(b"before")
     os.link(a, b)
