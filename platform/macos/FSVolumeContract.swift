@@ -761,6 +761,12 @@ struct FSVolumeContract {
             }
             try require(try lookup(volume, "target", root) === source, "matching checked replacement failed")
             try require(try readBack(volume, replacement) == Data("new target".utf8), "replacement destroyed its old open inode")
+            try expect(.ESTALE) { done in
+                volume.createLink(to: replacement, named: FSFileName(string: "replaced-file-link"), inDirectory: root) { name, error in
+                    precondition(name == nil)
+                    done(error)
+                }
+            }
             for item in [source, target, replacement] {
                 try success { volume.closeItem(item, modes: [], replyHandler: $0) }
                 try success { volume.reclaimItem(item, replyHandler: $0) }
@@ -1083,7 +1089,21 @@ struct FSVolumeContract {
         try expect(.ESTALE) { done in second.getAttributes(request, of: file) { _, e in done(e) } }
 
         try success { volume.removeItem(file, named: FSFileName(string: "MiXeD.txt"), fromDirectory: root, replyHandler: $0) }
+        let surviving: FSFileName = try waitValue {
+            volume.createLink(to: file, named: FSFileName(string: "surviving.txt"), inDirectory: root, replyHandler: $0)
+        }
+        try require(surviving.string == "surviving.txt", "named alias did not retain link authority")
         try success { volume.removeItem(file, named: FSFileName(string: "Alias.txt"), fromDirectory: root, replyHandler: $0) }
+        try success { volume.removeItem(file, named: surviving, fromDirectory: root, replyHandler: $0) }
+        try expect(.ESTALE) { done in
+            volume.createLink(to: file, named: FSFileName(string: "resurrected.txt"), inDirectory: root) { name, error in
+                precondition(name == nil)
+                done(error)
+            }
+        }
+        try expect(.ENOENT) { done in
+            volume.lookupItem(named: FSFileName(string: "resurrected.txt"), inDirectory: root) { _, _, error in done(error) }
+        }
         try write(volume, file, "open unlinked")
         try require(try readBack(volume, file) == Data("open unlinked".utf8), "unlinked open object disappeared")
         try expect(.EBUSY) { volume.reclaimItem(file, replyHandler: $0) }

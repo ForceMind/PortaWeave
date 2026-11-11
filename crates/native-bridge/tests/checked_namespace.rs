@@ -93,6 +93,75 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn fskit_link_keeps_pinned_file_data_but_cannot_restore_its_last_removed_name() {
+    for v2 in [false, true] {
+        let f = Fixture::new(v2);
+        let file = f.create("source", false);
+        let other = f.create("other", false);
+        let mut pin = 0;
+        assert_eq!(unsafe { pw_file_open(f.volume, file, &mut pin) }, 0);
+        let content = b"held contents";
+        let mut written = 0;
+        assert_eq!(
+            unsafe {
+                pw_file_write(
+                    f.volume,
+                    pin,
+                    0,
+                    content.as_ptr(),
+                    content.len(),
+                    &mut written,
+                )
+            },
+            0
+        );
+        assert_eq!(written, content.len());
+        let link = |expected, name: &str| unsafe {
+            pw_fskit_file_link(f.volume, pin, expected, 1, name.as_ptr(), name.len())
+        };
+        let remove = |name: &str| {
+            assert_eq!(
+                unsafe { pw_remove_checked(f.volume, 1, name.as_ptr(), name.len(), 0, file) },
+                0
+            );
+        };
+        assert_eq!(link(other, "alias"), -18);
+        assert_eq!(link(file, "other"), -3);
+        assert_eq!(f.lookup("other"), other);
+        assert_eq!(link(file, "alias"), 0);
+        assert_eq!(f.lookup("alias"), file);
+        remove("source");
+        assert_eq!(link(file, "remaining"), 0);
+        assert_eq!(f.lookup("remaining"), file);
+        remove("alias");
+        remove("remaining");
+        let mut before = PwStat::default();
+        assert_eq!(unsafe { pw_stat(f.volume, file, &mut before) }, 0);
+        assert_eq!(before.links, 0);
+        assert_eq!(link(file, "revived"), -18);
+        let mut absent = 99;
+        assert_eq!(
+            unsafe { pw_lookup(f.volume, 1, b"revived".as_ptr(), 7, &mut absent) },
+            -2
+        );
+        assert_eq!(absent, 99);
+        let mut after = PwStat::default();
+        assert_eq!(unsafe { pw_stat(f.volume, file, &mut after) }, 0);
+        assert_eq!(after, before);
+        let mut data = [0; 13];
+        let mut read = 0;
+        assert_eq!(
+            unsafe { pw_file_read(f.volume, pin, 0, data.as_mut_ptr(), data.len(), &mut read) },
+            0
+        );
+        assert_eq!(&data[..read], content);
+        assert_eq!(pw_file_close(f.volume, pin), 0);
+        assert_eq!(link(file, "revived"), -1);
+        f.healthy();
+    }
+}
+
+#[test]
 fn serialized_c_calls_detect_a_name_replaced_between_lookup_and_mutation_on_another_thread() {
     let f = Fixture::new(true);
     let old = f.create("slot", false);

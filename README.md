@@ -201,3 +201,5 @@ Reclamation now admits finite candidate pages and provides `maintenance_step` on
 Native sessions now have an opt-in idle maintenance worker with foreground priority and explicit stop/join before owner release; the scratch WinFsp lab opts in without opening access gates. Ordinary core create/open and gated FSKit loading do not auto-start it. See [M1-S](docs/IMPLEMENTATION-M1S.zh-CN.md).
 
 On Windows the `hardlink` probe uses `CreateHardLinkW` and checks the volume flag, full file identity, link counts, shared writes and sharing conflicts across names, and the surviving alias after unlink. WinFsp hard links remain blocked at kernel dispatch. See [Windows backend evidence and FS-07 procedure](docs/IMPLEMENTATION-M0AA.zh-CN.md).
+
+The FSKit laboratory link callback checks that its cached file pin matches a file that still has a name. The last unlink preserves existing handle I/O and prevents a later callback from giving the file a new name. See [M0-AB](docs/IMPLEMENTATION-M0AB.zh-CN.md).

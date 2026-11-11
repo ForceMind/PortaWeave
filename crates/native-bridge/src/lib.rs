@@ -7,8 +7,8 @@
 mod fskit;
 pub use fskit::{
     PwCreateState, PwFsKitAttributes, PwFsKitCreated, PwFsKitDirectoryCreated,
-    pw_fskit_directory_create_with_state, pw_fskit_file_set_attributes, pw_fskit_metadata_set,
-    pw_fskit_node_create, pw_fskit_node_create_with_state,
+    pw_fskit_directory_create_with_state, pw_fskit_file_link, pw_fskit_file_set_attributes,
+    pw_fskit_metadata_set, pw_fskit_node_create, pw_fskit_node_create_with_state,
 };
 mod windows;
 pub use windows::{
