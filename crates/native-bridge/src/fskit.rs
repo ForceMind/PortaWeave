@@ -7,6 +7,32 @@ use portaweave_core::{
     Error, Kind, MetadataUpdate, NodeCreateOptions, ObjectInfo, Result, Timestamp,
 };
 
+/// Trusted laboratory link using the cached administrative file pin.
+/// # Safety
+/// Name points to name_len valid UTF-8 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_fskit_file_link(
+    volume: u64,
+    file: u64,
+    expected_object: i64,
+    parent: i64,
+    name: *const u8,
+    name_len: usize,
+) -> i32 {
+    run(|| {
+        let expected = super::file_id(expected_object)?;
+        let parent = super::file_id(parent)?;
+        let name = unsafe { text(name, name_len)? };
+        with_session(volume, |s| {
+            let handle = *s.files.get(&file).ok_or_else(Fault::invalid)?;
+            s.volume
+                .hard_link_from_pin(handle, expected, parent, name)
+                .map_err(Fault::from)?;
+            Ok(OK)
+        })
+    })
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PwFsKitAttributes {

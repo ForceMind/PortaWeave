@@ -329,3 +329,7 @@ M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 pu
 ## 2026-11-11 M0-AA Windows 硬链接探针
 
 现有宿主工作流的 `hardlink` 用例在 Windows 调用原生 API。通过的报告包含 `WIN32_HARDLINK_OK`、文件系统名称和 `FILE_SUPPORTS_HARD_LINKS=1`。复制替身必须因身份不同失败。非 Windows 仍执行原有硬链接用例。准确源码和合并主线的结果按对应 PR 单独记录。PortaWeave 卷的 FS-07 保持 BLOCKED，Windows 后端源码检查与将来的实际卷运行步骤见 [M0-AA](IMPLEMENTATION-M0AA.zh-CN.md)。
+
+## 2026-11-11 M0-AB FSKit 硬链接源
+
+新增真实 native ABI 回归覆盖 v1/v2 同一对象的多个别名、目标已存在、源身份错配、最后 unlink 后返回 STALE、旧引用的数据读取和关闭后的 token 拒绝。FSKit 直接 SDK 合同也检查替换后的旧目标和最后 unlink 后的文件不能通过缓存项重新挂名。实际挂载和调用者权限仍待验证，详见 [M0-AB](IMPLEMENTATION-M0AB.zh-CN.md)。

@@ -405,9 +405,39 @@ impl Volume {
 
     /// A second directory entry for the SAME object, not copied content.
     pub fn hard_link(&mut self, object: FileId, parent: FileId, name: &str) -> Result<()> {
+        self.hard_link_request(object, parent, name, false)
+    }
+
+    /// Trusted adapter link from a pinned regular file that still has a name.
+    /// A pin keeps data alive after unlink, but does not restore namespace authority.
+    pub fn hard_link_from_pin(
+        &mut self,
+        handle: Handle,
+        expected: FileId,
+        parent: FileId,
+        name: &str,
+    ) -> Result<()> {
+        let object = self.object(handle)?;
+        if object != expected {
+            return Err(Error::StaleEntry);
+        }
+        self.hard_link_request(object, parent, name, true)
+    }
+
+    fn hard_link_request(
+        &mut self,
+        object: FileId,
+        parent: FileId,
+        name: &str,
+        source_must_be_linked: bool,
+    ) -> Result<()> {
         self.mutate(|this| {
-            if this.stat(object)?.kind != Kind::File {
+            let source = this.stat(object)?;
+            if source.kind != Kind::File {
                 return Err(Error::IsDirectory);
+            }
+            if source_must_be_linked && source.links == 0 {
+                return Err(Error::StaleEntry);
             }
             this.linked_directory(parent)?;
             let key = names::key(name)?;

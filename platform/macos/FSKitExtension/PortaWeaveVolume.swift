@@ -207,10 +207,12 @@ final class PortaWeaveVolume: FSVolume, FSVolume.Operations,
             do {
                 let item = try self.session.item(raw)
                 let parent = try self.session.item(directory)
+                guard item.kind == 0 else { throw POSIXError(.ENOTSUP) }
+                guard let handle = item.handle else { throw POSIXError(.ESTALE) }
                 let bytes = try self.session.data(name)
                 let status = bytes.withUnsafeBytes {
-                    pw_hard_link(self.session.volume, item.object, parent.object,
-                                 $0.bindMemory(to: UInt8.self).baseAddress, bytes.count)
+                    pw_fskit_file_link(self.session.volume, handle, item.object, parent.object,
+                                      $0.bindMemory(to: UInt8.self).baseAddress, bytes.count)
                 }
                 try pwCheck(status)
                 self.session.noteHealth()

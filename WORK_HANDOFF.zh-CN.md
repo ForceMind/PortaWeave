@@ -124,3 +124,7 @@ PR #47 source5e25ac3/treee338663完整17/17检查通过，正常合并main d76bd
 恢复并核验基线 `7ac24692abdcd23cc63b8564c96c5f827dc23a70`，无开放 PR。固定 WinFsp 2.1 及所审阅上游提交均在内核层拒绝链接创建，Dokany 所审阅提交缺用户态分发。保留 WinFsp 通用回调研发，同时把有文档化硬链接回调的 CBFS Connect 2026 原生组件列为隔离环境备选。驱动和授权仍待具备，详见 [M0-AA](docs/IMPLEMENTATION-M0AA.zh-CN.md)。
 
 同一个 `hardlink` 用例现在在 Windows 走原生创建、卷能力、完整身份、链接数、跨别名共享和写入、删源重开存活检查。沿用私有目录与原始布局拒绝。Windows 宿主与准确源/主线 CI 分别见对应 PR，真实挂载、系统跨进程语义与卷内工作流仍为独立验收。
+
+## 2026-11-11 M0-AB FSKit 硬链接源引用校验
+
+PR #49 已合并至 `e1ddb7d56aa61a8a7f54fd6864343c57ce8031aa`，源 17/17、独立主线 14/14，五工作流 run/job/step 审计通过。接续阶段用实际 C ABI 复现管理员入口能为已无名字的持有文件重新挂名。FSKit 实验回调改用独立的持有文件入口，验证 token、预期对象和仍有链接后执行既有命名事务。旧句柄保留数据访问，底层管理入口仍保留原合同。见 [M0-AB](docs/IMPLEMENTATION-M0AB.zh-CN.md)。

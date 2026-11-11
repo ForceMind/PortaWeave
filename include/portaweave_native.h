@@ -335,6 +335,11 @@ typedef struct PwFsKitCreated {
 } PwFsKitCreated;
 int32_t pw_fskit_node_create(uint64_t volume, int64_t parent, const uint8_t *name, size_t name_len,
                            uint8_t directory, const PwCreateAttributes *attributes, PwFsKitCreated *out_created);
+/* Link a still-named regular file through its ADMINISTRATIVE pin. The expected
+ * object must match the pin; mismatch or last unlink returns STALE. A stale,
+ * foreign or policy token returns INVALID. A pin is not OS authorization. */
+int32_t pw_fskit_file_link(uint64_t volume, uint64_t file, int64_t expected_object, int64_t parent,
+                          const uint8_t *name, size_t name_len);
 
 /* Optional initial state, committed WITH the new name. File size is logical
  * sparse zeros, subject to quota, NOT physical preallocation. v1 accepts size
