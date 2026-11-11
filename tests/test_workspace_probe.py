@@ -21,10 +21,19 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(sentinel.read_bytes(), b"untouched")
 
     def test_hardlink_requires_shared_identity(self):
+        def copy(source, alias):
+            alias.write_bytes(source.read_bytes())
+
         with tempfile.TemporaryDirectory() as folder:
-            with patch.object(probe.os, "link", side_effect=lambda a, b: b.write_bytes(a.read_bytes())):
+            if probe.os.name == "nt":
+                from tools import windows_semantics
+                replacement = patch.object(windows_semantics.Api, "create_hard_link", side_effect=copy)
+            else:
+                replacement = patch.object(probe.os, "link", side_effect=copy)
+            with replacement:
                 report = probe.probe(Path(folder), ["hardlink"], "intentionally-broken-copy")
             self.assertEqual(report["counts"], {"FAIL": 1})
+            self.assertIn("identity", report["results"][0]["detail"])
 
     def test_unavailable_tool_is_not_a_pass(self):
         with tempfile.TemporaryDirectory() as folder:

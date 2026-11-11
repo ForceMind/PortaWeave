@@ -199,3 +199,5 @@ WinFsp实验入口新增启动前控制事件准备、等待/清理错误传播�
 回收现按有界候选页推进，并提供现有owner的 `maintenance_step` 续办入口及真实计数/错误。尚无自动空闲worker，SQLite/cascade/同步时延仍未硬性限额，见 [M1-R](docs/IMPLEMENTATION-M1R.zh-CN.md)。
 
 原生session新增可显式启用的空闲维护worker，前台请求优先，退出时先stop/join再释放owner；WinFsp scratch lab接入且不开放访问门禁。普通core创建/打开和仍关闭的FSKit加载不自动启动，见 [M1-S](docs/IMPLEMENTATION-M1S.zh-CN.md)。
+
+Windows 的 `hardlink` 探针现通过 `CreateHardLinkW` 验证卷能力位、完整文件身份、链接数、跨名字写入与共享冲突，以及删除原名后剩余链接的状态。WinFsp 硬链接仍阻断于内核分发，见 [Windows 后端证据和 FS-07 步骤](docs/IMPLEMENTATION-M0AA.zh-CN.md)。
