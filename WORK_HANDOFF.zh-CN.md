@@ -128,3 +128,11 @@ PR #47 source5e25ac3/treee338663完整17/17检查通过，正常合并main d76bd
 ## 2026-11-11 M0-AB FSKit 硬链接源引用校验
 
 PR #49 已合并至 `e1ddb7d56aa61a8a7f54fd6864343c57ce8031aa`，源 17/17、独立主线 14/14，五工作流 run/job/step 审计通过。接续阶段用实际 C ABI 复现管理员入口能为已无名字的持有文件重新挂名。FSKit 实验回调改用独立的持有文件入口，验证 token、预期对象和仍有链接后执行既有命名事务。旧句柄保留数据访问，底层管理入口仍保留原合同。见 [M0-AB](docs/IMPLEMENTATION-M0AB.zh-CN.md)。
+
+## 2026-11-14 M1-T：同步期间的 SQLite POSIX 锁保留
+
+从重新核验的 main `2e2edf1795cf740c668bba619bd784233eee605a` 继续。发现 `synchronize_storage` 在活跃连接旁额外打开并关闭 catalog，导致宿主 POSIX 记录锁丢失。先用 v1/v2/v3 的独立 exec 子进程探针复现：正常同步和 catalog 同步边界故障共 6 项全部失败，before-barrier 都持锁，after-barrier 均意外 AVAILABLE；真实输出见 `docs/evidence/2026-11-14-catalog-lock-before.log`。
+
+修复只让原连接 FULL 检查点负责 catalog/WAL 同步，保留段/目录/marker 顺序和错误保护；不增加生产依赖或 unsafe，不改 v1/v2/v3 格式。固定工具链 1.99.1 的 Linux 本地默认 217 通过、全特性 263 通过，均 0 失败；新增针对性默认 3/全特性 6 全通过。既有 helper 加新探针入口分别 2/5 ignored，均依既有父测试调用规则使用。Clippy 全工作区/all-targets/all-features 严格检查和 fmt 通过。准确新 source/main 的三平台结果以本轮 PR 验收记录为准，未将本地通过冒充 macOS/Windows。
+
+详见 M1-T 与 ADR 0021。同步后的锁现在由已有 SQLite 生命周期维持，owner 关闭后才通过正向对照释放；这不是挂载卷、OS 身份/ACL、完整缓存、安全卸载或物理断电证明。Windows 硬链接后端与双端真挂载/卷内 Codex 门禁仍开放。

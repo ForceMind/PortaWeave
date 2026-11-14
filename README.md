@@ -19,9 +19,9 @@ cargo test --locked -p portaweave-partition-inspector
 
 GPT requires valid CRC32 header/entry tables; it reports damaged primary/backup as DEGRADED, does not repair anything, and refuses ambiguous hybrid MBR/GPT. MBR extended EBR logical partitions are not yet enumerated. A virtual partitionable block device (.pwdisk), physical device management and resize/clone/recovery are **planned, not implemented**. None of these claims weakens the standard Codex/Git working-volume release gates.
 
-## Status — 2026-10-29
+## Status — 2026-11-14
 
-**M1-P cooperative descriptor range grants, M0-W captured FSKit directory enumeration and M0-V v3 item references, M1-O versioned inode lifetimes, laboratory WinFsp/FSVolume callbacks, unsigned macOS App/Extension build and experimental WinFsp dispatcher. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. Native adapters are incomplete; effective permissions, full metadata/security semantics, idle scheduling and a usable desktop client remain unimplemented. Never store the only copy in this experimental format.
+**M1-P cooperative descriptor range grants, M0-W captured FSKit directory enumeration and M0-V v3 item references, M1-O versioned inode lifetimes, laboratory WinFsp/FSVolume callbacks, unsigned macOS App/Extension build and experimental WinFsp dispatcher. NOT a validated system mount or production release.** The core stores immutable block segments with an authoritative SQLite catalog, namespace operations, shared hard-link identity, open-object lifetime, read leases and operation-triggered reclamation. It also has evidence-copy diagnosis/content export and separate maintenance status. M1-Q/R bound maintenance batches and M1-S adds an opt-in native idle worker. Native adapters remain incomplete; effective permissions, full metadata/security semantics and a usable desktop client are not finished. Never store the only copy in this experimental format.
 
 Read [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md), [M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md), [M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md) and [validation evidence](docs/VALIDATION.zh-CN.md). Hosted core tests do not establish exFAT, mounted-volume or Codex compatibility. Exact source-version CI results are recorded on the corresponding PR; implementation documentation is not a test-pass claim.
 
@@ -144,7 +144,7 @@ cargo fmt --all -- --check
 cargo run --locked -p portaweave-core --example scratch -- /path/to/new-disposable-lab
 ```
 
-Automatic reclamation currently runs in serialized operations, not an idle worker. Handles/read leases delay deletion. Segment-byte statistics exclude the database, WAL and host allocation overhead. Physical power loss and Windows directory flush remain unvalidated.
+Core reclamation runs on the same serialized owner. Native sessions may explicitly enable the M1-S idle worker; ordinary create/open does not start one. Handles/read leases delay deletion. Segment-byte statistics exclude the database, WAL and host allocation overhead. Physical power loss and Windows directory flush remain unvalidated.
 
 ### Host-space and maintenance states
 
@@ -203,3 +203,5 @@ Native sessions now have an opt-in idle maintenance worker with foreground prior
 On Windows the `hardlink` probe uses `CreateHardLinkW` and checks the volume flag, full file identity, link counts, shared writes and sharing conflicts across names, and the surviving alias after unlink. WinFsp hard links remain blocked at kernel dispatch. See [Windows backend evidence and FS-07 procedure](docs/IMPLEMENTATION-M0AA.zh-CN.md).
 
 The FSKit laboratory link callback checks that its cached file pin matches a file that still has a name. The last unlink preserves existing handle I/O and prevents a later callback from giving the file a new name. See [M0-AB](docs/IMPLEMENTATION-M0AB.zh-CN.md).
+
+M1-T preserves SQLite POSIX locks during backend synchronization by letting the live connection own catalog/WAL sync through its FULL checkpoint. Independent subprocess tests check lock retention across sync and protected failures, and release after owner close. See [M1-T](docs/IMPLEMENTATION-M1T.zh-CN.md) and [ADR 0021](docs/adr/0021-preserve-sqlite-locks-during-storage-sync.md).

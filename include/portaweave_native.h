@@ -489,6 +489,8 @@ int32_t pw_volume_space(uint64_t volume, PwSpace *out_space);
 int32_t pw_catalog_checkpoint(uint64_t volume, PwCheckpoint *out_result);
 /* Backend host-file + directory barrier (Unix). Native/OS pending writes must
  * first be drained by the adapter. NOT safe eject or hardware certification.
+ * Catalog/WAL sync belongs to SQLite's live-connection FULL checkpoint;
+ * do not independently open/close live SQLite files in the owner's process.
  * Windows returns PW_UNSUPPORTED; no successful no-op directory flush.
  * Does not close handles/leases or run GC. Failed output remains unchanged.
  */

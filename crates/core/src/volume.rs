@@ -534,8 +534,11 @@ impl Volume {
         self.observe(result)
     }
 
-    /// Synchronize tracked segment files, their directory, the SQLite catalog
-    /// and WAL, the format marker and container directory in this serial owner.
+    /// Synchronize tracked segments and their directory, checkpoint SQLite
+    /// through its live connection, then sync the marker/container directory.
+    /// SQLite owns catalog/WAL sync: an unrelated descriptor close would
+    /// release this process's POSIX locks behind the connection's back.
+    /// Already checkpointed frames can reuse their previous synced state.
     /// A native adapter must first drain its own/OS pending writes. This is not
     /// safe eject, hardware certification or a Windows directory-flush fallback.
     pub fn synchronize_storage(&mut self) -> Result<StorageSyncStatus> {
@@ -566,19 +569,24 @@ impl Volume {
                 }
                 segment::sync_directory(&self.root.join("segments"))?;
                 self.hit(4)?;
-                let checkpoint = self.checkpoint_catalog()?;
-                for name in ["catalog.sqlite", "format.txt"] {
-                    let path = self.root.join(name);
-                    segment::regular(&path)?;
-                    File::open(path)?.sync_all()?;
-                }
+                // Metadata checks do not open/close a second catalog handle.
+                // Even closing an independently opened read-only descriptor
+                // drops SQLite's process-scoped POSIX locks on that inode.
+                segment::regular(&self.root.join("catalog.sqlite"))?;
                 let wal = self.root.join("catalog.sqlite-wal");
                 match fs::symlink_metadata(&wal) {
-                    Ok(meta) if meta.file_type().is_file() => File::open(&wal)?.sync_all()?,
+                    Ok(meta) if meta.file_type().is_file() => (),
                     Ok(_) => return Err(Error::Corrupt("nonregular SQLite WAL".into())),
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
                     Err(error) => return Err(error.into()),
                 }
+                // The configured FULL/fullfsync connection orders WAL sync,
+                // database backfill and database sync through SQLite's VFS.
+                // A complete checkpoint needs no external database descriptor.
+                let checkpoint = self.checkpoint_catalog()?;
+                let marker = self.root.join("format.txt");
+                segment::regular(&marker)?;
+                File::open(marker)?.sync_all()?;
                 self.hit(5)?;
                 segment::sync_directory(&self.root)?;
                 Ok(StorageSyncStatus {
