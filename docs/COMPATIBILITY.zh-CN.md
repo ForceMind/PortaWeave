@@ -123,3 +123,5 @@ M1-R有界候选清理及同owner维护续办入口见 [实现](IMPLEMENTATION-M
 M1-S增加显式native idle worker和stop/join、WinFsp scratch lab调度接入，见 [实现](IMPLEMENTATION-M1S.zh-CN.md)。普通core创建/打开不隐式启动，FSKit仍无已授权live owner。userland timer/线程退出不是系统挂载、OS shutdown/safe-eject、完整缓存/同步或DEV-09/Codex认证。
 
 M1-T修复Unix后端同步额外关闭catalog描述符导致SQLite进程锁丢失的问题，见 [实现](IMPLEMENTATION-M1T.zh-CN.md)。数据库/WAL由原连接FULL检查点同步，独立exec子进程验证同步前后锁与owner关闭后的释放；这是宿主catalog锁的回归，仍不关闭挂载卷的FS-03/FS-08、原生权限/完整同步或Codex验收。
+
+M0-AC为FS-03/FS-08增加可复用的跨进程Windows共享与字节锁探针，见 [实现](IMPLEMENTATION-M0AC.zh-CN.md)。分别独立CreateFileW、核对file ID、双向拒绝及显式释放后重试；本地Linux仅验证协议/清理，Windows执行尚待CI，真挂载与不同caller/ACL/mmap仍未通过。

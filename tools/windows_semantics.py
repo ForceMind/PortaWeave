@@ -1,20 +1,32 @@
 """Actual synchronous Win32 file API probes on caller-owned new scratch files.
 
-Only workspace_probe supplies the private per-case directory. No driver,
-mount, ACL change, process impersonation, raw device or background work.
+Only workspace_probe supplies the private per-case directory. Child probes
+are joined before returning. No driver, mount, ACL change, impersonation or
+raw device is involved; both processes still use the same account.
 """
 from __future__ import annotations
 
 from contextlib import contextmanager
 import ctypes as C
 from ctypes import wintypes as W
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import threading
+import time
 
 READ, WRITE = 0x80000000, 0x40000000
 DELETE = 0x00010000
 SHARE_READ, SHARE_ALL = 1, 7
 SHARING_VIOLATION, LOCK_VIOLATION = 32, 33
 FILE_SUPPORTS_HARD_LINKS = 0x00400000
+CHILD_PROTOCOL = "portaweave-win32-probe-v1"
+CHILD_MESSAGE_LIMIT = 4096
+CHILD_OPERATIONS = frozenset({"read", "sharing-denied", "denied-mask", "write",
+                              "exclusive-denied", "shared", "exclusive",
+                              "hold", "release", "quit"})
 
 
 class Overlapped(C.Structure):
@@ -41,6 +53,164 @@ class RenameInformation(C.Structure):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        require(key not in result, f"Duplicate child protocol key: {key}")
+        result[key] = value
+    return result
+
+
+def _decode_message(line: bytes) -> dict:
+    require(0 < len(line) <= CHILD_MESSAGE_LIMIT and line.endswith(b"\n"),
+            "Child protocol ended early or exceeded its line limit")
+    try:
+        value = json.loads(line.decode("utf-8"), object_pairs_hook=_unique_object)
+    except (UnicodeDecodeError, ValueError) as error:
+        raise RuntimeError("Invalid child protocol JSON") from error
+    require(type(value) is dict, "Child protocol message is not an object")
+    return value
+
+
+class _ProbeChild:
+    """Bounded synchronous request/reply IPC; file handles are never inherited.
+
+    A short-lived I/O thread makes pipe reads AND writes interruptible by the
+    parent deadline on Windows. On failure we terminate only our own child,
+    reap it, join that thread, then close pipes. No detached worker survives a
+    successful return. A generic command argument permits real failure-path
+    tests on hosts without Win32; production supplies one fixed local script.
+    """
+
+    def __init__(self, command: list[str], *, message_timeout=10.0, session_timeout=30.0):
+        require(0 < message_timeout <= 30 and 0 < session_timeout <= 60,
+                "Invalid child probe deadline")
+        self.command = command
+        self.message_timeout, self.session_timeout = message_timeout, session_timeout
+        self.process = None
+        self.thread = None
+        self.sequence = 0
+        self.ready = None
+        self.closed = False
+
+    def __enter__(self):
+        require(self.process is None and not self.closed, "Child probe cannot be reused")
+        self.deadline = time.monotonic() + self.session_timeout
+        self.process = subprocess.Popen(self.command, stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        close_fds=True)
+        try:
+            self.ready = self._reply(None, "ready")
+        except BaseException:
+            self._cleanup()
+            raise
+        return self
+
+    def _remaining(self):
+        remaining = min(self.message_timeout, self.deadline - time.monotonic())
+        require(remaining > 0, "Child probe session timed out")
+        return remaining
+
+    def _transfer(self, request: bytes | None) -> bytes:
+        require(not self.closed and self.process is not None, "Child probe is closed")
+        require(self.thread is None or not self.thread.is_alive(), "Overlapping child requests")
+        result = []
+
+        def exchange():
+            try:
+                if request is not None:
+                    self.process.stdin.write(request)
+                    self.process.stdin.flush()
+                result.append(self.process.stdout.readline(CHILD_MESSAGE_LIMIT + 1))
+            except BaseException as error:
+                result.append(error)
+
+        self.thread = threading.Thread(target=exchange, daemon=True,
+                                       name=f"PortaWeaveProbeChild-{self.process.pid}")
+        self.thread.start()
+        self.thread.join(self._remaining())
+        require(not self.thread.is_alive(), "Child probe reply timed out")
+        require(bool(result), "Child probe reply missing")
+        if isinstance(result[0], BaseException):
+            raise RuntimeError(f"Child probe pipe failed: {result[0]}") from result[0]
+        return result[0]
+
+    def _reply(self, request: bytes | None, operation: str) -> dict:
+        message = _decode_message(self._transfer(request))
+        common = {"protocol", "sequence", "pid", "operation"}
+        require(set(message) in (common | {"result"}, common | {"error"}),
+                "Unexpected child reply fields")
+        require(message["protocol"] == CHILD_PROTOCOL and
+                type(message["sequence"]) is int and message["sequence"] == self.sequence and
+                message["operation"] == operation, "Child reply phase mismatch")
+        require(type(message["pid"]) is int and message["pid"] == self.process.pid and
+                message["pid"] != os.getpid(), "Child reply process identity mismatch")
+        if "error" in message:
+            require(type(message["error"]) is str, "Invalid child error")
+            raise RuntimeError(f"Child {operation} failed: {message['error']}")
+        require(type(message["result"]) is dict, "Invalid child result")
+        return message["result"]
+
+    def request(self, operation: str) -> dict:
+        require(operation in CHILD_OPERATIONS, "Unknown child operation")
+        require(self.sequence < 16, "Child probe request budget exceeded")
+        self.sequence += 1
+        request = {"protocol": CHILD_PROTOCOL, "sequence": self.sequence, "operation": operation}
+        return self._reply((json.dumps(request) + "\n").encode("utf-8"), operation)
+
+    def _cleanup(self):
+        if self.closed:
+            return
+        try:
+            if self.process is not None:
+                if self.process.poll() is None:
+                    self.process.kill()
+                self.process.wait(timeout=5)
+            if self.thread is not None:
+                self.thread.join(timeout=5)
+                require(not self.thread.is_alive(), "Child probe pipe worker did not stop")
+            if self.process is not None:
+                try:
+                    self.process.stdin.close()
+                except BrokenPipeError:
+                    pass  # a failed child may have rejected an unflushed request
+                self.process.stdout.close()
+        finally:
+            self.closed = True
+
+    def __exit__(self, kind, error, traceback):
+        try:
+            if kind is None:
+                require(self.request("quit") == {}, "Unexpected child quit result")
+                try:
+                    code = self.process.wait(timeout=self._remaining())
+                except subprocess.TimeoutExpired as failure:
+                    raise RuntimeError("Child probe did not exit before its deadline") from failure
+                require(code == 0, f"Child probe exited {code}")
+                require(self._transfer(None) == b"", "Unexpected output after child quit")
+        finally:
+            self._cleanup()
+        return False
+
+
+def _identity_reply(result: dict, expected: tuple[int, str]):
+    identity = result.get("identity")
+    require(set(result) == {"identity"} and type(identity) is list and len(identity) == 2 and
+            type(identity[0]) is int and type(identity[1]) is str and
+            identity == list(expected), "Child independent file identity mismatch")
+
+
+@contextmanager
+def _windows_child(path: Path, mode: str, identity: tuple[int, str]):
+    require(mode in ("sharing", "locking"), "Unknown Windows child mode")
+    script = Path(__file__).resolve().with_name("windows_semantics_child.py")
+    # Isolated Python selects the helper and implementation by fixed sibling
+    # paths, not cwd/PYTHONPATH. The checkout itself may reside on the test volume.
+    with _ProbeChild([sys.executable, "-I", "-u", str(script), mode, str(path.parent)]) as child:
+        _identity_reply(child.ready, identity)
+        yield child
 
 
 class Api:
@@ -129,6 +299,22 @@ class Api:
         data, done = C.create_string_buffer(length), W.DWORD()
         self.checked(self.dll.ReadFile(handle, data, length, C.byref(done), None))
         return data.raw[:done.value]
+
+    def write(self, handle, data: bytes):
+        self.seek(handle)
+        done = W.DWORD()
+        self.checked(self.dll.WriteFile(handle, C.create_string_buffer(data), len(data), C.byref(done), None))
+        require(done.value == len(data), "Short Win32 fixture write")
+
+    def refused_io(self, handle):
+        self.seek(handle)
+        data, done = C.create_string_buffer(4), W.DWORD()
+        self.expect_failure(self.dll.ReadFile(handle, data, 4, C.byref(done), None),
+                            LOCK_VIOLATION, "cross-process locked ReadFile")
+        self.seek(handle)
+        self.expect_failure(self.dll.WriteFile(handle, C.create_string_buffer(b"BAD!"), 4,
+                                               C.byref(done), None),
+                            LOCK_VIOLATION, "cross-process locked WriteFile")
 
     def identity(self, handle) -> tuple[int, str]:
         # FileIdInfo=18 returns a full 128-bit ID plus volume serial. A 64-bit
@@ -234,7 +420,39 @@ def sharing(path: Path) -> str:
     with api.opened(file, WRITE):
         pass  # closing the first owner must release the share restriction
     require(file.read_bytes() == b"original", "Sharing refusal changed data")
-    return "WIN32_SHARE_OK: compatible reads, two-way share checks, delete denial, close/reopen"
+    with api.opened(file, READ) as observed:
+        identity = api.identity(observed)
+    with _windows_child(file, "sharing", identity) as child:
+        child_pid = child.process.pid
+        with api.opened(file, READ, SHARE_READ) as restricted_reader:
+            require(api.identity(restricted_reader) == identity,
+                    "Parent restrictive read handle changed file identity")
+            _identity_reply(child.request("read"), identity)
+            _identity_reply(child.request("sharing-denied"), identity)
+        # The SAME child independently reopens after the parent releases its
+        # restriction. Child success before this point would fail the probe.
+        _identity_reply(child.request("write"), identity)
+        with api.opened(file, WRITE) as existing_writer:
+            require(api.identity(existing_writer) == identity,
+                    "Parent existing write handle changed file identity")
+            _identity_reply(child.request("denied-mask"), identity)
+        _identity_reply(child.request("hold"), identity)
+        try:
+            api.refused_open(file, WRITE, SHARE_ALL, SHARING_VIOLATION)
+            with api.opened(file, READ) as reader:
+                require(api.identity(reader) == identity and api.read(reader) == b"original",
+                        "Child sharing changed identity or compatible reads")
+        finally:
+            require(child.request("release") == {}, "Child sharing release failed")
+        with api.opened(file) as writer:
+            require(api.identity(writer) == identity, "Identity changed after child close")
+            api.write(writer, b"original")
+        _identity_reply(child.request("read"), identity)
+    require(file.read_bytes() == b"original", "Cross-process sharing changed fixture bytes")
+    return ("WIN32_SHARE_OK: compatible reads, two-way share checks, delete denial, close/reopen; "
+            f"WIN32_CROSS_PROCESS_SHARE_OK parent_pid={os.getpid()} child_pid={child_pid} "
+            f"file_identity={identity[0]}:{identity[1]}; independent opens, both directions, "
+            "explicit close/retry and joined child; same account, no ACL/mount certification")
 
 
 def locking(path: Path) -> str:
@@ -262,7 +480,37 @@ def locking(path: Path) -> str:
         with api.locked(second):
             pass  # explicit unlock permits the previously conflicting request
     require(file.read_bytes() == b"original", "Rejected locked I/O modified contents")
-    return "WIN32_LOCK_OK: shared/exclusive/adjacent grants, enforced read/write refusal, unlock/retry; two handles, one process"
+    with api.opened(file) as parent:
+        identity = api.identity(parent)
+        with _windows_child(file, "locking", identity) as child:
+            child_pid = child.process.pid
+            with api.locked(parent):
+                _identity_reply(child.request("exclusive-denied"), identity)
+            with api.locked(parent, exclusive=False):
+                _identity_reply(child.request("shared"), identity)
+            _identity_reply(child.request("exclusive"), identity)
+            _identity_reply(child.request("hold"), identity)
+            try:
+                api.refused_lock(parent)
+                api.refused_io(parent)
+                with api.locked(parent, offset=4):
+                    pass
+            finally:
+                require(child.request("release") == {}, "Child lock release failed")
+            with api.locked(parent):
+                require(api.identity(parent) == identity and api.read(parent) == b"original",
+                        "Child unlock lost file identity or bytes")
+                api.write(parent, b"original")
+            _identity_reply(child.request("exclusive"), identity)
+        # Successful exit includes an explicit release, zero exit code, EOF,
+        # and joined pipe thread. This is not abnormal-exit/power-loss testing.
+        with api.locked(parent):
+            require(api.read(parent) == b"original", "Joined child left a lock or changed bytes")
+    require(file.read_bytes() == b"original", "Cross-process rejected I/O modified contents")
+    return ("WIN32_LOCK_OK: shared/exclusive/adjacent grants, enforced read/write refusal, unlock/retry; "
+            f"WIN32_CROSS_PROCESS_LOCK_OK parent_pid={os.getpid()} child_pid={child_pid} "
+            f"file_identity={identity[0]}:{identity[1]}; independent opens, both directions, "
+            "explicit unlock/retry and joined child; same account, no mmap/ACL/mount certification")
 
 
 def delete_pending(path: Path) -> str:

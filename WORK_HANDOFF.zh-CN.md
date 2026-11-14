@@ -136,3 +136,15 @@ PR #49 已合并至 `e1ddb7d56aa61a8a7f54fd6864343c57ce8031aa`，源 17/17、独
 修复只让原连接 FULL 检查点负责 catalog/WAL 同步，保留段/目录/marker 顺序和错误保护；不增加生产依赖或 unsafe，不改 v1/v2/v3 格式。固定工具链 1.99.1 的 Linux 本地默认 217 通过、全特性 263 通过，均 0 失败；新增针对性默认 3/全特性 6 全通过。既有 helper 加新探针入口分别 2/5 ignored，均依既有父测试调用规则使用。Clippy 全工作区/all-targets/all-features 严格检查和 fmt 通过。准确新 source/main 的三平台结果以本轮 PR 验收记录为准，未将本地通过冒充 macOS/Windows。
 
 详见 M1-T 与 ADR 0021。同步后的锁现在由已有 SQLite 生命周期维持，owner 关闭后才通过正向对照释放；这不是挂载卷、OS 身份/ACL、完整缓存、安全卸载或物理断电证明。Windows 硬链接后端与双端真挂载/卷内 Codex 门禁仍开放。
+
+## 2026-11-14 当前交接：两项实现已准备，已获本轮发布授权
+
+M1-T存储同步锁修复已提交为本地 `622480744d4d8fac9d6894ccb381a9709d564766`，分支 `fix/catalog-sync-locks`；Linux默认217/全特性263、Clippy/fmt及实际C ABI成功。M0-AC跨进程Windows探针位于后续本地分支 `feat/windows-cross-process-probes`，Python28通过/1项Win32跳过；代码与文档完成，Windows真实运行待CI。
+
+历史审批记录：尝试正常git push时自动审批审查拒绝，理由是它不接受既有会话/工具检索的授权作为本轮公开发布的明确许可。已核验连接账户与公开仓库owner均为ForceMind且拥有push/admin，但第二次审查仍拒绝。这两次拒绝保留为历史；当时没有换连接器或间接途径发布，也没有创建PR或触发新CI。
+
+当前授权：用户已针对将这两项改动推送到 `ForceMind/PortaWeave`、创建PR及通过检查后合并的具体请求回复“好的 允许”。本轮明确发布授权已具备，当前通过正常GitHub流程发布并执行CI；该许可不包含驱动安装或用户本机操作。
+
+远端main已重新核验为 `2e2edf1795cf740c668bba619bd784233eee605a`。M1-T 已通过已连接GitHub账户提交为 `33062a1b1bcdeb537806237856445a50cbc61b01`，创建 [PR #51](https://github.com/ForceMind/PortaWeave/pull/51)；tree `1c2997518bacda709ac184a4a7b76ab2dae25fd1` 与本地受测提交逐树一致。命令行缺少写入凭据，不要求用户修改认证。M0-AC接续该代码树单独交付。
+
+准确source/main的最终状态记录在对应PR验收评论；恢复时应重新查询远端，不能将本地通过视作平台通过。重点核查macOS的catalog_locking、Windows两条跨进程成功标记与退出清理、完整跨OS容器交接。保留失败记录，检查与review满足后正常合并并独立核验main；真实挂载/权限/Codex/物理介质门禁不因这些增量关闭。
