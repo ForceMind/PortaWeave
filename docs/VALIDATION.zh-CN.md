@@ -341,3 +341,7 @@ M0-Z 首轮 source54b9bd1 的 Windows host run41033742005/job123989413453 与 pu
 修复只让原连接 FULL 检查点负责 catalog/WAL 同步，保留段/目录/marker 顺序和错误保护；不增加生产依赖或 unsafe，不改 v1/v2/v3 格式。固定工具链 1.99.1 的 Linux 本地默认 217 通过、全特性 263 通过，均 0 失败；新增针对性默认 3/全特性 6 全通过。既有 helper 加新探针入口分别 2/5 ignored，均依既有父测试调用规则使用。Clippy 全工作区/all-targets/all-features 严格检查和 fmt 通过。准确新 source/main 的三平台结果以本轮 PR 验收记录为准，未将本地通过冒充 macOS/Windows。
 
 详见 M1-T 与 ADR 0021。同步后的锁现在由已有 SQLite 生命周期维持，owner 关闭后才通过正向对照释放；这不是挂载卷、OS 身份/ACL、完整缓存、安全卸载或物理断电证明。Windows 硬链接后端与双端真挂载/卷内 Codex 门禁仍开放。
+
+## 2026-11-14 M0-AC：跨进程 Windows 共享与字节锁
+
+沿用已有windows-share/windows-lock用例，增加固定子进程、有界协议、独立Win32打开、PID/file ID校验、双向共享与锁冲突及显式释放重试。Linux全Python套件29项中28通过，1项实际Win32集成明确跳过；py_compile/diff检查通过。未修改CI工作流，Windows需要准确source的真实运行结果，目前NOT_RUN。详见M0-AC；协议测试和未来宿主结果均不能关闭真实挂载、ACL/mmap/Codex门禁。

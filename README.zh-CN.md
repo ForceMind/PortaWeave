@@ -205,3 +205,5 @@ Windows 的 `hardlink` 探针现通过 `CreateHardLinkW` 验证卷能力位、�
 FSKit 实验硬链接回调现在校验缓存文件引用和仍有名字的源文件。删除最后一个名字后，原句柄仍可读写，后续链接回调会拒绝为该文件重新挂名。见 [M0-AB](docs/IMPLEMENTATION-M0AB.zh-CN.md)。
 
 M1-T 修复 Unix 存储同步额外关闭 catalog 描述符导致 SQLite 进程锁丢失的问题。catalog/WAL 同步由原连接 FULL 检查点完成；独立子进程验证锁在同步和错误保护后仍保持，正常关闭后释放。见 [M1-T](docs/IMPLEMENTATION-M1T.zh-CN.md) 与 [ADR 0021](docs/adr/0021-preserve-sqlite-locks-during-storage-sync.md)。
+
+M0-AC 将 Windows 共享/字节锁探针扩展到独立父子进程、完整文件身份、双向冲突及显式释放重试；有界协议失败会使用例失败并回收子进程。Windows 实际执行待验收，Linux 协议测试不代表 Windows 或挂载通过。见 [M0-AC](docs/IMPLEMENTATION-M0AC.zh-CN.md)。

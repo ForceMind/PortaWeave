@@ -99,6 +99,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 59. M1-T must never independently open/close live catalog/WAL files for synchronization in the owner process: an unrelated close can release SQLite POSIX locks. Use its existing FULL checkpoint and configured VFS synchronization; metadata-only path checks are allowed. Already checkpointed frames may reuse their synced state. Preserve BUSY, visible errors/protection, live pins and the core unsafe-code prohibition. Lock regression helpers must exec a fresh process, use nonblocking fcntl byte-range locks (not flock), distinguish errors, and prove owner-close release. This does not certify native caches, mounts or physical persistence.
 
+60. M0-AC cross-process Windows probes use separate non-inherited CreateFileW handles, PID/full file identity checks, exact sharing/lock errors, and explicit release/retry in both directions. Keep bounded fixed-message IPC, deadlines, exit/EOF validation and owned child/thread cleanup; protocol failure is FAIL. The helper accepts only private scratch fixtures. Non-Windows protocol tests do not execute Win32. Same-account host tests do not certify ACLs, mmap locks, abnormal-exit timing, a PortaWeave mount or Codex.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

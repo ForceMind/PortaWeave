@@ -205,3 +205,5 @@ On Windows the `hardlink` probe uses `CreateHardLinkW` and checks the volume fla
 The FSKit laboratory link callback checks that its cached file pin matches a file that still has a name. The last unlink preserves existing handle I/O and prevents a later callback from giving the file a new name. See [M0-AB](docs/IMPLEMENTATION-M0AB.zh-CN.md).
 
 M1-T preserves SQLite POSIX locks during backend synchronization by letting the live connection own catalog/WAL sync through its FULL checkpoint. Independent subprocess tests check lock retention across sync and protected failures, and release after owner close. See [M1-T](docs/IMPLEMENTATION-M1T.zh-CN.md) and [ADR 0021](docs/adr/0021-preserve-sqlite-locks-during-storage-sync.md).
+
+M0-AC extends the Windows sharing and byte-lock probes to independent parent/child processes, complete file identities, two-way contention and explicit release/retry. Bounded IPC failures fail the case and reap the child. Actual Windows execution is pending; Linux protocol tests are not Windows or mounted-volume certification. See [M0-AC](docs/IMPLEMENTATION-M0AC.zh-CN.md).
