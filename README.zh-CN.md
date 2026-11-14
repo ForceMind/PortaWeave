@@ -19,9 +19,9 @@ cargo test --locked -p portaweave-partition-inspector
 
 支持 512/4096 字节扇区、GPT 主备 CRC 校验和异常报告；MBR 只解析四个主分区，扩展 EBR 链暂不支持。只有一份 GPT 有效时报告 DEGRADED 并且绝不自动修复。后续独立规划逻辑子卷、动态块设备 .pwdisk 和受控真实磁盘管理，**不能用“分区 UI”掩盖当前尚未完成的双端工作盘、Codex/Git 验收**。
 
-## 当前状态（2026-10-29）
+## 当前状态（2026-11-14）
 
-**M1-P 描述符协作范围锁、M0-W FSKit 名字/属性一致枚举与 M0-V v3 目录对象引用、M1-O 版本化 inode 生命周期、实验性 WinFsp/FSVolume 合同、macOS App/Extension 无签名构建与 WinFsp Dispatcher。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。平台适配、有效权限、完整元数据/安全语义、空闲调度和可用桌面客户端尚未完成，严禁存放唯一副本。
+**M1-P 描述符协作范围锁、M0-W FSKit 名字/属性一致枚举与 M0-V v3 目录对象引用、M1-O 版本化 inode 生命周期、实验性 WinFsp/FSVolume 合同、macOS App/Extension 无签名构建与 WinFsp Dispatcher。尚未实测真正挂载，也不是正式产品。** 已有真实数据段与 SQLite 目录、分块读写、目录操作、共享身份硬链接、打开后删除保护、读取租约和操作触发的回收；另有原件保全诊断/内容导出及独立维护状态。已有 M1-Q/R 有界分批维护和 M1-S 可显式启用的原生空闲线程；平台适配、有效权限、完整元数据/安全语义和可用桌面客户端尚未完成，严禁存放唯一副本。
 
 实现范围见 [M1-A](docs/IMPLEMENTATION-M1A.zh-CN.md)、[M1-B](docs/IMPLEMENTATION-M1B.zh-CN.md)、[M1-C](docs/IMPLEMENTATION-M1C.zh-CN.md)，历史测试见[验证记录](docs/VALIDATION.zh-CN.md)。确切源码版本的测试结果记录在对应 PR；实现文档不是自动的通过声明。云端三系统核心测试不等于真实 exFAT、挂载盘或 Codex 已兼容。
 
@@ -144,7 +144,7 @@ cargo fmt --all -- --check
 cargo run --locked -p portaweave-core --example scratch -- /path/to/new-disposable-lab
 ```
 
-回收仍在串行操作中执行，不是空闲后台线程。句柄和读取租约引用的数据不会提前删除；段统计不含数据库、WAL 和宿主分配开销。物理断电及 Windows 目录持久化尚未验证。
+核心回收在同一串行 owner 上执行；原生 session 可显式启用 M1-S 空闲维护线程，普通 create/open 不自动启动。句柄和读取租约引用的数据不会提前删除；段统计不含数据库、WAL 和宿主分配开销。物理断电及 Windows 目录持久化尚未验证。
 
 ### 空间不足与维护状态
 
@@ -194,12 +194,14 @@ WinFsp实验入口新增启动前控制事件准备、等待/清理错误传播�
 
 探针现会在创建夹具前拒绝实际核心的 `format.txt` + catalog 布局及设计中的 `format.json` 布局，包括改名容器和其后代目录。见 M0-Z 勘误；这是探针防误用修复，不是挂载通过。
 
-整理现逐项读取候选ID，每次owner操作最多复制16MiB活数据，较大段跨批提交且保留旧源。全量清理预算和空闲调度尚未完成，见 [M1-Q](docs/IMPLEMENTATION-M1Q.zh-CN.md)。
+整理现逐项读取候选ID，每次owner操作最多复制16MiB活数据，较大段跨批提交且保留旧源。后续 M1-R/S 已增加有界候选与原生空闲调度；完整 SQL/时延/堆预算仍待完成，见 [M1-Q](docs/IMPLEMENTATION-M1Q.zh-CN.md)。
 
-回收现按有界候选页推进，并提供现有owner的 `maintenance_step` 续办入口及真实计数/错误。尚无自动空闲worker，SQLite/cascade/同步时延仍未硬性限额，见 [M1-R](docs/IMPLEMENTATION-M1R.zh-CN.md)。
+回收现按有界候选页推进，并提供现有owner的 `maintenance_step` 续办入口及真实计数/错误。自动空闲续办由后续 M1-S 显式启用；SQLite/cascade/同步时延仍未硬性限额，见 [M1-R](docs/IMPLEMENTATION-M1R.zh-CN.md)。
 
 原生session新增可显式启用的空闲维护worker，前台请求优先，退出时先stop/join再释放owner；WinFsp scratch lab接入且不开放访问门禁。普通core创建/打开和仍关闭的FSKit加载不自动启动，见 [M1-S](docs/IMPLEMENTATION-M1S.zh-CN.md)。
 
 Windows 的 `hardlink` 探针现通过 `CreateHardLinkW` 验证卷能力位、完整文件身份、链接数、跨名字写入与共享冲突，以及删除原名后剩余链接的状态。WinFsp 硬链接仍阻断于内核分发，见 [Windows 后端证据和 FS-07 步骤](docs/IMPLEMENTATION-M0AA.zh-CN.md)。
 
 FSKit 实验硬链接回调现在校验缓存文件引用和仍有名字的源文件。删除最后一个名字后，原句柄仍可读写，后续链接回调会拒绝为该文件重新挂名。见 [M0-AB](docs/IMPLEMENTATION-M0AB.zh-CN.md)。
+
+M1-T 修复 Unix 存储同步额外关闭 catalog 描述符导致 SQLite 进程锁丢失的问题。catalog/WAL 同步由原连接 FULL 检查点完成；独立子进程验证锁在同步和错误保护后仍保持，正常关闭后释放。见 [M1-T](docs/IMPLEMENTATION-M1T.zh-CN.md) 与 [ADR 0021](docs/adr/0021-preserve-sqlite-locks-during-storage-sync.md)。

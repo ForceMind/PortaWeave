@@ -97,6 +97,8 @@ The repository contains an **experimental persistent Rust core and offline safet
 
 58. M1-S native idle workers are explicit opt-in on the existing session, not new Volume/catalog owners. Use registry try_lock only; foreground completion resets quiet time and health/space/worker-status do not. Only core HostSpace retries; real StorageFull I/O can share C NO_SPACE yet must stop. Preserve last error/health and treat report as last successful work, not drained/rollback. Busy close preserves worker/pins; stop/close/Drop must send wake and join before core owner/library teardown, without force-killing active steps or claiming hard stop latency. The WinFsp scratch lab opts in at30s/1s and quiesces before platform destroy; ordinary create/open and gated FSKit load do not auto-start. No native access/Open/ACL/Flush/mount or safe-eject gate is enabled by a userland timer test.
 
+59. M1-T must never independently open/close live catalog/WAL files for synchronization in the owner process: an unrelated close can release SQLite POSIX locks. Use its existing FULL checkpoint and configured VFS synchronization; metadata-only path checks are allowed. Already checkpointed frames may reuse their synced state. Preserve BUSY, visible errors/protection, live pins and the core unsafe-code prohibition. Lock regression helpers must exec a fresh process, use nonblocking fcntl byte-range locks (not flock), distinguish errors, and prove owner-close release. This does not certify native caches, mounts or physical persistence.
+
 ## Disk Studio safety boundary (Issue #28)
 
 - Do not reinterpret or silently migrate the existing .pwvol FILE filesystem into a partitionable raw BLOCK disk. Logical subvolumes and GPT/MBR are separate semantics.

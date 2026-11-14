@@ -1,6 +1,6 @@
 # M1-G 第一增量：后端存储同步屏障
 
-新增 `Volume::synchronize_storage` 和同一原生 ABI 的 `pw_storage_synchronize`。Unix 路径真实同步所有跟踪数据段（包含旧读取租约保留的段）、segments 目录、SQLite FULL 检查点后的 catalog/WAL、格式文件和容器目录。使用流式 SQL 枚举，不另建全段 ID 数组；保持现有句柄、读取租约和业务内容不变，不触发 GC。
+新增 `Volume::synchronize_storage` 和同一原生 ABI 的 `pw_storage_synchronize`。Unix 路径真实同步所有跟踪数据段（包含旧读取租约保留的段）、segments 目录、由原 SQLite 连接执行的 FULL 检查点、格式文件和容器目录。catalog/WAL 的同步由 SQLite VFS 完成，不另开并关闭活跃数据库文件；此前的外部描述符关闭会丢失 POSIX 锁，现由 [M1-T](IMPLEMENTATION-M1T.zh-CN.md) 修正。使用流式 SQL 枚举，不另建全段 ID 数组；保持现有句柄、读取租约和业务内容不变，不触发 GC。
 
 Windows/non-Unix 明确返回 UnsupportedOperation/PW_UNSUPPORTED，不以现有目录 helper 的 no-op 冒充同步。C ABI 失败不修改输出。忙碌检查点为 BUSY，不锁定写保护；真实 I/O/结构错误或注入边界失败会返回错误并写保护。重新打开仍按既有 verify/recovery 规则处理。
 

@@ -1,0 +1,166 @@
+Before-fix regression evidence (2026-11-14, Linux x86_64)
+Production baseline: 2e2edf1795cf740c668bba619bd784233eee605a
+Baseline crates/core/src/volume.rs blob: 34bf3e85ceae03fcc92ad5bb8c3cd0006bd8dea9
+New catalog_locking tests and libc dev-dependency were present; production barrier was unchanged.
+Toolchain: rustc 1.99.1 (58cf8f9c3 2026-10-13)
+Command: cargo test --locked --offline -p portaweave-core --all-features --test catalog_locking -- --nocapture
+Exit code: 101
+Dependency compilation lines omitted below; test output is verbatim.
+
+     Running tests/catalog_locking.rs (/workspace/scratch/a8af391e618d/pw-catalog-lock-target/debug/deps/catalog_locking-ea16a95324edb2c6)
+
+running 7 tests
+test catalog_lock_probe_child ... ignored, invoked by parent tests in a fresh exec process
+
+thread 'v1_barrier_preserves_catalog_locks' (700) panicked at crates/core/tests/catalog_locking.rs:100:13:
+catalog lock probe failed at after barrier: exit status: 101
+
+running 1 test
+test catalog_lock_probe_child ... FAILED
+
+failures:
+
+failures:
+    catalog_lock_probe_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+
+
+thread 'catalog_lock_probe_child' (720) panicked at crates/core/tests/catalog_locking.rs:179:5:
+assertion `left == right` failed: unexpected SQLite catalog SHARED range state
+  left: "AVAILABLE"
+ right: "HELD"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'v1_catalog_sync_failure_preserves_locks' (701) panicked at crates/core/tests/catalog_locking.rs:100:13:
+catalog lock probe failed at after injected catalog sync failure: exit status: 101
+
+running 1 test
+test catalog_lock_probe_child ... FAILED
+
+failures:
+
+failures:
+    catalog_lock_probe_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+
+
+thread 'catalog_lock_probe_child' (721) panicked at crates/core/tests/catalog_locking.rs:179:5:
+assertion `left == right` failed: unexpected SQLite catalog SHARED range state
+  left: "AVAILABLE"
+ right: "HELD"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test v1_catalog_sync_failure_preserves_locks ... FAILED
+test v1_barrier_preserves_catalog_locks ... FAILED
+
+thread 'v2_catalog_sync_failure_preserves_locks' (703) panicked at crates/core/tests/catalog_locking.rs:100:13:
+catalog lock probe failed at after injected catalog sync failure: exit status: 101
+
+running 1 test
+test catalog_lock_probe_child ... FAILED
+
+failures:
+
+failures:
+    catalog_lock_probe_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+
+
+thread 'catalog_lock_probe_child' (725) panicked at crates/core/tests/catalog_locking.rs:179:5:
+assertion `left == right` failed: unexpected SQLite catalog SHARED range state
+  left: "AVAILABLE"
+ right: "HELD"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+thread 'v3_barrier_preserves_catalog_locks' (704) panicked at crates/core/tests/catalog_locking.rs:100:13:
+catalog lock probe failed at after barrier: exit status: 101
+
+running 1 test
+test catalog_lock_probe_child ... FAILED
+
+failures:
+
+failures:
+    catalog_lock_probe_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+
+
+thread 'catalog_lock_probe_child' (727) panicked at crates/core/tests/catalog_locking.rs:179:5:
+assertion `left == right` failed: unexpected SQLite catalog SHARED range state
+  left: "AVAILABLE"
+ right: "HELD"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+thread 'v2_barrier_preserves_catalog_locks' (702) panicked at crates/core/tests/catalog_locking.rs:100:13:
+catalog lock probe failed at after barrier: exit status: 101
+
+running 1 test
+test catalog_lock_probe_child ... FAILED
+
+failures:
+
+failures:
+    catalog_lock_probe_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+
+
+thread 'catalog_lock_probe_child' (728) panicked at crates/core/tests/catalog_locking.rs:179:5:
+assertion `left == right` failed: unexpected SQLite catalog SHARED range state
+  left: "AVAILABLE"
+ right: "HELD"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test v3_barrier_preserves_catalog_locks ... FAILED
+test v2_catalog_sync_failure_preserves_locks ... FAILED
+test v2_barrier_preserves_catalog_locks ... FAILED
+
+thread 'v3_catalog_sync_failure_preserves_locks' (705) panicked at crates/core/tests/catalog_locking.rs:100:13:
+catalog lock probe failed at after injected catalog sync failure: exit status: 101
+
+running 1 test
+test catalog_lock_probe_child ... FAILED
+
+failures:
+
+failures:
+    catalog_lock_probe_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+
+
+thread 'catalog_lock_probe_child' (729) panicked at crates/core/tests/catalog_locking.rs:179:5:
+assertion `left == right` failed: unexpected SQLite catalog SHARED range state
+  left: "AVAILABLE"
+ right: "HELD"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test v3_catalog_sync_failure_preserves_locks ... FAILED
+
+failures:
+
+failures:
+    v1_barrier_preserves_catalog_locks
+    v1_catalog_sync_failure_preserves_locks
+    v2_barrier_preserves_catalog_locks
+    v2_catalog_sync_failure_preserves_locks
+    v3_barrier_preserves_catalog_locks
+    v3_catalog_sync_failure_preserves_locks
+
+test result: FAILED. 0 passed; 6 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p portaweave-core --test catalog_locking`
